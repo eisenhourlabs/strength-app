@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="theme-color" content="#111111">
+  <title>Strength App</title>
+  <link rel="manifest" href="manifest.json">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #111111;
+      --surface:   #1c1c1c;
+      --surface2:  #252525;
+      --border:    #333333;
+      --text:      #f0f0f0;
+      --muted:     #888888;
+      --accent:    #e8b74c;
+      --success:   #4ade80;
+      --danger:    #ef4444;
+      --skip:      #555555;
+      --radius:    12px;
+      --safe-top:  env(safe-area-inset-top, 0px);
+      --safe-bot:  env(safe-area-inset-bottom, 0px);
+    }
+
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 16px; -webkit-tap-highlight-color: transparent; }
+
+    .screen { display: none; flex-direction: column; height: 100%; overflow: hidden; }
+    .screen.active { display: flex; }
+
+    /* ── Header ────────────────────────────────── */
+    .header { display: flex; align-items: center; justify-content: space-between; padding: calc(var(--safe-top) + 14px) 16px 14px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .header h1 { font-size: 18px; font-weight: 700; letter-spacing: .5px; }
+    .header .sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+    .back-btn { background: none; border: none; color: var(--accent); font-size: 22px; cursor: pointer; padding: 4px 8px 4px 0; }
+
+    /* ── Scroll body ───────────────────────────── */
+    .body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16px 16px calc(var(--safe-bot) + 80px); }
+
+    /* ── Cards ─────────────────────────────────── */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
+    .card-label { font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+    .card-title { font-size: 18px; font-weight: 700; }
+    .card-sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .card.tappable { cursor: pointer; }
+    .card.tappable:active { background: var(--surface2); }
+
+    /* ── Session cards ─────────────────────────── */
+    .session-card { display: flex; align-items: center; justify-content: space-between; }
+    .session-card .arrow { color: var(--muted); font-size: 20px; }
+    .session-badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 20px; margin-top: 6px; }
+    .badge-pending  { background: var(--surface2); color: var(--muted); }
+    .badge-logged   { background: #1a3a1a; color: var(--success); }
+
+    /* ── Exercise cards ────────────────────────── */
+    .ex-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; }
+    .ex-card.skipped { opacity: .45; }
+    .ex-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+    .ex-name { font-size: 16px; font-weight: 700; cursor: pointer; color: var(--text); }
+    .ex-name:active { color: var(--accent); }
+    .ex-swap-hint { font-size: 11px; color: var(--accent); margin-left: 6px; }
+    .ex-target { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+    .ex-group { font-size: 11px; font-weight: 600; color: var(--accent); margin-bottom: 8px; letter-spacing: .5px; }
+
+    .log-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+    .log-field label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; text-align: center; }
+    .log-field input { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 16px; text-align: center; padding: 10px 4px; -webkit-appearance: none; }
+    .log-field input:focus { outline: none; border-color: var(--accent); }
+
+    .notes-input { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 14px; padding: 10px 12px; resize: none; height: 44px; }
+    .notes-input:focus { outline: none; border-color: var(--border); }
+
+    .ex-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+    .skip-btn { background: none; border: 1px solid var(--border); border-radius: 20px; color: var(--muted); font-size: 12px; padding: 5px 12px; cursor: pointer; }
+    .skip-btn.active { background: var(--danger); border-color: var(--danger); color: white; }
+    .swap-note { font-size: 11px; color: var(--accent); font-style: italic; }
+
+    /* ── Add exercise ───────────────────────────── */
+    .add-ex-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 14px; background: none; border: 1px dashed var(--border); border-radius: var(--radius); color: var(--muted); font-size: 15px; cursor: pointer; margin-top: 4px; }
+    .add-ex-btn:active { border-color: var(--accent); color: var(--accent); }
+
+    /* ── Submit bar ─────────────────────────────── */
+    .submit-bar { position: fixed; bottom: 0; left: 0; right: 0; padding: 12px 16px calc(var(--safe-bot) + 12px); background: var(--surface); border-top: 1px solid var(--border); }
+    .btn-primary { width: 100%; padding: 16px; background: var(--accent); color: #111; font-size: 17px; font-weight: 700; border: none; border-radius: var(--radius); cursor: pointer; }
+    .btn-primary:active { opacity: .85; }
+    .btn-primary:disabled { background: var(--border); color: var(--muted); cursor: default; }
+
+    /* ── Login ──────────────────────────────────── */
+    .login-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 24px; }
+    .login-logo { font-size: 36px; font-weight: 800; letter-spacing: -1px; color: var(--accent); margin-bottom: 8px; }
+    .login-tag  { font-size: 14px; color: var(--muted); margin-bottom: 48px; }
+    .field-wrap { width: 100%; margin-bottom: 14px; }
+    .field-wrap label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+    .field-wrap input { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 16px; padding: 14px; }
+    .field-wrap input:focus { outline: none; border-color: var(--accent); }
+    .login-error { color: var(--danger); font-size: 14px; margin-top: 12px; text-align: center; }
+
+    /* ── Bottom sheet ───────────────────────────── */
+    .sheet-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 100; display: none; }
+    .sheet-overlay.open { display: block; }
+    .sheet { position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface); border-radius: 20px 20px 0 0; padding: 20px 16px calc(var(--safe-bot) + 20px); z-index: 101; max-height: 70vh; display: flex; flex-direction: column; transform: translateY(100%); transition: transform .25s ease; }
+    .sheet.open { transform: translateY(0); }
+    .sheet-handle { width: 40px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 16px; }
+    .sheet-title { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
+    .sheet-search { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 16px; padding: 12px 14px; margin-bottom: 12px; }
+    .sheet-search:focus { outline: none; border-color: var(--accent); }
+    .sheet-list { overflow-y: auto; flex: 1; }
+    .sheet-item { padding: 13px 4px; border-bottom: 1px solid var(--border); cursor: pointer; }
+    .sheet-item:last-child { border-bottom: none; }
+    .sheet-item:active { color: var(--accent); }
+    .sheet-item-name { font-size: 15px; font-weight: 600; }
+    .sheet-item-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    /* ── Success screen ─────────────────────────── */
+    .success-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 24px; text-align: center; }
+    .success-icon { font-size: 64px; margin-bottom: 20px; }
+    .success-title { font-size: 24px; font-weight: 800; margin-bottom: 8px; }
+    .success-sub { font-size: 15px; color: var(--muted); margin-bottom: 40px; }
+
+    /* ── Misc ───────────────────────────────────── */
+    .week-meta { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
+    .toast { position: fixed; top: calc(var(--safe-top) + 16px); left: 50%; transform: translateX(-50%); background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 10px 20px; font-size: 14px; z-index: 200; white-space: nowrap; display: none; }
+    .toast.show { display: block; }
+    .spinner { text-align: center; padding: 48px; color: var(--muted); font-size: 14px; }
+  </style>
+</head>
+<body>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- ── LOGIN ──────────────────────────────────────────────────── -->
+<div class="screen active" id="screen-login">
+  <div class="login-wrap">
+    <div class="login-logo">STRENGTH</div>
+    <div class="login-tag">Log in to view your program</div>
+    <div class="field-wrap">
+      <label>Email</label>
+      <input type="email" id="login-email" autocomplete="email" placeholder="you@email.com">
+    </div>
+    <div class="field-wrap">
+      <label>Password</label>
+      <input type="password" id="login-password" autocomplete="current-password" placeholder="••••••••">
+    </div>
+    <div class="login-error" id="login-error"></div>
+    <button class="btn-primary" id="login-btn" style="margin-top:24px" onclick="doLogin()">Log In</button>
+  </div>
+</div>
+
+<!-- ── WEEK OVERVIEW ──────────────────────────────────────────── -->
+<div class="screen" id="screen-week">
+  <div class="header">
+    <div>
+      <div class="header h1" id="week-athlete-name" style="font-size:18px;font-weight:700"></div>
+      <div class="sub" id="week-block-label"></div>
+    </div>
+    <button style="background:none;border:none;color:var(--muted);font-size:13px;cursor:pointer" onclick="doLogout()">Sign out</button>
+  </div>
+  <div class="body" id="week-body">
+    <div class="spinner">Loading program…</div>
+  </div>
+</div>
+
+<!-- ── SESSION LOGGING ────────────────────────────────────────── -->
+<div class="screen" id="screen-session">
+  <div class="header">
+    <button class="back-btn" onclick="showScreen('week')">‹</button>
+    <div style="flex:1">
+      <div class="header h1" id="session-title" style="font-size:18px;font-weight:700"></div>
+      <div class="sub" id="session-type"></div>
+    </div>
+  </div>
+  <div class="body" id="session-body">
+    <div class="spinner">Loading session…</div>
+  </div>
+  <div class="submit-bar">
+    <button class="btn-primary" id="submit-btn" onclick="submitSession()">Submit Session</button>
+  </div>
+</div>
+
+<!-- ── SUCCESS ────────────────────────────────────────────────── -->
+<div class="screen" id="screen-success">
+  <div class="success-wrap">
+    <div class="success-icon">✓</div>
+    <div class="success-title">Session Logged</div>
+    <div class="success-sub">Great work. Data saved.</div>
+    <button class="btn-primary" onclick="showScreen('week')" style="max-width:280px">Back to Program</button>
+  </div>
+</div>
+
+<!-- ── EXERCISE SEARCH SHEET ──────────────────────────────────── -->
+<div class="sheet-overlay" id="sheet-overlay" onclick="closeSheet()"></div>
+<div class="sheet" id="exercise-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title" id="sheet-title">Select Exercise</div>
+  <input class="sheet-search" id="sheet-search" placeholder="Search exercises…" oninput="filterExercises(this.value)">
+  <div class="sheet-list" id="sheet-list"></div>
+</div>
+
+<script>
+// ── Config ─────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://mfqtlgtllocxenrekorg.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_GtJwb3uRDBuXt-qJOlfqKA_A-QSIOtt';
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ── State ──────────────────────────────────────────────────────
+let S = {
+  user:        null,
+  athlete:     null,   // {id, name, email}
+  program:     null,
+  sessions:    [],
+  activeSession:    null,
+  prescribedItems:  [],  // [{id, item_order, superset_group, target_*, exercise:{name,…}}, …]
+  logEntries:   {},  // keyed by item key → {load, reps, sets, rpe, notes, skipped, swappedTo:{id,name}}
+  addedItems:   [],  // [{exercise:{id,name}, load, reps, sets, rpe, notes}]
+  exerciseLib:  [],
+  sheetMode:    null,  // 'swap' | 'add'
+  swapItemKey:  null,
+};
+
+// ── Screen navigation ──────────────────────────────────────────
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(`screen-${name}`).classList.add('active');
+}
+
+// ── Toast ──────────────────────────────────────────────────────
+function toast(msg, duration = 2500) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), duration);
+}
+
+// ── Auth ───────────────────────────────────────────────────────
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const pass  = document.getElementById('login-password').value;
+  const btn   = document.getElementById('login-btn');
+  const err   = document.getElementById('login-error');
+  err.textContent = '';
+  btn.textContent = 'Signing in…';
+  btn.disabled = true;
+  const { data, error } = await db.auth.signInWithPassword({ email, password: pass });
+  if (error) {
+    err.textContent = error.message;
+    btn.textContent = 'Log In';
+    btn.disabled = false;
+    return;
+  }
+  await onLogin(data.user);
+}
+
+async function onLogin(user) {
+  S.user = user;
+  // Load athlete record
+  const { data: athlete } = await db.from('athletes').select('id,name,email').eq('email', user.email).single();
+  if (!athlete) { toast('Athlete record not found. Contact your coach.'); doLogout(); return; }
+  S.athlete = athlete;
+  // Load exercise library (once)
+  const { data: lib } = await db.from('exercises').select('id,name,movement_pattern,category,equipment').order('name');
+  S.exerciseLib = lib || [];
+  await loadProgram();
+}
+
+async function doLogout() {
+  await db.auth.signOut();
+  S = { user:null, athlete:null, program:null, sessions:[], activeSession:null, prescribedItems:[], logEntries:{}, addedItems:[], exerciseLib:[], sheetMode:null, swapItemKey:null };
+  showScreen('login');
+}
+
+// ── Program loading ────────────────────────────────────────────
+async function loadProgram() {
+  const { data: prog } = await db.from('programs')
+    .select('*').eq('athlete_id', S.athlete.id).eq('status', 'active').single();
+
+  if (!prog) {
+    document.getElementById('week-body').innerHTML =
+      '<div class="card"><div class="card-title">No active program</div><div class="card-sub">Your coach hasn\'t pushed a program yet.</div></div>';
+    document.getElementById('week-athlete-name').textContent = S.athlete.name;
+    showScreen('week');
+    return;
+  }
+  S.program = prog;
+
+  const { data: sessions } = await db.from('sessions')
+    .select('*').eq('program_id', prog.id).order('session_order');
+  S.sessions = sessions || [];
+
+  // Check which sessions have been logged
+  const { data: logs } = await db.from('workout_logs')
+    .select('session_id').eq('athlete_id', S.athlete.id);
+  const loggedIds = new Set((logs || []).map(l => l.session_id));
+
+  // Render week overview
+  const weekDate = new Date(prog.week_of + 'T00:00:00');
+  const weekStr  = weekDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+  document.getElementById('week-athlete-name').textContent = S.athlete.name;
+  document.getElementById('week-block-label').textContent =
+    `${prog.block_name || 'Current Block'}  ·  Week ${prog.block_week || ''}  ·  ${weekStr}`;
+
+  const body = document.getElementById('week-body');
+  body.innerHTML = S.sessions.map(s => {
+    const logged = loggedIds.has(s.id);
+    return `
+      <div class="card tappable" onclick="openSession('${s.id}')">
+        <div class="session-card">
+          <div>
+            <div class="card-label">${s.day_label}</div>
+            <div class="card-title">${s.session_type || 'Session'}</div>
+            <span class="session-badge ${logged ? 'badge-logged' : 'badge-pending'}">
+              ${logged ? '✓ Logged' : 'Pending'}
+            </span>
+          </div>
+          <div class="arrow">›</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  showScreen('week');
+}
+
+// ── Session loading ────────────────────────────────────────────
+async function openSession(sessionId) {
+  S.activeSession = S.sessions.find(s => s.id === sessionId);
+  S.logEntries  = {};
+  S.addedItems  = [];
+
+  document.getElementById('session-title').textContent = S.activeSession.day_label;
+  document.getElementById('session-type').textContent  = S.activeSession.session_type || '';
+  document.getElementById('session-body').innerHTML = '<div class="spinner">Loading…</div>';
+  showScreen('session');
+
+  const { data: items } = await db.from('prescribed_items')
+    .select('*, exercise:exercises(id,name,movement_pattern,category)')
+    .eq('session_id', sessionId)
+    .order('item_order');
+
+  S.prescribedItems = items || [];
+  // Init log entries
+  S.prescribedItems.forEach(item => {
+    S.logEntries[item.id] = { load:'', reps:'', sets: item.target_sets || '', rpe:'', notes:'', skipped:false, swappedTo:null };
+  });
+
+  renderSessionBody();
+}
+
+function renderSessionBody() {
+  const body = document.getElementById('session-body');
+  let html = '';
+
+  if (S.activeSession.notes) {
+    html += `<div class="card" style="border-color:var(--accent);margin-bottom:16px"><div class="card-sub" style="color:var(--accent)">📋 ${S.activeSession.notes}</div></div>`;
+  }
+
+  S.prescribedItems.forEach(item => {
+    const entry = S.logEntries[item.id];
+    const ex    = item.exercise;
+    const group = item.superset_group ? `<div class="ex-group">${item.superset_group.toUpperCase()}</div>` : '';
+
+    // Target string
+    let target = '';
+    const parts = [];
+    if (item.target_load)     parts.push(`${item.target_load} lb`);
+    if (item.target_reps_low) {
+      parts.push(item.target_reps_high && item.target_reps_high !== item.target_reps_low
+        ? `${item.target_reps_low}–${item.target_reps_high} reps` : `${item.target_reps_low} reps`);
+    }
+    if (item.target_sets)     parts.push(`${item.target_sets} sets`);
+    if (item.target_rpe_low)  {
+      parts.push(item.target_rpe_high && item.target_rpe_high !== item.target_rpe_low
+        ? `RPE ${item.target_rpe_low}–${item.target_rpe_high}` : `RPE ${item.target_rpe_low}`);
+    }
+    if (parts.length) target = `Target: ${parts.join(' · ')}`;
+    if (item.coach_notes) target += (target ? '<br>' : '') + `<em>${item.coach_notes}</em>`;
+
+    const exName = entry.swappedTo ? entry.swappedTo.name : ex.name;
+    const swapNote = entry.swappedTo ? `<span class="swap-note">↕ swapped from ${ex.name}</span>` : '';
+    const swappedExId = entry.swappedTo ? entry.swappedTo.id : ex.id;
+
+    html += `
+      <div class="ex-card ${entry.skipped ? 'skipped' : ''}" id="ex-card-${item.id}">
+        ${group}
+        <div class="ex-header">
+          <div>
+            <span class="ex-name" onclick="openSwap('${item.id}')">${exName}</span>
+            <span class="ex-swap-hint">⇄</span>
+          </div>
+        </div>
+        ${target ? `<div class="ex-target">${target}</div>` : ''}
+        <div class="log-grid">
+          <div class="log-field"><label>Load (lb)</label>
+            <input type="number" inputmode="decimal" value="${entry.load}" onchange="updateEntry('${item.id}','load',this.value)" ${entry.skipped?'disabled':''}></div>
+          <div class="log-field"><label>Reps</label>
+            <input type="number" inputmode="numeric" value="${entry.reps}" onchange="updateEntry('${item.id}','reps',this.value)" ${entry.skipped?'disabled':''}></div>
+          <div class="log-field"><label>Sets</label>
+            <input type="number" inputmode="numeric" value="${entry.sets}" onchange="updateEntry('${item.id}','sets',this.value)" ${entry.skipped?'disabled':''}></div>
+          <div class="log-field"><label>RPE</label>
+            <input type="number" inputmode="decimal" step="0.5" min="1" max="10" value="${entry.rpe}" onchange="updateEntry('${item.id}','rpe',this.value)" ${entry.skipped?'disabled':''}></div>
+        </div>
+        <input class="notes-input" placeholder="Notes for coach…" value="${entry.notes}" oninput="updateEntry('${item.id}','notes',this.value)" ${entry.skipped?'disabled':''}>
+        <div class="ex-footer">
+          ${swapNote}
+          <button class="skip-btn ${entry.skipped?'active':''}" onclick="toggleSkip('${item.id}')">
+            ${entry.skipped ? 'Skipped' : 'Skip'}
+          </button>
+        </div>
+      </div>`;
+  });
+
+  // Added exercises
+  S.addedItems.forEach((added, idx) => {
+    html += `
+      <div class="ex-card" id="added-card-${idx}" style="border-color:var(--accent)">
+        <div class="ex-header">
+          <span class="ex-name">${added.exercise.name}</span>
+          <span style="font-size:11px;color:var(--accent)">+ ADDED</span>
+        </div>
+        <div class="log-grid">
+          <div class="log-field"><label>Load (lb)</label>
+            <input type="number" inputmode="decimal" value="${added.load||''}" onchange="updateAdded(${idx},'load',this.value)"></div>
+          <div class="log-field"><label>Reps</label>
+            <input type="number" inputmode="numeric" value="${added.reps||''}" onchange="updateAdded(${idx},'reps',this.value)"></div>
+          <div class="log-field"><label>Sets</label>
+            <input type="number" inputmode="numeric" value="${added.sets||''}" onchange="updateAdded(${idx},'sets',this.value)"></div>
+          <div class="log-field"><label>RPE</label>
+            <input type="number" inputmode="decimal" step="0.5" min="1" max="10" value="${added.rpe||''}" onchange="updateAdded(${idx},'rpe',this.value)"></div>
+        </div>
+        <input class="notes-input" placeholder="Notes…" value="${added.notes||''}" oninput="updateAdded(${idx},'notes',this.value)">
+        <div class="ex-footer">
+          <button class="skip-btn" onclick="removeAdded(${idx})">Remove</button>
+        </div>
+      </div>`;
+  });
+
+  html += `<button class="add-ex-btn" onclick="openAdd()">＋  Add Exercise</button>`;
+  body.innerHTML = html;
+}
+
+function updateEntry(itemId, field, value) { S.logEntries[itemId][field] = value; }
+function updateAdded(idx, field, value)    { S.addedItems[idx][field] = value; }
+
+function toggleSkip(itemId) {
+  S.logEntries[itemId].skipped = !S.logEntries[itemId].skipped;
+  renderSessionBody();
+}
+
+function removeAdded(idx) {
+  S.addedItems.splice(idx, 1);
+  renderSessionBody();
+}
+
+// ── Exercise sheet ─────────────────────────────────────────────
+function openSwap(itemId) {
+  S.sheetMode   = 'swap';
+  S.swapItemKey = itemId;
+  document.getElementById('sheet-title').textContent = 'Swap Exercise';
+  openSheet();
+}
+
+function openAdd() {
+  S.sheetMode   = 'add';
+  S.swapItemKey = null;
+  document.getElementById('sheet-title').textContent = 'Add Exercise';
+  openSheet();
+}
+
+function openSheet() {
+  document.getElementById('sheet-search').value = '';
+  renderSheetList(S.exerciseLib);
+  document.getElementById('sheet-overlay').classList.add('open');
+  document.getElementById('exercise-sheet').classList.add('open');
+  setTimeout(() => document.getElementById('sheet-search').focus(), 300);
+}
+
+function closeSheet() {
+  document.getElementById('sheet-overlay').classList.remove('open');
+  document.getElementById('exercise-sheet').classList.remove('open');
+}
+
+function filterExercises(query) {
+  const q = query.toLowerCase();
+  const filtered = q ? S.exerciseLib.filter(e => e.name.toLowerCase().includes(q)) : S.exerciseLib;
+  renderSheetList(filtered);
+}
+
+function renderSheetList(list) {
+  document.getElementById('sheet-list').innerHTML = list.map(ex => `
+    <div class="sheet-item" onclick="selectExercise('${ex.id}','${ex.name.replace(/'/g,"\\'")}')">
+      <div class="sheet-item-name">${ex.name}</div>
+      <div class="sheet-item-meta">${ex.movement_pattern || ''} · ${ex.category || ''}</div>
+    </div>`).join('');
+}
+
+function selectExercise(exId, exName) {
+  closeSheet();
+  if (S.sheetMode === 'swap' && S.swapItemKey) {
+    S.logEntries[S.swapItemKey].swappedTo = { id: exId, name: exName };
+    renderSessionBody();
+  } else if (S.sheetMode === 'add') {
+    S.addedItems.push({ exercise: { id: exId, name: exName }, load:'', reps:'', sets:'', rpe:'', notes:'' });
+    renderSessionBody();
+  }
+}
+
+// ── Submit session ─────────────────────────────────────────────
+async function submitSession() {
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+
+  try {
+    // 1. Create workout_log record
+    const { data: logRecord, error: logErr } = await db.from('workout_logs').insert({
+      athlete_id:     S.athlete.id,
+      session_id:     S.activeSession.id,
+      completed_date: new Date().toISOString().split('T')[0],
+    }).select().single();
+
+    if (logErr) throw logErr;
+
+    // 2. Build logged_sets rows
+    const sets = [];
+
+    // Prescribed items
+    for (const [itemId, entry] of Object.entries(S.logEntries)) {
+      const item = S.prescribedItems.find(p => p.id === itemId);
+      if (!item) continue;
+      const exId = entry.swappedTo ? entry.swappedTo.id : item.exercise.id;
+      sets.push({
+        workout_log_id:      logRecord.id,
+        prescribed_item_id:  itemId,
+        exercise_id:         exId,
+        is_swap:             !!entry.swappedTo,
+        original_exercise_id: entry.swappedTo ? item.exercise.id : null,
+        is_skipped:          entry.skipped || false,
+        actual_load:         entry.load   ? parseFloat(entry.load)   : null,
+        actual_reps:         entry.reps   ? parseInt(entry.reps)     : null,
+        actual_sets:         entry.sets   ? parseInt(entry.sets)     : null,
+        actual_rpe:          entry.rpe    ? parseFloat(entry.rpe)    : null,
+        notes:               entry.notes  || null,
+      });
+    }
+
+    // Added items
+    for (const added of S.addedItems) {
+      sets.push({
+        workout_log_id: logRecord.id,
+        exercise_id:    added.exercise.id,
+        is_added:       true,
+        actual_load:    added.load  ? parseFloat(added.load)  : null,
+        actual_reps:    added.reps  ? parseInt(added.reps)    : null,
+        actual_sets:    added.sets  ? parseInt(added.sets)    : null,
+        actual_rpe:     added.rpe   ? parseFloat(added.rpe)   : null,
+        notes:          added.notes || null,
+      });
+    }
+
+    if (sets.length) {
+      const { error: setsErr } = await db.from('logged_sets').insert(sets);
+      if (setsErr) throw setsErr;
+    }
+
+    showScreen('success');
+    // Refresh sessions list in background
+    loadProgram();
+
+  } catch (err) {
+    console.error(err);
+    toast('Error saving session. Try again.', 4000);
+    btn.disabled = false;
+    btn.textContent = 'Submit Session';
+  }
+}
+
+// ── Boot ───────────────────────────────────────────────────────
+(async () => {
+  const { data: { session } } = await db.auth.getSession();
+  if (session?.user) {
+    await onLogin(session.user);
+  }
+  // Listen for auth changes
+  db.auth.onAuthStateChange(async (event, session) => {
+    if (event === 'SIGNED_OUT') showScreen('login');
+  });
+})();
+</script>
+</body>
+</html>
