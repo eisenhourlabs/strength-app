@@ -66,16 +66,18 @@
     .session-meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
     .badge        { display: inline-block; font-size: 11px; font-weight: 600;
       padding: 3px 8px; border-radius: 20px; }
-    .badge-pending { background: var(--surface2); color: var(--muted); }
-    .badge-done    { background: #1a3a1a; color: var(--success); }
-    .badge-cond    { background: #1a2a3a; color: #60a5fa; }
-    .arrow         { color: var(--muted); font-size: 20px; }
+    .badge-pending  { background: var(--surface2); color: var(--muted); }
+    .badge-done     { background: #1a3a1a; color: var(--success); }
+    .badge-progress { background: #1a2a1a; color: #86efac; }
+    .badge-cond     { background: #1a2a3a; color: #60a5fa; }
+    .arrow          { color: var(--muted); font-size: 20px; }
 
-    /* Exercise card */
+    /* Exercise card (editable) */
     .ex-card { background: var(--surface); border: 1px solid var(--border);
       border-radius: var(--radius); padding: 14px; margin-bottom: 10px; }
-    .ex-card.skipped { opacity: .4; }
+    .ex-card.skipped    { opacity: .4; }
     .ex-card.added-card { border-color: var(--accent); }
+    .ex-card.saved-card { border-color: var(--success); }
     .ex-header  { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 6px; }
     .ex-name    { font-size: 16px; font-weight: 700; cursor: pointer; color: var(--text); flex: 1; }
     .ex-swap    { font-size: 11px; color: var(--accent); margin-left: 8px; flex-shrink: 0; cursor: pointer; padding-top: 2px; }
@@ -84,7 +86,22 @@
     .ex-target  { font-size: 12px; color: var(--muted); margin-bottom: 10px; line-height: 1.5; }
     .ex-swap-note { font-size: 11px; color: var(--accent); font-style: italic; margin-bottom: 8px; }
 
-    /* Set rows */
+    /* Saved badge inline */
+    .saved-badge { font-size: 11px; font-weight: 700; color: var(--success);
+      background: #1a3a1a; padding: 3px 8px; border-radius: 20px; flex-shrink: 0; }
+
+    /* Saved set rows (read-only) */
+    .set-row-saved { display: flex; align-items: center; gap: 6px;
+      padding: 6px 0; border-bottom: 1px solid var(--border); }
+    .set-row-saved:last-child { border-bottom: none; }
+    .set-row-saved .set-num { font-size: 11px; font-weight: 700; color: var(--muted);
+      min-width: 24px; text-align: center; flex-shrink: 0; }
+    .set-row-saved .set-vals { display: flex; gap: 6px; flex: 1; }
+    .set-row-saved .set-val  { flex: 1; text-align: center; }
+    .set-row-saved .set-val-label { display: block; font-size: 10px; color: var(--muted); margin-bottom: 2px; }
+    .set-row-saved .set-val-num   { font-size: 15px; font-weight: 700; color: var(--text); }
+
+    /* Set rows (editable) */
     .sets-wrap { margin-bottom: 8px; }
     .set-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
     .set-num { font-size: 11px; font-weight: 700; color: var(--muted);
@@ -113,13 +130,19 @@
     .notes-input:focus { outline: none; border-color: var(--border); }
 
     /* Exercise footer */
-    .ex-footer { display: flex; align-items: center; justify-content: flex-end; margin-top: 10px; gap: 8px; }
+    .ex-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; gap: 8px; }
+    .ex-footer-right { display: flex; gap: 8px; }
     .skip-btn { background: none; border: 1px solid var(--border);
       border-radius: 20px; color: var(--muted); font-size: 12px; padding: 5px 12px; cursor: pointer; }
     .skip-btn.skipped { background: var(--danger); border-color: var(--danger); color: white; }
     .remove-btn { background: none; border: 1px solid var(--border);
       border-radius: 20px; color: var(--muted); font-size: 12px; padding: 5px 12px; cursor: pointer; }
     .remove-btn:active { color: var(--danger); border-color: var(--danger); }
+    .save-ex-btn { background: none; border: 1px solid var(--accent);
+      border-radius: 20px; color: var(--accent); font-size: 13px; font-weight: 700;
+      padding: 7px 18px; cursor: pointer; }
+    .save-ex-btn:active { background: var(--accent); color: #111; }
+    .save-ex-btn:disabled { border-color: var(--border); color: var(--muted); cursor: default; }
 
     /* Add exercise button */
     .add-ex-btn { display: flex; align-items: center; justify-content: center;
@@ -138,6 +161,7 @@
     .btn:disabled { background: var(--border); color: var(--muted); cursor: default; }
     .btn.secondary { background: var(--surface2); color: var(--text); margin-top: 10px; }
     .btn.secondary:active { opacity: .75; }
+    .btn.success-state { background: #1a3a1a; color: var(--success); }
 
     /* Overall RPE / session notes row */
     .session-meta-row { display: flex; gap: 10px; margin-bottom: 16px; }
@@ -153,7 +177,7 @@
     .cond-plan-val   { font-size: 15px; font-weight: 600; }
     .cond-plan-sub   { font-size: 12px; color: var(--muted); margin-top: 4px; }
 
-    /* 2-col grid for readiness / conditioning fields */
+    /* 2-col grid */
     .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
     .form-field label { display: block; font-size: 11px; color: var(--muted);
       margin-bottom: 4px; text-align: center; }
@@ -163,8 +187,7 @@
       text-align: center; padding: 10px 4px; -webkit-appearance: none; }
     .form-field input:focus, .form-field select:focus { outline: none; border-color: var(--accent); }
     .form-field.wide { grid-column: 1 / -1; }
-    .form-field.wide input, .form-field.wide textarea {
-      text-align: left; padding: 10px 12px; }
+    .form-field.wide input, .form-field.wide textarea { text-align: left; padding: 10px 12px; }
     .form-field textarea { width: 100%; background: var(--surface2);
       border: 1px solid var(--border); border-radius: 8px; color: var(--text);
       font-size: 14px; padding: 10px 12px; resize: none; height: 60px; }
@@ -226,7 +249,7 @@
     .success-title { font-size: 24px; font-weight: 800; margin-bottom: 8px; }
     .success-sub   { font-size: 15px; color: var(--muted); margin-bottom: 40px; }
 
-    /* Utility row on week overview */
+    /* Utility row */
     .util-row { display: flex; gap: 10px; margin-bottom: 4px; }
     .util-btn { flex: 1; padding: 13px; background: var(--surface);
       border: 1px solid var(--border); border-radius: var(--radius);
@@ -287,10 +310,10 @@
   </div>
 </div>
 
-<!-- ══════════════════ SESSION (strength logging) ══════════════════ -->
+<!-- ══════════════════ SESSION ══════════════════ -->
 <div class="screen" id="screen-session">
   <div class="header">
-    <button class="back-btn" onclick="showScreen('week')">‹</button>
+    <button class="back-btn" onclick="loadProgram()">‹</button>
     <div style="flex:1">
       <div class="header-title" id="session-title"></div>
       <div class="header-sub"  id="session-sub"></div>
@@ -300,7 +323,7 @@
     <div class="spinner">Loading…</div>
   </div>
   <div class="submit-bar">
-    <button class="btn" id="submit-btn" onclick="handleSubmit()">Submit Session</button>
+    <button class="btn" id="submit-btn" onclick="handleSubmit()">Finish Session</button>
   </div>
 </div>
 
@@ -415,31 +438,31 @@ const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // ── State ─────────────────────────────────────────────────────────────────────
 let S = {
   user:         null,
-  athlete:      null,    // {id, name, email}
-  cycle:        null,    // training_cycle record
-  sessions:     [],      // planned_sessions[]
-  completed:    {},      // planned_session_id → completed_session record
+  athlete:      null,
+  cycle:        null,
+  sessions:     [],
+  completed:    {},   // planned_session_id → completed_session record
 
   // Active session
-  activeSession:      null,
-  plannedExercises:   [],
-  plannedConditioning:null,
+  activeSession:          null,
+  plannedExercises:       [],
+  plannedConditioning:    null,
+  activeCompletedSession: null,  // CS record (created lazily on first save)
 
-  // Per-exercise state (keyed by planned_exercise_id)
-  // { skipped: bool, swappedTo: {id, name}|null, setCount: int }
-  exState: {},
+  // savedExercises: peId (string) → array of set objects from DB
+  //                 or localId (number) → array of set objects for added exercises
+  savedExercises: {},
 
-  // Added exercises: [{id, exId, exName, setCount}]
-  // IDs use a local counter to identify DOM elements
+  // Per-exercise UI state (keyed by planned_exercise_id)
+  exState: {},  // { skipped: bool, swappedTo: {id,name}|null, setCount: int }
+
+  // Added exercises: [{localId, exId, exName, setCount}]
   addedExercises: [],
   addedCounter:   0,
 
-  // After submitting strength session
-  completedSessionId: null,
-
   exerciseLib: [],
-  sheetMode:   null,   // 'swap' | 'add'
-  swapExKey:   null,   // planned_exercise_id for swap
+  sheetMode:   null,
+  swapExKey:   null,
 };
 
 function today() { return new Date().toISOString().split('T')[0]; }
@@ -493,9 +516,10 @@ async function onLogin(user) {
 
 async function doLogout() {
   await db.auth.signOut();
-  S = { user:null, athlete:null, cycle:null, sessions:[], completed:{}, activeSession:null,
-    plannedExercises:[], plannedConditioning:null, exState:{},
-    addedExercises:[], addedCounter:0, completedSessionId:null,
+  S = { user:null, athlete:null, cycle:null, sessions:[], completed:{},
+    activeSession:null, plannedExercises:[], plannedConditioning:null,
+    activeCompletedSession:null, savedExercises:{},
+    exState:{}, addedExercises:[], addedCounter:0,
     exerciseLib:[], sheetMode:null, swapExKey:null };
   showScreen('login');
 }
@@ -521,7 +545,7 @@ async function loadProgram() {
     .select('*').eq('cycle_id', cycle.id).order('session_order');
   S.sessions = sessions || [];
 
-  // Check which sessions are completed
+  // Load completed sessions (any status)
   const psIds = S.sessions.map(s => s.id);
   const { data: compList } = await db.from('completed_sessions')
     .select('id,planned_session_id,status')
@@ -530,22 +554,23 @@ async function loadProgram() {
   S.completed = {};
   (compList || []).forEach(c => { S.completed[c.planned_session_id] = c; });
 
-  // Week date display
   const weekDate = new Date(cycle.start_date + 'T00:00:00');
   const weekStr  = weekDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-
   document.getElementById('week-name').textContent  = S.athlete.name;
-  document.getElementById('week-block').textContent =
-    `${cycle.name}  ·  ${weekStr}`;
+  document.getElementById('week-block').textContent = `${cycle.name}  ·  ${weekStr}`;
 
-  // Render sessions
   const sessHtml = S.sessions.map(s => {
-    const comp    = S.completed[s.id];
+    const comp       = S.completed[s.id];
     const isCondOnly = s.session_type === 'Conditioning Only';
-    const icon    = isCondOnly ? '🚴 ' : '';
-    const statusBadge = comp
-      ? `<span class="badge badge-done">✓ Logged</span>`
-      : `<span class="badge badge-pending">Pending</span>`;
+    const icon       = isCondOnly ? '🚴 ' : '';
+    let statusBadge;
+    if (!comp) {
+      statusBadge = `<span class="badge badge-pending">Pending</span>`;
+    } else if (comp.status === 'in_progress') {
+      statusBadge = `<span class="badge badge-progress">▶ In Progress</span>`;
+    } else {
+      statusBadge = `<span class="badge badge-done">✓ Logged</span>`;
+    }
     return `
       <div class="card tap" onclick="openSession('${s.id}')">
         <div class="session-row">
@@ -559,7 +584,6 @@ async function loadProgram() {
       </div>`;
   }).join('');
 
-  // Utility row
   const utilHtml = `
     <div class="divider"></div>
     <div class="util-row">
@@ -580,43 +604,76 @@ async function loadProgram() {
 
 // ── Open session ──────────────────────────────────────────────────────────────
 async function openSession(sessionId) {
-  S.activeSession = S.sessions.find(s => s.id === sessionId);
-  S.exState = {};
-  S.addedExercises = [];
-  S.addedCounter = 0;
-  S.completedSessionId = null;
-
-  // Always reset submit button when opening any session
-  const submitBtn = document.getElementById('submit-btn');
-  submitBtn.disabled = false;
-  submitBtn.textContent = 'Submit Session';
+  S.activeSession          = S.sessions.find(s => s.id === sessionId);
+  S.exState                = {};
+  S.addedExercises         = [];
+  S.addedCounter           = 0;
+  S.activeCompletedSession = null;
+  S.savedExercises         = {};
 
   document.getElementById('session-title').textContent = S.activeSession.day_label;
   document.getElementById('session-sub').textContent   = S.activeSession.session_type || '';
   document.getElementById('session-body').innerHTML    = '<div class="spinner">Loading…</div>';
-  showScreen('session');
-
-  // Load planned exercises
-  const { data: exercises } = await db.from('planned_exercises')
-    .select('*, exercise:exercise_library(id,name,movement_pattern,category)')
-    .eq('session_id', sessionId)
-    .order('item_order');
-  S.plannedExercises = exercises || [];
-
-  // Load planned conditioning block (if any)
-  const { data: condBlocks } = await db.from('planned_conditioning_blocks')
-    .select('*').eq('session_id', sessionId).limit(1);
-  S.plannedConditioning = (condBlocks && condBlocks.length) ? condBlocks[0] : null;
-
-  // Init exercise state (start with target_sets rows, min 1)
-  S.plannedExercises.forEach(pe => {
-    const count = pe.target_sets && pe.target_sets > 0 ? pe.target_sets : 1;
-    S.exState[pe.id] = { skipped: false, swappedTo: null, setCount: count };
-  });
 
   const isCondOnly = S.activeSession.session_type === 'Conditioning Only';
   const btn = document.getElementById('submit-btn');
-  btn.textContent = isCondOnly ? 'Log Conditioning' : 'Submit Session';
+  btn.disabled    = false;
+  btn.className   = 'btn';
+  btn.textContent = isCondOnly ? 'Log Conditioning' : 'Finish Session';
+  showScreen('session');
+
+  // Load planned exercises and conditioning block
+  const [exRes, condRes] = await Promise.all([
+    db.from('planned_exercises')
+      .select('*, exercise:exercise_library(id,name,movement_pattern,category)')
+      .eq('session_id', sessionId)
+      .order('item_order'),
+    db.from('planned_conditioning_blocks')
+      .select('*').eq('session_id', sessionId).limit(1),
+  ]);
+  S.plannedExercises   = exRes.data   || [];
+  S.plannedConditioning = (condRes.data && condRes.data.length) ? condRes.data[0] : null;
+
+  // Check for existing completed_sessions record
+  const { data: csRows } = await db.from('completed_sessions')
+    .select('*')
+    .eq('athlete_id', S.athlete.id)
+    .eq('planned_session_id', sessionId)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (csRows && csRows.length > 0) {
+    S.activeCompletedSession = csRows[0];
+
+    // Load already-saved sets so we can render them as locked
+    const { data: savedSets } = await db.from('completed_strength_sets')
+      .select('set_number,actual_load,actual_reps,actual_rpe,notes,is_skipped,planned_exercise_id,is_added')
+      .eq('completed_session_id', S.activeCompletedSession.id)
+      .order('set_number');
+
+    (savedSets || []).forEach(s => {
+      const peId = s.planned_exercise_id;
+      if (peId) {
+        if (!S.savedExercises[peId]) S.savedExercises[peId] = [];
+        S.savedExercises[peId].push(s);
+      }
+    });
+
+    // If session is already completed, disable Finish button
+    if (S.activeCompletedSession.status === 'completed') {
+      btn.textContent = isCondOnly ? '✓ Logged' : '✓ Session Complete';
+      btn.disabled    = true;
+      btn.className   = 'btn success-state';
+    }
+  }
+
+  // Init exercise UI state for unsaved exercises
+  S.plannedExercises.forEach(pe => {
+    if (!S.savedExercises[pe.id]) {
+      const count = pe.target_sets && pe.target_sets > 0 ? pe.target_sets : 1;
+      S.exState[pe.id] = { skipped: false, swappedTo: null, setCount: count };
+    }
+  });
 
   if (isCondOnly) {
     renderConditioningSessionBody();
@@ -628,102 +685,100 @@ async function openSession(sessionId) {
 // ── Render session body ───────────────────────────────────────────────────────
 function renderSessionBody() {
   const body = document.getElementById('session-body');
-  let html = '';
+  let html   = '';
 
-  // Session notes card
   if (S.activeSession.session_notes) {
     html += `<div class="info-card">📋 ${S.activeSession.session_notes}</div>`;
   }
 
-  // Conditioning-only: no exercises, just a note
-  if (S.plannedExercises.length === 0 && S.activeSession.includes_conditioning) {
-    html += `<div class="card" style="text-align:center;padding:32px 16px">
-      <div style="font-size:32px;margin-bottom:12px">🚴</div>
-      <div class="card-title" style="margin-bottom:6px">Conditioning Session</div>
-      <div class="card-sub">Tap Submit to log your conditioning details.</div>
-    </div>`;
-  }
-
   // Planned exercises
   S.plannedExercises.forEach(pe => {
-    const st  = S.exState[pe.id];
-    const ex  = pe.exercise;
-    const exName = st.swappedTo ? st.swappedTo.name : ex.name;
+    const savedSets = S.savedExercises[pe.id];
+    if (savedSets) {
+      // Already saved — render read-only card
+      html += buildSavedExCard(`p-${pe.id}`, pe.exercise.name, savedSets, pe.superset_group);
+    } else {
+      // Editable card
+      const st     = S.exState[pe.id];
+      const ex     = pe.exercise;
+      const exName = st.swappedTo ? st.swappedTo.name : ex.name;
 
-    const groupHtml = pe.superset_group
-      ? `<div class="ex-group">SUPERSET ${pe.superset_group.toUpperCase()}</div>` : '';
+      const groupHtml = pe.superset_group
+        ? `<div class="ex-group">SUPERSET ${pe.superset_group.toUpperCase()}</div>` : '';
+      const swapNoteHtml = st.swappedTo
+        ? `<div class="ex-swap-note">↕ swapped from ${ex.name}</div>` : '';
 
-    const swapNoteHtml = st.swappedTo
-      ? `<div class="ex-swap-note">↕ swapped from ${ex.name}</div>` : '';
+      let targetParts = [];
+      if (pe.target_load)  targetParts.push(`${pe.target_load} lb`);
+      if (pe.reps_display) targetParts.push(pe.reps_display);
+      else if (pe.reps_low) targetParts.push(
+        pe.reps_high && pe.reps_high !== pe.reps_low
+          ? `${pe.reps_low}–${pe.reps_high} reps` : `${pe.reps_low} reps`);
+      if (pe.target_sets)  targetParts.push(`${pe.target_sets} sets`);
+      if (pe.rpe_low)      targetParts.push(
+        pe.rpe_high && pe.rpe_high !== pe.rpe_low
+          ? `RPE ${pe.rpe_low}–${pe.rpe_high}` : `RPE ${pe.rpe_low}`);
+      if (pe.tempo)        targetParts.push(`Tempo ${pe.tempo}`);
+      if (pe.rest_seconds) targetParts.push(`${pe.rest_seconds}s rest`);
+      let targetHtml = targetParts.join(' · ');
+      if (pe.coach_notes) targetHtml += (targetHtml ? '<br>' : '') + `<em>${pe.coach_notes}</em>`;
 
-    // Target reference
-    let targetParts = [];
-    if (pe.target_load)  targetParts.push(`${pe.target_load} lb`);
-    if (pe.reps_display) targetParts.push(pe.reps_display);
-    else if (pe.reps_low) targetParts.push(
-      pe.reps_high && pe.reps_high !== pe.reps_low
-        ? `${pe.reps_low}–${pe.reps_high} reps` : `${pe.reps_low} reps`);
-    if (pe.target_sets)  targetParts.push(`${pe.target_sets} sets`);
-    if (pe.rpe_low)      targetParts.push(
-      pe.rpe_high && pe.rpe_high !== pe.rpe_low
-        ? `RPE ${pe.rpe_low}–${pe.rpe_high}` : `RPE ${pe.rpe_low}`);
-    if (pe.tempo)        targetParts.push(`Tempo ${pe.tempo}`);
-    if (pe.rest_seconds) targetParts.push(`${pe.rest_seconds}s rest`);
-    let targetHtml = '';
-    if (targetParts.length) targetHtml += targetParts.join(' · ');
-    if (pe.coach_notes)  targetHtml += (targetHtml ? '<br>' : '') + `<em>${pe.coach_notes}</em>`;
+      const setRowsHtml = buildSetRows(`p-${pe.id}`, st.setCount, st.skipped);
 
-    // Set rows
-    const setRowsHtml = buildSetRows(`p-${pe.id}`, st.setCount, st.skipped);
-
-    html += `
-      <div class="ex-card ${st.skipped ? 'skipped' : ''}" id="ex-card-p-${pe.id}">
-        ${groupHtml}
-        <div class="ex-header">
-          <span class="ex-name" onclick="openSwap('${pe.id}')">${exName}</span>
-          <span class="ex-swap" onclick="openSwap('${pe.id}')">⇄ swap</span>
-        </div>
-        ${swapNoteHtml}
-        ${targetHtml ? `<div class="ex-target">${targetHtml}</div>` : ''}
-        <div class="sets-wrap" id="sets-p-${pe.id}">${setRowsHtml}</div>
-        <button class="add-set-btn" id="addbtn-p-${pe.id}"
-          onclick="addSet('p-${pe.id}','${pe.id}',false)"
-          ${st.skipped ? 'disabled style="opacity:.3"' : ''}>＋ Add Set</button>
-        <textarea class="notes-input" id="notes-p-${pe.id}"
-          placeholder="Notes for coach…"
-          ${st.skipped ? 'disabled' : ''}></textarea>
-        <div class="ex-footer">
-          <button class="skip-btn ${st.skipped ? 'skipped' : ''}"
-            onclick="toggleSkip('${pe.id}')">
-            ${st.skipped ? 'Skipped ✓' : 'Skip'}
-          </button>
-        </div>
-      </div>`;
+      html += `
+        <div class="ex-card ${st.skipped ? 'skipped' : ''}" id="ex-card-p-${pe.id}">
+          ${groupHtml}
+          <div class="ex-header">
+            <span class="ex-name" onclick="openSwap('${pe.id}')">${exName}</span>
+            <span class="ex-swap" onclick="openSwap('${pe.id}')">⇄ swap</span>
+          </div>
+          ${swapNoteHtml}
+          ${targetHtml ? `<div class="ex-target">${targetHtml}</div>` : ''}
+          <div class="sets-wrap" id="sets-p-${pe.id}">${setRowsHtml}</div>
+          <button class="add-set-btn" id="addbtn-p-${pe.id}"
+            onclick="addSet('p-${pe.id}','${pe.id}',false)"
+            ${st.skipped ? 'disabled style="opacity:.3"' : ''}>＋ Add Set</button>
+          <textarea class="notes-input" id="notes-p-${pe.id}"
+            placeholder="Notes for coach…"
+            ${st.skipped ? 'disabled' : ''}></textarea>
+          <div class="ex-footer">
+            <button class="skip-btn ${st.skipped ? 'skipped' : ''}"
+              onclick="toggleSkip('${pe.id}')">
+              ${st.skipped ? 'Skipped ✓' : 'Skip'}
+            </button>
+            <button class="save-ex-btn" id="save-p-${pe.id}"
+              onclick="saveExercise('${pe.id}')">Save</button>
+          </div>
+        </div>`;
+    }
   });
 
-  // Added exercises
+  // Added exercises (editable)
   S.addedExercises.forEach(ae => {
-    const setRowsHtml = buildSetRows(`a-${ae.localId}`, ae.setCount, false);
+    const key = `a-${ae.localId}`;
     html += `
-      <div class="ex-card added-card" id="ex-card-a-${ae.localId}">
+      <div class="ex-card added-card" id="ex-card-${key}">
         <div class="ex-header">
           <span class="ex-name">${ae.exName}</span>
           <span style="font-size:11px;color:var(--accent)">+ ADDED</span>
         </div>
-        <div class="sets-wrap" id="sets-a-${ae.localId}">${setRowsHtml}</div>
-        <button class="add-set-btn" onclick="addSet('a-${ae.localId}','${ae.localId}',true)">
-          ＋ Add Set</button>
-        <textarea class="notes-input" id="notes-a-${ae.localId}"
-          placeholder="Notes…"></textarea>
+        <div class="sets-wrap" id="sets-${key}">${buildSetRows(key, ae.setCount, false)}</div>
+        <button class="add-set-btn" onclick="addSet('${key}','${ae.localId}',true)">＋ Add Set</button>
+        <textarea class="notes-input" id="notes-${key}" placeholder="Notes…"></textarea>
         <div class="ex-footer">
           <button class="remove-btn" onclick="removeAdded('${ae.localId}')">Remove</button>
+          <button class="save-ex-btn" id="save-${key}"
+            onclick="saveAddedExercise('${ae.localId}')">Save</button>
         </div>
       </div>`;
   });
 
   html += `<button class="add-ex-btn" onclick="openAddExSheet()">＋  Add Exercise</button>`;
 
-  // Overall session footer
+  // Session summary footer
+  const isCompleted = S.activeCompletedSession?.status === 'completed';
+  const rpeVal      = S.activeCompletedSession?.overall_rpe || '';
+  const notesVal    = S.activeCompletedSession?.session_notes || '';
   html += `
     <div class="divider"></div>
     <div class="form-section-label">Session Summary (optional)</div>
@@ -731,25 +786,302 @@ function renderSessionBody() {
       <div class="sf">
         <label style="display:block;font-size:10px;color:var(--muted);text-align:center;margin-bottom:3px">Overall RPE</label>
         <input type="number" step="0.5" min="1" max="10" inputmode="decimal"
-          id="overall-rpe" placeholder="—"
+          id="overall-rpe" placeholder="—" value="${rpeVal}"
+          ${isCompleted ? 'disabled' : ''}
           style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:16px;text-align:center;padding:9px 2px">
       </div>
       <div class="notes-wrap">
         <label>Session notes</label>
         <textarea class="notes-input" id="session-notes" style="height:40px"
-          placeholder="How'd it feel? Anything worth noting…"></textarea>
+          placeholder="How'd it feel?…"
+          ${isCompleted ? 'disabled' : ''}>${notesVal}</textarea>
       </div>
     </div>`;
 
   body.innerHTML = html;
 }
 
+// ── Build saved (read-only) exercise card ─────────────────────────────────────
+function buildSavedExCard(key, exName, sets, supersetGroup) {
+  const groupHtml = supersetGroup
+    ? `<div class="ex-group">SUPERSET ${supersetGroup.toUpperCase()}</div>` : '';
+
+  const isSkipped = sets.length === 1 && sets[0].is_skipped;
+  let setsHtml;
+
+  if (isSkipped) {
+    setsHtml = `<div style="color:var(--muted);font-size:13px;padding:8px 0;font-style:italic">Skipped</div>`;
+  } else {
+    setsHtml = `<div class="sets-wrap" style="margin-bottom:4px">` +
+      sets.map(s => {
+        const load = s.actual_load != null ? s.actual_load : '—';
+        const reps = s.actual_reps != null ? s.actual_reps : '—';
+        const rpe  = s.actual_rpe  != null ? s.actual_rpe  : '—';
+        return `
+          <div class="set-row-saved">
+            <span class="set-num">S${s.set_number}</span>
+            <div class="set-vals">
+              <div class="set-val">
+                <span class="set-val-label">lb</span>
+                <span class="set-val-num">${load}</span>
+              </div>
+              <div class="set-val">
+                <span class="set-val-label">reps</span>
+                <span class="set-val-num">${reps}</span>
+              </div>
+              <div class="set-val">
+                <span class="set-val-label">RPE</span>
+                <span class="set-val-num">${rpe}</span>
+              </div>
+            </div>
+          </div>`;
+      }).join('') + `</div>`;
+  }
+
+  const noteText = sets[0]?.notes;
+  const noteHtml = noteText
+    ? `<div style="font-size:12px;color:var(--muted);margin-top:6px;font-style:italic">${noteText}</div>` : '';
+
+  return `
+    <div class="ex-card saved-card" id="ex-card-${key}">
+      ${groupHtml}
+      <div class="ex-header">
+        <span class="ex-name">${exName}</span>
+        <span class="saved-badge">✓ Saved</span>
+      </div>
+      ${setsHtml}${noteHtml}
+    </div>`;
+}
+
+// ── Save exercise (per-exercise submit) ───────────────────────────────────────
+async function saveExercise(peId) {
+  const btn = document.getElementById(`save-p-${peId}`);
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  const st  = S.exState[peId];
+  const pe  = S.plannedExercises.find(p => p.id === peId);
+  if (!pe || !st) { if (btn) { btn.disabled = false; btn.textContent = 'Save'; } return; }
+
+  const key   = `p-${peId}`;
+  const exId  = st.swappedTo ? st.swappedTo.id : pe.exercise.id;
+  const notes = (document.getElementById(`notes-${key}`)?.value || '').trim() || null;
+  const rows  = [];
+
+  if (st.skipped) {
+    rows.push({
+      planned_exercise_id:  peId,
+      exercise_id:          exId,
+      is_swap:              !!st.swappedTo,
+      original_exercise_id: st.swappedTo ? pe.exercise.id : null,
+      is_skipped:           true,
+      set_number:           1,
+      notes,
+    });
+  } else {
+    const setCount = document.getElementById(`sets-${key}`)?.querySelectorAll('.set-row').length || 1;
+    let hasData = false;
+    for (let i = 0; i < setCount; i++) {
+      const load = parseFloat(document.getElementById(`load-${key}-${i}`)?.value) || null;
+      const reps = parseInt(document.getElementById(`reps-${key}-${i}`)?.value)   || null;
+      const rpe  = parseFloat(document.getElementById(`rpe-${key}-${i}`)?.value)  || null;
+      if (load || reps || rpe) hasData = true;
+      rows.push({
+        planned_exercise_id:  peId,
+        exercise_id:          exId,
+        is_swap:              !!st.swappedTo,
+        original_exercise_id: st.swappedTo ? pe.exercise.id : null,
+        is_skipped:           false,
+        set_number:           i + 1,
+        actual_load:          load,
+        actual_reps:          reps,
+        actual_rpe:           rpe,
+        notes:                i === 0 ? notes : null,
+      });
+    }
+    if (!hasData && !notes) {
+      toast('Enter at least one set before saving.');
+      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+      return;
+    }
+  }
+
+  try {
+    // Lazy-create completed_session if this is the first save
+    if (!S.activeCompletedSession) {
+      const { data: cs, error: csErr } = await db.from('completed_sessions').insert({
+        athlete_id:         S.athlete.id,
+        planned_session_id: S.activeSession.id,
+        session_date:       today(),
+        week_of:            S.cycle.start_date,
+        session_type:       S.activeSession.session_type,
+        status:             'in_progress',
+      }).select().single();
+      if (csErr) throw csErr;
+      S.activeCompletedSession         = cs;
+      S.completed[S.activeSession.id]  = cs;
+    }
+
+    // Attach session id to all rows
+    const insertRows = rows.map(r => ({ ...r, completed_session_id: S.activeCompletedSession.id }));
+    const { error: rowsErr } = await db.from('completed_strength_sets').insert(insertRows);
+    if (rowsErr) throw rowsErr;
+
+    // Mark locally as saved and lock the card
+    S.savedExercises[peId] = rows;
+    const card = document.getElementById(`ex-card-${key}`);
+    if (card) {
+      const exName = st.swappedTo ? st.swappedTo.name : pe.exercise.name;
+      card.outerHTML = buildSavedExCard(key, exName, rows.map((r,i) => ({
+        set_number:  i + 1,
+        actual_load: r.actual_load,
+        actual_reps: r.actual_reps,
+        actual_rpe:  r.actual_rpe,
+        notes:       r.notes,
+        is_skipped:  r.is_skipped,
+      })), pe.superset_group);
+    }
+    toast('Saved ✓');
+  } catch (err) {
+    console.error(err);
+    toast('Error saving. Check connection and try again.', 4000);
+    if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+  }
+}
+
+// ── Save added exercise ───────────────────────────────────────────────────────
+async function saveAddedExercise(localId) {
+  const key = `a-${localId}`;
+  const btn = document.getElementById(`save-${key}`);
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  const ae    = S.addedExercises.find(a => String(a.localId) === String(localId));
+  if (!ae) { if (btn) { btn.disabled = false; btn.textContent = 'Save'; } return; }
+
+  const notes    = (document.getElementById(`notes-${key}`)?.value || '').trim() || null;
+  const setCount = document.getElementById(`sets-${key}`)?.querySelectorAll('.set-row').length || 1;
+  const rows     = [];
+  let   hasData  = false;
+
+  for (let i = 0; i < setCount; i++) {
+    const load = parseFloat(document.getElementById(`load-${key}-${i}`)?.value) || null;
+    const reps = parseInt(document.getElementById(`reps-${key}-${i}`)?.value)   || null;
+    const rpe  = parseFloat(document.getElementById(`rpe-${key}-${i}`)?.value)  || null;
+    if (load || reps || rpe) hasData = true;
+    rows.push({
+      exercise_id: ae.exId,
+      is_added:    true,
+      is_skipped:  false,
+      set_number:  i + 1,
+      actual_load: load,
+      actual_reps: reps,
+      actual_rpe:  rpe,
+      notes:       i === 0 ? notes : null,
+    });
+  }
+
+  if (!hasData && !notes) {
+    toast('Enter at least one set before saving.');
+    if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+    return;
+  }
+
+  try {
+    if (!S.activeCompletedSession) {
+      const { data: cs, error: csErr } = await db.from('completed_sessions').insert({
+        athlete_id:         S.athlete.id,
+        planned_session_id: S.activeSession.id,
+        session_date:       today(),
+        week_of:            S.cycle.start_date,
+        session_type:       S.activeSession.session_type,
+        status:             'in_progress',
+      }).select().single();
+      if (csErr) throw csErr;
+      S.activeCompletedSession        = cs;
+      S.completed[S.activeSession.id] = cs;
+    }
+
+    const insertRows = rows.map(r => ({ ...r, completed_session_id: S.activeCompletedSession.id }));
+    const { error: rowsErr } = await db.from('completed_strength_sets').insert(insertRows);
+    if (rowsErr) throw rowsErr;
+
+    S.savedExercises[localId] = rows;
+    const card = document.getElementById(`ex-card-${key}`);
+    if (card) {
+      card.outerHTML = buildSavedExCard(key, ae.exName, rows.map((r,i) => ({
+        set_number:  i + 1,
+        actual_load: r.actual_load,
+        actual_reps: r.actual_reps,
+        actual_rpe:  r.actual_rpe,
+        notes:       r.notes,
+        is_skipped:  false,
+      })), null);
+    }
+    toast('Saved ✓');
+  } catch (err) {
+    console.error(err);
+    toast('Error saving. Check connection and try again.', 4000);
+    if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+  }
+}
+
+// ── Finish session (finalizes completed_sessions record) ──────────────────────
+async function finishSession() {
+  const btn          = document.getElementById('submit-btn');
+  const overallRpe   = parseFloat(document.getElementById('overall-rpe')?.value)    || null;
+  const sessionNotes = (document.getElementById('session-notes')?.value || '').trim() || null;
+
+  btn.disabled    = true;
+  btn.textContent = 'Finishing…';
+
+  try {
+    if (S.activeCompletedSession) {
+      // Update existing in_progress record to completed
+      await db.from('completed_sessions').update({
+        status:        'completed',
+        overall_rpe:   overallRpe,
+        session_notes: sessionNotes,
+      }).eq('id', S.activeCompletedSession.id);
+      S.completed[S.activeSession.id] = {
+        ...S.activeCompletedSession, status: 'completed', overall_rpe: overallRpe, session_notes: sessionNotes,
+      };
+    } else {
+      // Nothing was saved — create a bare completed record
+      const { data: cs, error } = await db.from('completed_sessions').insert({
+        athlete_id:         S.athlete.id,
+        planned_session_id: S.activeSession.id,
+        session_date:       today(),
+        week_of:            S.cycle.start_date,
+        session_type:       S.activeSession.session_type,
+        status:             'completed',
+        overall_rpe:        overallRpe,
+        session_notes:      sessionNotes,
+      }).select().single();
+      if (error) throw error;
+      S.activeCompletedSession        = cs;
+      S.completed[S.activeSession.id] = cs;
+    }
+    showSuccess('Session Complete', 'All work saved. Great effort.');
+  } catch (err) {
+    console.error(err);
+    toast('Error finishing session. Try again.', 4000);
+    btn.disabled    = false;
+    btn.textContent = 'Finish Session';
+  }
+}
+
+// ── Submit router ─────────────────────────────────────────────────────────────
+function handleSubmit() {
+  if (S.activeSession?.session_type === 'Conditioning Only') {
+    submitConditioningSession();
+  } else {
+    finishSession();
+  }
+}
+
 // ── Set row helpers ───────────────────────────────────────────────────────────
 function buildSetRows(key, count, disabled) {
   let html = '';
-  for (let i = 0; i < count; i++) {
-    html += buildOneSetRow(key, i, disabled);
-  }
+  for (let i = 0; i < count; i++) html += buildOneSetRow(key, i, disabled);
   return html;
 }
 
@@ -760,11 +1092,9 @@ function buildOneSetRow(key, idx, disabled) {
       <span class="set-num">S${idx+1}</span>
       <div class="set-fields">
         <div class="sf"><label>lb</label>
-          <input type="number" inputmode="decimal" id="load-${key}-${idx}"
-            placeholder="—" ${dis}></div>
+          <input type="number" inputmode="decimal" id="load-${key}-${idx}" placeholder="—" ${dis}></div>
         <div class="sf"><label>reps</label>
-          <input type="number" inputmode="numeric" id="reps-${key}-${idx}"
-            placeholder="—" ${dis}></div>
+          <input type="number" inputmode="numeric" id="reps-${key}-${idx}" placeholder="—" ${dis}></div>
         <div class="sf"><label>RPE</label>
           <input type="number" inputmode="decimal" step="0.5" min="1" max="10"
             id="rpe-${key}-${idx}" placeholder="—" ${dis}></div>
@@ -773,23 +1103,17 @@ function buildOneSetRow(key, idx, disabled) {
     </div>`;
 }
 
-// ── Add / remove sets (DOM manipulation, no full re-render) ───────────────────
+// ── Add / remove sets ─────────────────────────────────────────────────────────
 function addSet(key, entityId, isAdded) {
-  // Get current count
-  const wrap = document.getElementById(`sets-${key}`);
+  const wrap      = document.getElementById(`sets-${key}`);
   const currentRows = wrap.querySelectorAll('.set-row').length;
-  const newIdx = currentRows;
-
-  // Update state
   if (isAdded) {
     const ae = S.addedExercises.find(a => String(a.localId) === String(entityId));
     if (ae) ae.setCount = currentRows + 1;
   } else {
     if (S.exState[entityId]) S.exState[entityId].setCount = currentRows + 1;
   }
-
-  // Append new row to DOM
-  wrap.insertAdjacentHTML('beforeend', buildOneSetRow(key, newIdx, false));
+  wrap.insertAdjacentHTML('beforeend', buildOneSetRow(key, currentRows, false));
 }
 
 function removeSet(key, idx) {
@@ -798,10 +1122,9 @@ function removeSet(key, idx) {
   const rows = wrap.querySelectorAll('.set-row');
   if (rows.length <= 1) { toast('Need at least one set row — use Skip instead.'); return; }
 
-  // Collect all current values before removing
   const data = [];
   rows.forEach((row, i) => {
-    if (i === idx) return; // skip the one being deleted
+    if (i === idx) return;
     data.push({
       load: document.getElementById(`load-${key}-${i}`)?.value || '',
       reps: document.getElementById(`reps-${key}-${i}`)?.value || '',
@@ -809,14 +1132,9 @@ function removeSet(key, idx) {
     });
   });
 
-  // Re-render set rows with collected data
   let html = '';
-  data.forEach((d, i) => {
-    html += buildOneSetRow(key, i, false);
-  });
+  data.forEach((d, i) => { html += buildOneSetRow(key, i, false); });
   wrap.innerHTML = html;
-
-  // Re-fill values
   data.forEach((d, i) => {
     const lEl = document.getElementById(`load-${key}-${i}`);
     const rEl = document.getElementById(`reps-${key}-${i}`);
@@ -827,34 +1145,32 @@ function removeSet(key, idx) {
   });
 }
 
-// ── Skip / unskip exercise (DOM in-place) ─────────────────────────────────────
+// ── Skip / unskip exercise ────────────────────────────────────────────────────
 function toggleSkip(peId) {
   const st = S.exState[peId];
   if (!st) return;
   st.skipped = !st.skipped;
 
-  const key  = `p-${peId}`;
-  const card = document.getElementById(`ex-card-${key}`);
-  const btn  = card.querySelector('.skip-btn');
+  const key    = `p-${peId}`;
+  const card   = document.getElementById(`ex-card-${key}`);
+  const btn    = card.querySelector('.skip-btn');
   const addBtn = document.getElementById(`addbtn-${key}`);
   const notes  = document.getElementById(`notes-${key}`);
 
-  // Disable/enable all inputs in sets-wrap
   card.querySelectorAll(`#sets-${key} input, #sets-${key} button`).forEach(el => {
     el.disabled = st.skipped;
   });
-  if (addBtn)  { addBtn.disabled = st.skipped; addBtn.style.opacity = st.skipped ? '.3' : '1'; }
-  if (notes)   { notes.disabled = st.skipped; }
-
+  if (addBtn) { addBtn.disabled = st.skipped; addBtn.style.opacity = st.skipped ? '.3' : '1'; }
+  if (notes)  { notes.disabled = st.skipped; }
   card.classList.toggle('skipped', st.skipped);
   btn.classList.toggle('skipped', st.skipped);
   btn.textContent = st.skipped ? 'Skipped ✓' : 'Skip';
 }
 
-// ── Exercise sheet (swap / add) ───────────────────────────────────────────────
+// ── Exercise sheet ────────────────────────────────────────────────────────────
 function openSwap(peId) {
-  S.sheetMode  = 'swap';
-  S.swapExKey  = peId;
+  S.sheetMode = 'swap';
+  S.swapExKey = peId;
   document.getElementById('ex-sheet-title').textContent = 'Swap Exercise';
   openExSheet();
 }
@@ -899,12 +1215,10 @@ function selectExercise(exId, exName) {
   if (S.sheetMode === 'swap' && S.swapExKey) {
     const st = S.exState[S.swapExKey];
     if (st) st.swappedTo = { id: exId, name: exName };
-    // Update name in DOM in-place
     const key  = `p-${S.swapExKey}`;
     const card = document.getElementById(`ex-card-${key}`);
     if (card) {
       card.querySelector('.ex-name').textContent = exName;
-      // Add or update swap note
       let swapNote = card.querySelector('.ex-swap-note');
       const origName = S.plannedExercises.find(pe => pe.id === S.swapExKey)?.exercise?.name || '';
       if (!swapNote) {
@@ -915,9 +1229,8 @@ function selectExercise(exId, exName) {
   } else if (S.sheetMode === 'add') {
     const localId = ++S.addedCounter;
     S.addedExercises.push({ localId, exId, exName, setCount: 1 });
-    // Append new card to session body before the "Add Exercise" button
-    const addBtn = document.querySelector('.add-ex-btn');
-    const key = `a-${localId}`;
+    const key        = `a-${localId}`;
+    const addBtn     = document.querySelector('.add-ex-btn');
     const newCardHtml = `
       <div class="ex-card added-card" id="ex-card-${key}">
         <div class="ex-header">
@@ -925,11 +1238,12 @@ function selectExercise(exId, exName) {
           <span style="font-size:11px;color:var(--accent)">+ ADDED</span>
         </div>
         <div class="sets-wrap" id="sets-${key}">${buildOneSetRow(key, 0, false)}</div>
-        <button class="add-set-btn" onclick="addSet('${key}','${localId}',true)">
-          ＋ Add Set</button>
+        <button class="add-set-btn" onclick="addSet('${key}','${localId}',true)">＋ Add Set</button>
         <textarea class="notes-input" id="notes-${key}" placeholder="Notes…"></textarea>
         <div class="ex-footer">
           <button class="remove-btn" onclick="removeAdded('${localId}')">Remove</button>
+          <button class="save-ex-btn" id="save-${key}"
+            onclick="saveAddedExercise('${localId}')">Save</button>
         </div>
       </div>`;
     addBtn.insertAdjacentHTML('beforebegin', newCardHtml);
@@ -942,16 +1256,7 @@ function removeAdded(localId) {
   if (card) card.remove();
 }
 
-// ── Submit router ─────────────────────────────────────────────────────────────
-function handleSubmit() {
-  if (S.activeSession?.session_type === 'Conditioning Only') {
-    submitConditioningSession();
-  } else {
-    submitSession();
-  }
-}
-
-// ── Render conditioning-only session body ─────────────────────────────────────
+// ── Conditioning-only session ─────────────────────────────────────────────────
 function renderConditioningSessionBody() {
   const body = document.getElementById('session-body');
   const pc   = S.plannedConditioning;
@@ -965,7 +1270,7 @@ function renderConditioningSessionBody() {
     const hrRange = (pc.target_hr_low && pc.target_hr_high)
       ? `${pc.target_hr_low}–${pc.target_hr_high} bpm` : null;
     html += `
-      <div class="cond-plan" style="margin-bottom:16px">
+      <div class="cond-plan">
         <div class="cond-plan-label">Planned</div>
         <div class="cond-plan-val">${pc.modality || '—'}  ·  ${pc.workout_type || '—'}</div>
         <div class="cond-plan-sub">
@@ -976,6 +1281,13 @@ function renderConditioningSessionBody() {
           ? `<div class="cond-plan-sub" style="color:var(--accent);margin-top:6px">${pc.coach_notes}</div>`
           : ''}
       </div>`;
+  }
+
+  // If already logged, show logged data
+  if (S.activeCompletedSession?.status === 'completed') {
+    html += `<div class="info-card" style="border-color:var(--success);color:var(--success)">✓ This session has been logged.</div>`;
+    body.innerHTML = html;
+    return;
   }
 
   html += `
@@ -1018,14 +1330,12 @@ function renderConditioningSessionBody() {
   body.innerHTML = html;
 }
 
-// ── Submit conditioning-only session ──────────────────────────────────────────
 async function submitConditioningSession() {
   const btn = document.getElementById('submit-btn');
   btn.disabled = true;
   btn.textContent = 'Saving…';
 
   try {
-    // Create a completed_sessions record so the badge works
     const { data: cs, error: csErr } = await db.from('completed_sessions').insert({
       athlete_id:         S.athlete.id,
       planned_session_id: S.activeSession.id,
@@ -1037,9 +1347,7 @@ async function submitConditioningSession() {
     if (csErr) throw csErr;
 
     const pc          = S.plannedConditioning;
-    const workoutType = pc?.workout_type
-      || document.getElementById('cond-type')?.value
-      || null;
+    const workoutType = pc?.workout_type || null;
 
     await db.from('completed_conditioning').insert({
       athlete_id:           S.athlete.id,
@@ -1070,120 +1378,8 @@ async function submitConditioningSession() {
   }
 }
 
-// ── Submit strength session ───────────────────────────────────────────────────
-async function submitSession() {
-  const btn = document.getElementById('submit-btn');
-  btn.disabled = true;
-  btn.textContent = 'Saving…';
-
-  try {
-    const overallRpe   = parseFloat(document.getElementById('overall-rpe').value)  || null;
-    const sessionNotes = document.getElementById('session-notes').value.trim() || null;
-
-    // 1. Create completed_session
-    const { data: cs, error: csErr } = await db.from('completed_sessions').insert({
-      athlete_id:         S.athlete.id,
-      planned_session_id: S.activeSession.id,
-      session_date:       today(),
-      week_of:            S.cycle.start_date,
-      session_type:       S.activeSession.session_type,
-      status:             'completed',
-      overall_rpe:        overallRpe,
-      session_notes:      sessionNotes,
-    }).select().single();
-
-    if (csErr) throw csErr;
-    S.completedSessionId = cs.id;
-
-    // 2. Build completed_strength_sets rows
-    const rows = [];
-
-    // Prescribed exercises
-    for (const pe of S.plannedExercises) {
-      const st  = S.exState[pe.id] || {};
-      const key = `p-${pe.id}`;
-      const exId = st.swappedTo ? st.swappedTo.id : pe.exercise.id;
-      const notes = (document.getElementById(`notes-${key}`)?.value || '').trim() || null;
-
-      if (st.skipped) {
-        // Log skipped as one row
-        rows.push({
-          completed_session_id: cs.id,
-          planned_exercise_id:  pe.id,
-          exercise_id:          exId,
-          is_swap:              !!st.swappedTo,
-          original_exercise_id: st.swappedTo ? pe.exercise.id : null,
-          is_skipped:           true,
-          set_number:           1,
-          notes:                notes,
-        });
-        continue;
-      }
-
-      const setCount = document.getElementById(`sets-${key}`)?.querySelectorAll('.set-row').length || 1;
-      for (let i = 0; i < setCount; i++) {
-        const load = parseFloat(document.getElementById(`load-${key}-${i}`)?.value) || null;
-        const reps = parseInt(document.getElementById(`reps-${key}-${i}`)?.value)   || null;
-        const rpe  = parseFloat(document.getElementById(`rpe-${key}-${i}`)?.value)  || null;
-        rows.push({
-          completed_session_id: cs.id,
-          planned_exercise_id:  pe.id,
-          exercise_id:          exId,
-          is_swap:              !!st.swappedTo,
-          original_exercise_id: st.swappedTo ? pe.exercise.id : null,
-          is_skipped:           false,
-          set_number:           i + 1,
-          actual_load:          load,
-          actual_reps:          reps,
-          actual_rpe:           rpe,
-          notes:                i === 0 ? notes : null,
-        });
-      }
-    }
-
-    // Added exercises
-    for (const ae of S.addedExercises) {
-      const key   = `a-${ae.localId}`;
-      const notes = (document.getElementById(`notes-${key}`)?.value || '').trim() || null;
-      const setCount = document.getElementById(`sets-${key}`)?.querySelectorAll('.set-row').length || 1;
-      for (let i = 0; i < setCount; i++) {
-        const load = parseFloat(document.getElementById(`load-${key}-${i}`)?.value) || null;
-        const reps = parseInt(document.getElementById(`reps-${key}-${i}`)?.value)   || null;
-        const rpe  = parseFloat(document.getElementById(`rpe-${key}-${i}`)?.value)  || null;
-        rows.push({
-          completed_session_id: cs.id,
-          exercise_id:          ae.exId,
-          is_added:             true,
-          is_skipped:           false,
-          set_number:           i + 1,
-          actual_load:          load,
-          actual_reps:          reps,
-          actual_rpe:           rpe,
-          notes:                i === 0 ? notes : null,
-        });
-      }
-    }
-
-    if (rows.length) {
-      const { error: rowsErr } = await db.from('completed_strength_sets').insert(rows);
-      if (rowsErr) throw rowsErr;
-    }
-
-    // Update local badge state without navigating away
-    S.completed[S.activeSession.id] = cs;
-    showSuccess('Session Logged', 'Strength work saved. Great effort.');
-
-  } catch (err) {
-    console.error(err);
-    toast('Error saving session. Check connection and try again.', 4000);
-    btn.disabled = false;
-    btn.textContent = 'Submit Session';
-  }
-}
-
-// ── Standalone conditioning (from week overview button) ───────────────────────
+// ── Standalone conditioning (from week overview) ──────────────────────────────
 function openStandaloneConditioning() {
-  S.completedSessionId = null;
   S.plannedConditioning = null;
   document.getElementById('cond-sub').textContent = 'Standalone session';
   document.getElementById('cond-body').innerHTML = `
@@ -1229,68 +1425,10 @@ function openStandaloneConditioning() {
         <textarea id="cond-notes" placeholder="How it felt, distance, any issues…"></textarea>
       </div>
     </div>`;
-  showScreen('conditioning');
-}
 
-// ── Conditioning screen (post-session) ────────────────────────────────────────
-function openConditioningScreen() {
-  const pc = S.plannedConditioning;
-  let planHtml = '';
-  if (pc) {
-    const hrRange = (pc.target_hr_low && pc.target_hr_high)
-      ? `${pc.target_hr_low}–${pc.target_hr_high} bpm` : '—';
-    planHtml = `
-      <div class="cond-plan">
-        <div class="cond-plan-label">Planned</div>
-        <div class="cond-plan-val">${pc.modality || '—'} · ${pc.workout_type || '—'}</div>
-        <div class="cond-plan-sub">
-          ${pc.target_duration_min ? `Target: ${pc.target_duration_min} min` : ''}
-          ${pc.target_hr_low ? `· HR: ${hrRange}` : ''}
-        </div>
-        ${pc.coach_notes ? `<div class="cond-plan-sub" style="color:var(--accent);margin-top:6px">${pc.coach_notes}</div>` : ''}
-      </div>`;
-  }
-
-  document.getElementById('cond-sub').textContent =
-    pc ? `${pc.modality || ''} — ${pc.workout_type || ''}` : 'Log actual conditioning';
-
-  document.getElementById('cond-body').innerHTML = `
-    ${planHtml}
-    <div class="form-section-label">Actual</div>
-    <div class="form-grid">
-      <div class="form-field">
-        <label>Modality</label>
-        <input type="text" id="cond-modality" placeholder="${pc?.modality || 'Echo Bike…'}"
-          value="${pc?.modality || ''}">
-      </div>
-      <div class="form-field">
-        <label>Duration (min)</label>
-        <input type="number" inputmode="decimal" id="cond-duration"
-          placeholder="${pc?.target_duration_min || '—'}">
-      </div>
-      <div class="form-field">
-        <label>Avg HR (bpm)</label>
-        <input type="number" inputmode="numeric" id="cond-avg-hr" placeholder="—">
-      </div>
-      <div class="form-field">
-        <label>Max HR (bpm)</label>
-        <input type="number" inputmode="numeric" id="cond-max-hr" placeholder="—">
-      </div>
-      <div class="form-field">
-        <label>HR Zone</label>
-        <input type="text" id="cond-zone" placeholder="Zone 2 / AeT…">
-      </div>
-      <div class="form-field">
-        <label>RPE</label>
-        <input type="number" step="0.5" min="1" max="10" inputmode="decimal"
-          id="cond-rpe" placeholder="—">
-      </div>
-      <div class="form-field wide">
-        <label>Notes</label>
-        <textarea id="cond-notes" placeholder="How it felt, any issues…"></textarea>
-      </div>
-    </div>`;
-
+  const submitBtn = document.getElementById('cond-submit-btn');
+  submitBtn.disabled    = false;
+  submitBtn.textContent = 'Log Conditioning';
   showScreen('conditioning');
 }
 
@@ -1300,13 +1438,13 @@ async function submitConditioning() {
   btn.textContent = 'Saving…';
 
   try {
-    const pc = S.plannedConditioning;
+    const pc          = S.plannedConditioning;
     const workoutType = pc?.workout_type
       || document.getElementById('cond-type')?.value
       || null;
     await db.from('completed_conditioning').insert({
       athlete_id:           S.athlete.id,
-      completed_session_id: S.completedSessionId || null,
+      completed_session_id: null,
       conditioning_date:    today(),
       week_of:              S.cycle?.start_date || today(),
       conditioning_system:  S.cycle?.conditioning_system || null,
@@ -1314,7 +1452,7 @@ async function submitConditioning() {
       modality:             document.getElementById('cond-modality').value.trim() || pc?.modality || null,
       workout_type:         workoutType,
       adaptation_category:  workoutType?.includes('Steady') ? 'Aerobic Endurance' : null,
-      is_planned:           !!pc,
+      is_planned:           false,
       duration_minutes:     parseFloat(document.getElementById('cond-duration').value)  || null,
       avg_heart_rate:       parseInt(document.getElementById('cond-avg-hr').value)       || null,
       max_heart_rate:       parseInt(document.getElementById('cond-max-hr').value)       || null,
@@ -1322,7 +1460,7 @@ async function submitConditioning() {
       rpe:                  parseFloat(document.getElementById('cond-rpe').value)        || null,
       notes:                document.getElementById('cond-notes').value.trim()           || null,
     });
-    showSuccess('Session + Conditioning Logged', 'All data saved. Good work.');
+    showSuccess('Conditioning Logged', 'Session saved. Good work.');
   } catch (err) {
     console.error(err);
     toast('Error saving conditioning. Try again.', 4000);
@@ -1332,7 +1470,7 @@ async function submitConditioning() {
 }
 
 function skipConditioning() {
-  showSuccess('Strength Session Logged', 'Conditioning skipped. Strength data saved.');
+  showSuccess('Done', 'No conditioning logged.');
 }
 
 function showSuccess(title, sub) {
@@ -1341,7 +1479,7 @@ function showSuccess(title, sub) {
   showScreen('success');
 }
 
-// ── Readiness screen ──────────────────────────────────────────────────────────
+// ── Readiness ─────────────────────────────────────────────────────────────────
 function openReadiness() {
   document.getElementById('ready-date').textContent = today();
   document.getElementById('ready-body').innerHTML = `
@@ -1375,23 +1513,23 @@ function openReadiness() {
 }
 
 async function submitReadiness() {
-  const energy    = parseInt(document.getElementById('r-energy').value)    || null;
-  const soreness  = parseInt(document.getElementById('r-soreness').value)  || null;
-  const stress    = parseInt(document.getElementById('r-stress').value)    || null;
-  const motivation= parseInt(document.getElementById('r-motivation').value)|| null;
-  const sleep     = parseFloat(document.getElementById('r-sleep').value)   || null;
-  const bw        = parseFloat(document.getElementById('r-bw').value)      || null;
-  const waist     = parseFloat(document.getElementById('r-waist').value)   || null;
-  const notes     = document.getElementById('r-notes').value.trim()        || null;
+  const energy     = parseInt(document.getElementById('r-energy').value)     || null;
+  const soreness   = parseInt(document.getElementById('r-soreness').value)   || null;
+  const stress     = parseInt(document.getElementById('r-stress').value)     || null;
+  const motivation = parseInt(document.getElementById('r-motivation').value) || null;
+  const sleep      = parseFloat(document.getElementById('r-sleep').value)    || null;
+  const bw         = parseFloat(document.getElementById('r-bw').value)       || null;
+  const waist      = parseFloat(document.getElementById('r-waist').value)    || null;
+  const notes      = document.getElementById('r-notes').value.trim()         || null;
 
   try {
     await db.from('readiness_logs').insert({
-      athlete_id:    S.athlete.id,
-      log_date:      today(),
+      athlete_id:     S.athlete.id,
+      log_date:       today(),
       energy, soreness, stress, motivation,
-      sleep_hours:   sleep,
-      bodyweight_lbs:bw,
-      waist_inches:  waist,
+      sleep_hours:    sleep,
+      bodyweight_lbs: bw,
+      waist_inches:   waist,
       notes,
     });
     toast('Readiness logged ✓');
@@ -1415,11 +1553,11 @@ function closePainSheet() {
 
 async function submitPain() {
   const region   = document.getElementById('pain-region').value;
-  const score    = parseInt(document.getElementById('pain-score').value)   || null;
+  const score    = parseInt(document.getElementById('pain-score').value)  || null;
   const status   = document.getElementById('pain-status').value;
   const modified = document.getElementById('pain-modified').value === 'true';
-  const trigger  = document.getElementById('pain-trigger').value.trim()    || null;
-  const notes    = document.getElementById('pain-notes').value.trim()      || null;
+  const trigger  = document.getElementById('pain-trigger').value.trim()   || null;
+  const notes    = document.getElementById('pain-notes').value.trim()     || null;
 
   if (!region) { toast('Please select a body region.'); return; }
 
