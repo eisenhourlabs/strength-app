@@ -6,6 +6,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="theme-color" content="#111111">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>Strength App</title>
   <link rel="manifest" href="manifest.json">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -297,7 +300,7 @@
     <div class="spinner">Loading…</div>
   </div>
   <div class="submit-bar">
-    <button class="btn" id="submit-btn" onclick="submitSession()">Submit Session</button>
+    <button class="btn" id="submit-btn" onclick="handleSubmit()">Submit Session</button>
   </div>
 </div>
 
@@ -537,9 +540,9 @@ async function loadProgram() {
 
   // Render sessions
   const sessHtml = S.sessions.map(s => {
-    const comp = S.completed[s.id];
-    const condBadge = s.includes_conditioning
-      ? `<span class="badge badge-cond">Conditioning</span>` : '';
+    const comp    = S.completed[s.id];
+    const isCondOnly = s.session_type === 'Conditioning Only';
+    const icon    = isCondOnly ? '🚴 ' : '';
     const statusBadge = comp
       ? `<span class="badge badge-done">✓ Logged</span>`
       : `<span class="badge badge-pending">Pending</span>`;
@@ -548,8 +551,8 @@ async function loadProgram() {
         <div class="session-row">
           <div>
             <div class="card-label">${s.day_label}</div>
-            <div class="card-title">${s.session_type || 'Session'}</div>
-            <div class="session-meta">${statusBadge}${condBadge}</div>
+            <div class="card-title">${icon}${s.session_type || 'Session'}</div>
+            <div class="session-meta">${statusBadge}</div>
           </div>
           <div class="arrow">›</div>
         </div>
@@ -611,7 +614,15 @@ async function openSession(sessionId) {
     S.exState[pe.id] = { skipped: false, swappedTo: null, setCount: count };
   });
 
-  renderSessionBody();
+  const isCondOnly = S.activeSession.session_type === 'Conditioning Only';
+  const btn = document.getElementById('submit-btn');
+  btn.textContent = isCondOnly ? 'Log Conditioning' : 'Submit Session';
+
+  if (isCondOnly) {
+    renderConditioningSessionBody();
+  } else {
+    renderSessionBody();
+  }
 }
 
 // ── Render session body ───────────────────────────────────────────────────────
@@ -931,6 +942,134 @@ function removeAdded(localId) {
   if (card) card.remove();
 }
 
+// ── Submit router ─────────────────────────────────────────────────────────────
+function handleSubmit() {
+  if (S.activeSession?.session_type === 'Conditioning Only') {
+    submitConditioningSession();
+  } else {
+    submitSession();
+  }
+}
+
+// ── Render conditioning-only session body ─────────────────────────────────────
+function renderConditioningSessionBody() {
+  const body = document.getElementById('session-body');
+  const pc   = S.plannedConditioning;
+  let html   = '';
+
+  if (S.activeSession.session_notes) {
+    html += `<div class="info-card">📋 ${S.activeSession.session_notes}</div>`;
+  }
+
+  if (pc) {
+    const hrRange = (pc.target_hr_low && pc.target_hr_high)
+      ? `${pc.target_hr_low}–${pc.target_hr_high} bpm` : null;
+    html += `
+      <div class="cond-plan" style="margin-bottom:16px">
+        <div class="cond-plan-label">Planned</div>
+        <div class="cond-plan-val">${pc.modality || '—'}  ·  ${pc.workout_type || '—'}</div>
+        <div class="cond-plan-sub">
+          ${pc.target_duration_min ? `${pc.target_duration_min} min` : ''}
+          ${hrRange ? ` · HR ${hrRange}` : ''}
+        </div>
+        ${pc.coach_notes
+          ? `<div class="cond-plan-sub" style="color:var(--accent);margin-top:6px">${pc.coach_notes}</div>`
+          : ''}
+      </div>`;
+  }
+
+  html += `
+    <div class="form-section-label">Actual</div>
+    <div class="form-grid">
+      <div class="form-field">
+        <label>Modality</label>
+        <input type="text" id="cond-modality"
+          placeholder="${pc?.modality || 'Echo Bike…'}"
+          value="${pc?.modality || ''}">
+      </div>
+      <div class="form-field">
+        <label>Duration (min)</label>
+        <input type="number" inputmode="decimal" id="cond-duration"
+          placeholder="${pc?.target_duration_min || '—'}">
+      </div>
+      <div class="form-field">
+        <label>Avg HR (bpm)</label>
+        <input type="number" inputmode="numeric" id="cond-avg-hr" placeholder="—">
+      </div>
+      <div class="form-field">
+        <label>Max HR (bpm)</label>
+        <input type="number" inputmode="numeric" id="cond-max-hr" placeholder="—">
+      </div>
+      <div class="form-field">
+        <label>HR Zone</label>
+        <input type="text" id="cond-zone" placeholder="Zone 2 / AeT…">
+      </div>
+      <div class="form-field">
+        <label>RPE</label>
+        <input type="number" step="0.5" min="1" max="10"
+          inputmode="decimal" id="cond-rpe" placeholder="—">
+      </div>
+      <div class="form-field wide">
+        <label>Notes</label>
+        <textarea id="cond-notes" placeholder="How it felt, any issues…"></textarea>
+      </div>
+    </div>`;
+
+  body.innerHTML = html;
+}
+
+// ── Submit conditioning-only session ──────────────────────────────────────────
+async function submitConditioningSession() {
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+
+  try {
+    // Create a completed_sessions record so the badge works
+    const { data: cs, error: csErr } = await db.from('completed_sessions').insert({
+      athlete_id:         S.athlete.id,
+      planned_session_id: S.activeSession.id,
+      session_date:       today(),
+      week_of:            S.cycle.start_date,
+      session_type:       'Conditioning Only',
+      status:             'completed',
+    }).select().single();
+    if (csErr) throw csErr;
+
+    const pc          = S.plannedConditioning;
+    const workoutType = pc?.workout_type
+      || document.getElementById('cond-type')?.value
+      || null;
+
+    await db.from('completed_conditioning').insert({
+      athlete_id:           S.athlete.id,
+      completed_session_id: cs.id,
+      conditioning_date:    today(),
+      week_of:              S.cycle.start_date,
+      conditioning_system:  S.cycle.conditioning_system,
+      conditioning_phase:   S.cycle.conditioning_phase,
+      modality:             document.getElementById('cond-modality')?.value.trim() || pc?.modality || null,
+      workout_type:         workoutType,
+      adaptation_category:  workoutType?.includes('Steady') ? 'Aerobic Endurance' : null,
+      is_planned:           !!pc,
+      duration_minutes:     parseFloat(document.getElementById('cond-duration')?.value)  || null,
+      avg_heart_rate:       parseInt(document.getElementById('cond-avg-hr')?.value)       || null,
+      max_heart_rate:       parseInt(document.getElementById('cond-max-hr')?.value)       || null,
+      heart_rate_zone:      document.getElementById('cond-zone')?.value.trim()            || null,
+      rpe:                  parseFloat(document.getElementById('cond-rpe')?.value)        || null,
+      notes:                document.getElementById('cond-notes')?.value.trim()           || null,
+    });
+
+    S.completed[S.activeSession.id] = cs;
+    showSuccess('Conditioning Logged', 'Session saved. Good work.');
+  } catch (err) {
+    console.error(err);
+    toast('Error saving. Try again.', 4000);
+    btn.disabled = false;
+    btn.textContent = 'Log Conditioning';
+  }
+}
+
 // ── Submit strength session ───────────────────────────────────────────────────
 async function submitSession() {
   const btn = document.getElementById('submit-btn');
@@ -1032,13 +1171,7 @@ async function submitSession() {
 
     // Update local badge state without navigating away
     S.completed[S.activeSession.id] = cs;
-
-    // Route: conditioning or success
-    if (S.activeSession.includes_conditioning) {
-      openConditioningScreen();
-    } else {
-      showSuccess('Session Logged', 'Strength work saved. Great effort.');
-    }
+    showSuccess('Session Logged', 'Strength work saved. Great effort.');
 
   } catch (err) {
     console.error(err);
