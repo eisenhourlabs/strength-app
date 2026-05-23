@@ -13,101 +13,193 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg:        #111111;
-      --surface:   #1c1c1c;
-      --surface2:  #252525;
-      --border:    #333333;
-      --text:      #f0f0f0;
-      --muted:     #888888;
-      --accent:    #e8b74c;
-      --success:   #4ade80;
-      --danger:    #ef4444;
-      --skip:      #555555;
-      --radius:    12px;
-      --safe-top:  env(safe-area-inset-top, 0px);
-      --safe-bot:  env(safe-area-inset-bottom, 0px);
+      --bg:       #111111;
+      --surface:  #1c1c1c;
+      --surface2: #252525;
+      --border:   #333333;
+      --text:     #f0f0f0;
+      --muted:    #888888;
+      --accent:   #e8b74c;
+      --success:  #4ade80;
+      --danger:   #ef4444;
+      --radius:   12px;
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bot: env(safe-area-inset-bottom, 0px);
     }
 
-    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 16px; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 16px; -webkit-tap-highlight-color: transparent; }
 
     .screen { display: none; flex-direction: column; height: 100%; overflow: hidden; }
     .screen.active { display: flex; }
 
-    /* ── Header ────────────────────────────────── */
-    .header { display: flex; align-items: center; justify-content: space-between; padding: calc(var(--safe-top) + 14px) 16px 14px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
-    .header h1 { font-size: 18px; font-weight: 700; letter-spacing: .5px; }
-    .header .sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
-    .back-btn { background: none; border: none; color: var(--accent); font-size: 22px; cursor: pointer; padding: 4px 8px 4px 0; }
+    /* Header */
+    .header { display: flex; align-items: center; justify-content: space-between;
+      padding: calc(var(--safe-top) + 14px) 16px 14px;
+      background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .header-title  { font-size: 18px; font-weight: 700; letter-spacing: .5px; }
+    .header-sub    { font-size: 13px; color: var(--muted); margin-top: 2px; }
+    .back-btn      { background: none; border: none; color: var(--accent);
+      font-size: 22px; cursor: pointer; padding: 4px 8px 4px 0; }
 
-    /* ── Scroll body ───────────────────────────── */
-    .body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16px 16px calc(var(--safe-bot) + 80px); }
+    /* Scroll body */
+    .body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      padding: 16px 16px calc(var(--safe-bot) + 80px); }
+    .body.no-fab { padding-bottom: calc(var(--safe-bot) + 24px); }
 
-    /* ── Cards ─────────────────────────────────── */
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
-    .card-label { font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+    /* Cards */
+    .card { background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
+    .card-label { font-size: 11px; font-weight: 600; letter-spacing: 1px;
+      text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
     .card-title { font-size: 18px; font-weight: 700; }
-    .card-sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
-    .card.tappable { cursor: pointer; }
-    .card.tappable:active { background: var(--surface2); }
+    .card-sub   { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .card.tap   { cursor: pointer; }
+    .card.tap:active { background: var(--surface2); }
 
-    /* ── Session cards ─────────────────────────── */
-    .session-card { display: flex; align-items: center; justify-content: space-between; }
-    .session-card .arrow { color: var(--muted); font-size: 20px; }
-    .session-badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 20px; margin-top: 6px; }
-    .badge-pending  { background: var(--surface2); color: var(--muted); }
-    .badge-logged   { background: #1a3a1a; color: var(--success); }
+    /* Session cards on week overview */
+    .session-row  { display: flex; align-items: center; justify-content: space-between; }
+    .session-meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+    .badge        { display: inline-block; font-size: 11px; font-weight: 600;
+      padding: 3px 8px; border-radius: 20px; }
+    .badge-pending { background: var(--surface2); color: var(--muted); }
+    .badge-done    { background: #1a3a1a; color: var(--success); }
+    .badge-cond    { background: #1a2a3a; color: #60a5fa; }
+    .arrow         { color: var(--muted); font-size: 20px; }
 
-    /* ── Exercise cards ────────────────────────── */
-    .ex-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; }
-    .ex-card.skipped { opacity: .45; }
-    .ex-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
-    .ex-name { font-size: 16px; font-weight: 700; cursor: pointer; color: var(--text); }
-    .ex-name:active { color: var(--accent); }
-    .ex-swap-hint { font-size: 11px; color: var(--accent); margin-left: 6px; }
-    .ex-target { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
-    .ex-group { font-size: 11px; font-weight: 600; color: var(--accent); margin-bottom: 8px; letter-spacing: .5px; }
+    /* Exercise card */
+    .ex-card { background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px; margin-bottom: 10px; }
+    .ex-card.skipped { opacity: .4; }
+    .ex-card.added-card { border-color: var(--accent); }
+    .ex-header  { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 6px; }
+    .ex-name    { font-size: 16px; font-weight: 700; cursor: pointer; color: var(--text); flex: 1; }
+    .ex-swap    { font-size: 11px; color: var(--accent); margin-left: 8px; flex-shrink: 0; cursor: pointer; padding-top: 2px; }
+    .ex-group   { font-size: 11px; font-weight: 600; color: var(--accent);
+      margin-bottom: 6px; letter-spacing: .5px; }
+    .ex-target  { font-size: 12px; color: var(--muted); margin-bottom: 10px; line-height: 1.5; }
+    .ex-swap-note { font-size: 11px; color: var(--accent); font-style: italic; margin-bottom: 8px; }
 
-    .log-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 8px; }
-    .log-field label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; text-align: center; }
-    .log-field input { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 16px; text-align: center; padding: 10px 4px; -webkit-appearance: none; }
-    .log-field input:focus { outline: none; border-color: var(--accent); }
+    /* Set rows */
+    .sets-wrap { margin-bottom: 8px; }
+    .set-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+    .set-num { font-size: 11px; font-weight: 700; color: var(--muted);
+      min-width: 24px; text-align: center; }
+    .set-fields { display: flex; gap: 6px; flex: 1; }
+    .sf { flex: 1; }
+    .sf label { display: block; font-size: 10px; color: var(--muted); text-align: center; margin-bottom: 3px; }
+    .sf input { width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 16px; text-align: center;
+      padding: 9px 2px; -webkit-appearance: none; }
+    .sf input:focus { outline: none; border-color: var(--accent); }
+    .set-del { background: none; border: none; color: var(--muted);
+      font-size: 18px; cursor: pointer; padding: 4px 6px; flex-shrink: 0; }
+    .set-del:active { color: var(--danger); }
 
-    .notes-input { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 14px; padding: 10px 12px; resize: none; height: 44px; }
+    .add-set-btn { display: flex; align-items: center; justify-content: center;
+      gap: 6px; width: 100%; padding: 10px; background: none;
+      border: 1px dashed var(--border); border-radius: 8px;
+      color: var(--muted); font-size: 13px; cursor: pointer; margin-bottom: 8px; }
+    .add-set-btn:active { border-color: var(--accent); color: var(--accent); }
+
+    /* Notes input */
+    .notes-input { width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 14px;
+      padding: 10px 12px; resize: none; height: 40px; }
     .notes-input:focus { outline: none; border-color: var(--border); }
 
-    .ex-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
-    .skip-btn { background: none; border: 1px solid var(--border); border-radius: 20px; color: var(--muted); font-size: 12px; padding: 5px 12px; cursor: pointer; }
-    .skip-btn.active { background: var(--danger); border-color: var(--danger); color: white; }
-    .swap-note { font-size: 11px; color: var(--accent); font-style: italic; }
+    /* Exercise footer */
+    .ex-footer { display: flex; align-items: center; justify-content: flex-end; margin-top: 10px; gap: 8px; }
+    .skip-btn { background: none; border: 1px solid var(--border);
+      border-radius: 20px; color: var(--muted); font-size: 12px; padding: 5px 12px; cursor: pointer; }
+    .skip-btn.skipped { background: var(--danger); border-color: var(--danger); color: white; }
+    .remove-btn { background: none; border: 1px solid var(--border);
+      border-radius: 20px; color: var(--muted); font-size: 12px; padding: 5px 12px; cursor: pointer; }
+    .remove-btn:active { color: var(--danger); border-color: var(--danger); }
 
-    /* ── Add exercise ───────────────────────────── */
-    .add-ex-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 14px; background: none; border: 1px dashed var(--border); border-radius: var(--radius); color: var(--muted); font-size: 15px; cursor: pointer; margin-top: 4px; }
+    /* Add exercise button */
+    .add-ex-btn { display: flex; align-items: center; justify-content: center;
+      gap: 8px; width: 100%; padding: 14px; background: none;
+      border: 1px dashed var(--border); border-radius: var(--radius);
+      color: var(--muted); font-size: 15px; cursor: pointer; margin-top: 4px; }
     .add-ex-btn:active { border-color: var(--accent); color: var(--accent); }
 
-    /* ── Submit bar ─────────────────────────────── */
-    .submit-bar { position: fixed; bottom: 0; left: 0; right: 0; padding: 12px 16px calc(var(--safe-bot) + 12px); background: var(--surface); border-top: 1px solid var(--border); }
-    .btn-primary { width: 100%; padding: 16px; background: var(--accent); color: #111; font-size: 17px; font-weight: 700; border: none; border-radius: var(--radius); cursor: pointer; }
-    .btn-primary:active { opacity: .85; }
-    .btn-primary:disabled { background: var(--border); color: var(--muted); cursor: default; }
+    /* Submit bar */
+    .submit-bar { position: fixed; bottom: 0; left: 0; right: 0;
+      padding: 12px 16px calc(var(--safe-bot) + 12px);
+      background: var(--surface); border-top: 1px solid var(--border); }
+    .btn { width: 100%; padding: 16px; background: var(--accent); color: #111;
+      font-size: 17px; font-weight: 700; border: none; border-radius: var(--radius); cursor: pointer; }
+    .btn:active   { opacity: .85; }
+    .btn:disabled { background: var(--border); color: var(--muted); cursor: default; }
+    .btn.secondary { background: var(--surface2); color: var(--text); margin-top: 10px; }
+    .btn.secondary:active { opacity: .75; }
 
-    /* ── Login ──────────────────────────────────── */
-    .login-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 24px; }
-    .login-logo { font-size: 36px; font-weight: 800; letter-spacing: -1px; color: var(--accent); margin-bottom: 8px; }
+    /* Overall RPE / session notes row */
+    .session-meta-row { display: flex; gap: 10px; margin-bottom: 16px; }
+    .session-meta-row .sf { flex: 0 0 80px; }
+    .session-meta-row .notes-wrap { flex: 1; }
+    .session-meta-row .notes-wrap label { display: block; font-size: 10px; color: var(--muted); margin-bottom: 3px; }
+
+    /* Conditioning screen */
+    .cond-plan { background: var(--surface2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px; margin-bottom: 16px; }
+    .cond-plan-label { font-size: 11px; color: var(--muted); margin-bottom: 4px;
+      font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
+    .cond-plan-val   { font-size: 15px; font-weight: 600; }
+    .cond-plan-sub   { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+    /* 2-col grid for readiness / conditioning fields */
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+    .form-field label { display: block; font-size: 11px; color: var(--muted);
+      margin-bottom: 4px; text-align: center; }
+    .form-field input, .form-field select {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 16px;
+      text-align: center; padding: 10px 4px; -webkit-appearance: none; }
+    .form-field input:focus, .form-field select:focus { outline: none; border-color: var(--accent); }
+    .form-field.wide { grid-column: 1 / -1; }
+    .form-field.wide input, .form-field.wide textarea {
+      text-align: left; padding: 10px 12px; }
+    .form-field textarea { width: 100%; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+      font-size: 14px; padding: 10px 12px; resize: none; height: 60px; }
+    .form-field textarea:focus { outline: none; border-color: var(--border); }
+    .form-section-label { font-size: 11px; font-weight: 600; letter-spacing: 1px;
+      text-transform: uppercase; color: var(--muted); margin: 16px 0 8px; }
+    select option { background: var(--surface2); color: var(--text); }
+
+    /* Login */
+    .login-wrap { flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; padding: 32px 24px; }
+    .login-logo { font-size: 36px; font-weight: 800; letter-spacing: -1px;
+      color: var(--accent); margin-bottom: 8px; }
     .login-tag  { font-size: 14px; color: var(--muted); margin-bottom: 48px; }
     .field-wrap { width: 100%; margin-bottom: 14px; }
     .field-wrap label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
-    .field-wrap input { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 16px; padding: 14px; }
+    .field-wrap input { width: 100%; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 10px;
+      color: var(--text); font-size: 16px; padding: 14px; }
     .field-wrap input:focus { outline: none; border-color: var(--accent); }
     .login-error { color: var(--danger); font-size: 14px; margin-top: 12px; text-align: center; }
 
-    /* ── Bottom sheet ───────────────────────────── */
-    .sheet-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 100; display: none; }
+    /* Exercise search sheet */
+    .sheet-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6);
+      z-index: 100; display: none; }
     .sheet-overlay.open { display: block; }
-    .sheet { position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface); border-radius: 20px 20px 0 0; padding: 20px 16px calc(var(--safe-bot) + 20px); z-index: 101; max-height: 70vh; display: flex; flex-direction: column; transform: translateY(100%); transition: transform .25s ease; }
+    .sheet { position: fixed; bottom: 0; left: 0; right: 0;
+      background: var(--surface); border-radius: 20px 20px 0 0;
+      padding: 20px 16px calc(var(--safe-bot) + 20px); z-index: 101;
+      max-height: 72vh; display: flex; flex-direction: column;
+      transform: translateY(100%); transition: transform .25s ease; }
     .sheet.open { transform: translateY(0); }
-    .sheet-handle { width: 40px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 16px; }
-    .sheet-title { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
-    .sheet-search { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 16px; padding: 12px 14px; margin-bottom: 12px; }
+    .sheet-handle { width: 40px; height: 4px; background: var(--border);
+      border-radius: 2px; margin: 0 auto 16px; }
+    .sheet-title  { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
+    .sheet-search { width: 100%; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 10px;
+      color: var(--text); font-size: 16px; padding: 12px 14px; margin-bottom: 12px; }
     .sheet-search:focus { outline: none; border-color: var(--accent); }
     .sheet-list { overflow-y: auto; flex: 1; }
     .sheet-item { padding: 13px 4px; border-bottom: 1px solid var(--border); cursor: pointer; }
@@ -116,17 +208,42 @@
     .sheet-item-name { font-size: 15px; font-weight: 600; }
     .sheet-item-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
-    /* ── Success screen ─────────────────────────── */
-    .success-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 24px; text-align: center; }
-    .success-icon { font-size: 64px; margin-bottom: 20px; }
-    .success-title { font-size: 24px; font-weight: 800; margin-bottom: 8px; }
-    .success-sub { font-size: 15px; color: var(--muted); margin-bottom: 40px; }
+    /* Pain sheet */
+    .pain-sheet { position: fixed; bottom: 0; left: 0; right: 0;
+      background: var(--surface); border-radius: 20px 20px 0 0;
+      padding: 20px 16px calc(var(--safe-bot) + 20px); z-index: 101;
+      max-height: 85vh; display: flex; flex-direction: column;
+      transform: translateY(100%); transition: transform .25s ease; }
+    .pain-sheet.open { transform: translateY(0); }
 
-    /* ── Misc ───────────────────────────────────── */
-    .week-meta { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
-    .toast { position: fixed; top: calc(var(--safe-top) + 16px); left: 50%; transform: translateX(-50%); background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 10px 20px; font-size: 14px; z-index: 200; white-space: nowrap; display: none; }
+    /* Success screen */
+    .success-wrap { flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; padding: 32px 24px; text-align: center; }
+    .success-icon  { font-size: 64px; margin-bottom: 20px; }
+    .success-title { font-size: 24px; font-weight: 800; margin-bottom: 8px; }
+    .success-sub   { font-size: 15px; color: var(--muted); margin-bottom: 40px; }
+
+    /* Utility row on week overview */
+    .util-row { display: flex; gap: 10px; margin-bottom: 4px; }
+    .util-btn { flex: 1; padding: 13px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer; text-align: center; }
+    .util-btn:active { background: var(--surface2); }
+    .util-btn .util-icon { font-size: 18px; display: block; margin-bottom: 4px; }
+
+    /* Misc */
+    .spinner  { text-align: center; padding: 48px; color: var(--muted); font-size: 14px; }
+    .divider  { height: 1px; background: var(--border); margin: 16px 0; }
+    .toast { position: fixed; top: calc(var(--safe-top) + 16px); left: 50%;
+      transform: translateX(-50%); background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 20px;
+      padding: 10px 20px; font-size: 14px; z-index: 300;
+      white-space: nowrap; display: none; }
     .toast.show { display: block; }
-    .spinner { text-align: center; padding: 48px; color: var(--muted); font-size: 14px; }
+    .info-card { background: var(--surface); border: 1px solid var(--accent);
+      border-radius: var(--radius); padding: 12px 16px; margin-bottom: 16px;
+      font-size: 13px; color: var(--accent); line-height: 1.5; }
+    .week-meta { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
   </style>
 </head>
 <body>
@@ -134,7 +251,7 @@
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
-<!-- ── LOGIN ──────────────────────────────────────────────────── -->
+<!-- ══════════════════ LOGIN ══════════════════ -->
 <div class="screen active" id="screen-login">
   <div class="login-wrap">
     <div class="login-logo">STRENGTH</div>
@@ -148,96 +265,197 @@
       <input type="password" id="login-password" autocomplete="current-password" placeholder="••••••••">
     </div>
     <div class="login-error" id="login-error"></div>
-    <button class="btn-primary" id="login-btn" style="margin-top:24px" onclick="doLogin()">Log In</button>
+    <button class="btn" id="login-btn" style="margin-top:24px" onclick="doLogin()">Log In</button>
   </div>
 </div>
 
-<!-- ── WEEK OVERVIEW ──────────────────────────────────────────── -->
+<!-- ══════════════════ WEEK OVERVIEW ══════════════════ -->
 <div class="screen" id="screen-week">
   <div class="header">
     <div>
-      <div class="header h1" id="week-athlete-name" style="font-size:18px;font-weight:700"></div>
-      <div class="sub" id="week-block-label"></div>
+      <div class="header-title" id="week-name"></div>
+      <div class="header-sub" id="week-block"></div>
     </div>
-    <button style="background:none;border:none;color:var(--muted);font-size:13px;cursor:pointer" onclick="doLogout()">Sign out</button>
+    <button style="background:none;border:none;color:var(--muted);font-size:13px;cursor:pointer"
+      onclick="doLogout()">Sign out</button>
   </div>
-  <div class="body" id="week-body">
+  <div class="body no-fab" id="week-body">
     <div class="spinner">Loading program…</div>
   </div>
 </div>
 
-<!-- ── SESSION LOGGING ────────────────────────────────────────── -->
+<!-- ══════════════════ SESSION (strength logging) ══════════════════ -->
 <div class="screen" id="screen-session">
   <div class="header">
     <button class="back-btn" onclick="showScreen('week')">‹</button>
     <div style="flex:1">
-      <div class="header h1" id="session-title" style="font-size:18px;font-weight:700"></div>
-      <div class="sub" id="session-type"></div>
+      <div class="header-title" id="session-title"></div>
+      <div class="header-sub"  id="session-sub"></div>
     </div>
   </div>
   <div class="body" id="session-body">
-    <div class="spinner">Loading session…</div>
+    <div class="spinner">Loading…</div>
   </div>
   <div class="submit-bar">
-    <button class="btn-primary" id="submit-btn" onclick="submitSession()">Submit Session</button>
+    <button class="btn" id="submit-btn" onclick="submitSession()">Submit Session</button>
   </div>
 </div>
 
-<!-- ── SUCCESS ────────────────────────────────────────────────── -->
+<!-- ══════════════════ CONDITIONING LOG ══════════════════ -->
+<div class="screen" id="screen-conditioning">
+  <div class="header">
+    <button class="back-btn" onclick="showScreen('session')">‹</button>
+    <div>
+      <div class="header-title">Conditioning Log</div>
+      <div class="header-sub" id="cond-sub"></div>
+    </div>
+  </div>
+  <div class="body" id="cond-body"></div>
+  <div class="submit-bar">
+    <button class="btn" id="cond-submit-btn" onclick="submitConditioning()">Log Conditioning</button>
+    <button class="btn secondary" onclick="skipConditioning()">Skip — No conditioning done</button>
+  </div>
+</div>
+
+<!-- ══════════════════ READINESS LOG ══════════════════ -->
+<div class="screen" id="screen-readiness">
+  <div class="header">
+    <button class="back-btn" onclick="showScreen('week')">‹</button>
+    <div>
+      <div class="header-title">Readiness Log</div>
+      <div class="header-sub" id="ready-date"></div>
+    </div>
+  </div>
+  <div class="body" id="ready-body"></div>
+  <div class="submit-bar">
+    <button class="btn" onclick="submitReadiness()">Save Readiness Log</button>
+  </div>
+</div>
+
+<!-- ══════════════════ SUCCESS ══════════════════ -->
 <div class="screen" id="screen-success">
   <div class="success-wrap">
     <div class="success-icon">✓</div>
-    <div class="success-title">Session Logged</div>
-    <div class="success-sub">Great work. Data saved.</div>
-    <button class="btn-primary" onclick="showScreen('week')" style="max-width:280px">Back to Program</button>
+    <div class="success-title" id="success-title">Session Logged</div>
+    <div class="success-sub"  id="success-sub">Great work. Data saved.</div>
+    <button class="btn" style="max-width:280px" onclick="showScreen('week')">Back to Program</button>
   </div>
 </div>
 
-<!-- ── EXERCISE SEARCH SHEET ──────────────────────────────────── -->
-<div class="sheet-overlay" id="sheet-overlay" onclick="closeSheet()"></div>
-<div class="sheet" id="exercise-sheet">
+<!-- ══════════════════ EXERCISE SEARCH SHEET ══════════════════ -->
+<div class="sheet-overlay" id="ex-overlay" onclick="closeExSheet()"></div>
+<div class="sheet" id="ex-sheet">
   <div class="sheet-handle"></div>
-  <div class="sheet-title" id="sheet-title">Select Exercise</div>
-  <input class="sheet-search" id="sheet-search" placeholder="Search exercises…" oninput="filterExercises(this.value)">
-  <div class="sheet-list" id="sheet-list"></div>
+  <div class="sheet-title" id="ex-sheet-title">Select Exercise</div>
+  <input class="sheet-search" id="ex-search" placeholder="Search exercises…" oninput="filterExercises(this.value)">
+  <div class="sheet-list" id="ex-list"></div>
 </div>
 
+<!-- ══════════════════ PAIN LOG SHEET ══════════════════ -->
+<div class="sheet-overlay" id="pain-overlay" onclick="closePainSheet()"></div>
+<div class="pain-sheet" id="pain-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">Log Pain / Injury</div>
+  <div style="overflow-y:auto;flex:1">
+    <div class="form-grid">
+      <div class="form-field">
+        <label>Body Region</label>
+        <select id="pain-region">
+          <option value="">Select…</option>
+          <option>Hip</option><option>Elbow</option><option>Shoulder</option>
+          <option>Knee</option><option>Low Back</option><option>Upper Back</option>
+          <option>Wrist</option><option>Ankle</option><option>Neck</option><option>Other</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label>Pain Score (0–10)</label>
+        <input type="number" id="pain-score" min="0" max="10" inputmode="numeric" placeholder="0–10">
+      </div>
+      <div class="form-field">
+        <label>Status</label>
+        <select id="pain-status">
+          <option value="new">New</option>
+          <option value="improving">Improving</option>
+          <option value="same">Same</option>
+          <option value="worse">Worse</option>
+          <option value="resolved">Resolved</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label>Modified Training?</label>
+        <select id="pain-modified">
+          <option value="false">No</option>
+          <option value="true">Yes</option>
+        </select>
+      </div>
+      <div class="form-field wide">
+        <label>Trigger / Description</label>
+        <input type="text" id="pain-trigger" placeholder="What caused it or where it hurts">
+      </div>
+      <div class="form-field wide">
+        <label>Notes for coach</label>
+        <textarea id="pain-notes" placeholder="Any extra context…"></textarea>
+      </div>
+    </div>
+    <button class="btn" style="margin-top:8px" onclick="submitPain()">Save Pain Log</button>
+    <button class="btn secondary" onclick="closePainSheet()">Cancel</button>
+  </div>
+</div>
+
+<!-- ══════════════════ JAVASCRIPT ══════════════════ -->
 <script>
-// ── Config ─────────────────────────────────────────────────────
+// ── Config ────────────────────────────────────────────────────────────────────
 const SUPABASE_URL = 'https://mfqtlgtllocxenrekorg.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_GtJwb3uRDBuXt-qJOlfqKA_A-QSIOtt';
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// ── State ──────────────────────────────────────────────────────
+// ── State ─────────────────────────────────────────────────────────────────────
 let S = {
-  user:        null,
-  athlete:     null,   // {id, name, email}
-  program:     null,
-  sessions:    [],
-  activeSession:    null,
-  prescribedItems:  [],  // [{id, item_order, superset_group, target_*, exercise:{name,…}}, …]
-  logEntries:   {},  // keyed by item key → {load, reps, sets, rpe, notes, skipped, swappedTo:{id,name}}
-  addedItems:   [],  // [{exercise:{id,name}, load, reps, sets, rpe, notes}]
-  exerciseLib:  [],
-  sheetMode:    null,  // 'swap' | 'add'
-  swapItemKey:  null,
+  user:         null,
+  athlete:      null,    // {id, name, email}
+  cycle:        null,    // training_cycle record
+  sessions:     [],      // planned_sessions[]
+  completed:    {},      // planned_session_id → completed_session record
+
+  // Active session
+  activeSession:      null,
+  plannedExercises:   [],
+  plannedConditioning:null,
+
+  // Per-exercise state (keyed by planned_exercise_id)
+  // { skipped: bool, swappedTo: {id, name}|null, setCount: int }
+  exState: {},
+
+  // Added exercises: [{id, exId, exName, setCount}]
+  // IDs use a local counter to identify DOM elements
+  addedExercises: [],
+  addedCounter:   0,
+
+  // After submitting strength session
+  completedSessionId: null,
+
+  exerciseLib: [],
+  sheetMode:   null,   // 'swap' | 'add'
+  swapExKey:   null,   // planned_exercise_id for swap
 };
 
-// ── Screen navigation ──────────────────────────────────────────
+function today() { return new Date().toISOString().split('T')[0]; }
+
+// ── Screen navigation ─────────────────────────────────────────────────────────
 function showScreen(name) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(`screen-${name}`).classList.add('active');
 }
 
-// ── Toast ──────────────────────────────────────────────────────
-function toast(msg, duration = 2500) {
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function toast(msg, ms = 2500) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), duration);
+  setTimeout(() => t.classList.remove('show'), ms);
 }
 
-// ── Auth ───────────────────────────────────────────────────────
+// ── Auth ──────────────────────────────────────────────────────────────────────
 async function doLogin() {
   const email = document.getElementById('login-email').value.trim();
   const pass  = document.getElementById('login-password').value;
@@ -258,335 +476,782 @@ async function doLogin() {
 
 async function onLogin(user) {
   S.user = user;
-  // Load athlete record
-  const { data: athlete } = await db.from('athletes').select('id,name,email').eq('email', user.email).single();
+  const { data: athlete } = await db.from('athletes')
+    .select('id,name,email').eq('email', user.email).single();
   if (!athlete) { toast('Athlete record not found. Contact your coach.'); doLogout(); return; }
   S.athlete = athlete;
-  // Load exercise library (once)
-  const { data: lib } = await db.from('exercises').select('id,name,movement_pattern,category,equipment').order('name');
+
+  const { data: lib } = await db.from('exercise_library')
+    .select('id,name,movement_pattern,category,equipment').order('name');
   S.exerciseLib = lib || [];
+
   await loadProgram();
 }
 
 async function doLogout() {
   await db.auth.signOut();
-  S = { user:null, athlete:null, program:null, sessions:[], activeSession:null, prescribedItems:[], logEntries:{}, addedItems:[], exerciseLib:[], sheetMode:null, swapItemKey:null };
+  S = { user:null, athlete:null, cycle:null, sessions:[], completed:{}, activeSession:null,
+    plannedExercises:[], plannedConditioning:null, exState:{},
+    addedExercises:[], addedCounter:0, completedSessionId:null,
+    exerciseLib:[], sheetMode:null, swapExKey:null };
   showScreen('login');
 }
 
-// ── Program loading ────────────────────────────────────────────
+// ── Program loading ───────────────────────────────────────────────────────────
 async function loadProgram() {
-  const { data: prog } = await db.from('programs')
+  const body = document.getElementById('week-body');
+
+  const { data: cycle } = await db.from('training_cycles')
     .select('*').eq('athlete_id', S.athlete.id).eq('status', 'active').single();
 
-  if (!prog) {
-    document.getElementById('week-body').innerHTML =
-      '<div class="card"><div class="card-title">No active program</div><div class="card-sub">Your coach hasn\'t pushed a program yet.</div></div>';
-    document.getElementById('week-athlete-name').textContent = S.athlete.name;
+  if (!cycle) {
+    body.innerHTML = '<div class="card"><div class="card-title">No active program</div>' +
+      '<div class="card-sub">Your coach hasn\'t pushed a program yet.</div></div>';
+    document.getElementById('week-name').textContent  = S.athlete.name;
+    document.getElementById('week-block').textContent = '';
     showScreen('week');
     return;
   }
-  S.program = prog;
+  S.cycle = cycle;
 
-  const { data: sessions } = await db.from('sessions')
-    .select('*').eq('program_id', prog.id).order('session_order');
+  const { data: sessions } = await db.from('planned_sessions')
+    .select('*').eq('cycle_id', cycle.id).order('session_order');
   S.sessions = sessions || [];
 
-  // Check which sessions have been logged
-  const { data: logs } = await db.from('workout_logs')
-    .select('session_id').eq('athlete_id', S.athlete.id);
-  const loggedIds = new Set((logs || []).map(l => l.session_id));
+  // Check which sessions are completed
+  const psIds = S.sessions.map(s => s.id);
+  const { data: compList } = await db.from('completed_sessions')
+    .select('id,planned_session_id,status')
+    .eq('athlete_id', S.athlete.id)
+    .in('planned_session_id', psIds);
+  S.completed = {};
+  (compList || []).forEach(c => { S.completed[c.planned_session_id] = c; });
 
-  // Render week overview
-  const weekDate = new Date(prog.week_of + 'T00:00:00');
+  // Week date display
+  const weekDate = new Date(cycle.start_date + 'T00:00:00');
   const weekStr  = weekDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
-  document.getElementById('week-athlete-name').textContent = S.athlete.name;
-  document.getElementById('week-block-label').textContent =
-    `${prog.block_name || 'Current Block'}  ·  Week ${prog.block_week || ''}  ·  ${weekStr}`;
+  document.getElementById('week-name').textContent  = S.athlete.name;
+  document.getElementById('week-block').textContent =
+    `${cycle.name}  ·  ${weekStr}`;
 
-  const body = document.getElementById('week-body');
-  body.innerHTML = S.sessions.map(s => {
-    const logged = loggedIds.has(s.id);
+  // Render sessions
+  const sessHtml = S.sessions.map(s => {
+    const comp = S.completed[s.id];
+    const condBadge = s.includes_conditioning
+      ? `<span class="badge badge-cond">Conditioning</span>` : '';
+    const statusBadge = comp
+      ? `<span class="badge badge-done">✓ Logged</span>`
+      : `<span class="badge badge-pending">Pending</span>`;
     return `
-      <div class="card tappable" onclick="openSession('${s.id}')">
-        <div class="session-card">
+      <div class="card tap" onclick="openSession('${s.id}')">
+        <div class="session-row">
           <div>
             <div class="card-label">${s.day_label}</div>
             <div class="card-title">${s.session_type || 'Session'}</div>
-            <span class="session-badge ${logged ? 'badge-logged' : 'badge-pending'}">
-              ${logged ? '✓ Logged' : 'Pending'}
-            </span>
+            <div class="session-meta">${statusBadge}${condBadge}</div>
           </div>
           <div class="arrow">›</div>
         </div>
       </div>`;
   }).join('');
 
+  // Utility row
+  const utilHtml = `
+    <div class="divider"></div>
+    <div class="util-row">
+      <div class="util-btn" onclick="openReadiness()">
+        <span class="util-icon">📊</span>Readiness
+      </div>
+      <div class="util-btn" onclick="openPainSheet()">
+        <span class="util-icon">🩹</span>Pain / Injury
+      </div>
+    </div>`;
+
+  body.innerHTML = sessHtml + utilHtml;
   showScreen('week');
 }
 
-// ── Session loading ────────────────────────────────────────────
+// ── Open session ──────────────────────────────────────────────────────────────
 async function openSession(sessionId) {
   S.activeSession = S.sessions.find(s => s.id === sessionId);
-  S.logEntries  = {};
-  S.addedItems  = [];
+  S.exState = {};
+  S.addedExercises = [];
+  S.addedCounter = 0;
+  S.completedSessionId = null;
 
   document.getElementById('session-title').textContent = S.activeSession.day_label;
-  document.getElementById('session-type').textContent  = S.activeSession.session_type || '';
-  document.getElementById('session-body').innerHTML = '<div class="spinner">Loading…</div>';
+  document.getElementById('session-sub').textContent   = S.activeSession.session_type || '';
+  document.getElementById('session-body').innerHTML    = '<div class="spinner">Loading…</div>';
   showScreen('session');
 
-  const { data: items } = await db.from('prescribed_items')
-    .select('*, exercise:exercises(id,name,movement_pattern,category)')
+  // Load planned exercises
+  const { data: exercises } = await db.from('planned_exercises')
+    .select('*, exercise:exercise_library(id,name,movement_pattern,category)')
     .eq('session_id', sessionId)
     .order('item_order');
+  S.plannedExercises = exercises || [];
 
-  S.prescribedItems = items || [];
-  // Init log entries
-  S.prescribedItems.forEach(item => {
-    S.logEntries[item.id] = { load:'', reps:'', sets: item.target_sets || '', rpe:'', notes:'', skipped:false, swappedTo:null };
+  // Load planned conditioning block (if any)
+  const { data: condBlocks } = await db.from('planned_conditioning_blocks')
+    .select('*').eq('session_id', sessionId).limit(1);
+  S.plannedConditioning = (condBlocks && condBlocks.length) ? condBlocks[0] : null;
+
+  // Init exercise state (start with target_sets rows, min 1)
+  S.plannedExercises.forEach(pe => {
+    const count = pe.target_sets && pe.target_sets > 0 ? pe.target_sets : 1;
+    S.exState[pe.id] = { skipped: false, swappedTo: null, setCount: count };
   });
 
   renderSessionBody();
 }
 
+// ── Render session body ───────────────────────────────────────────────────────
 function renderSessionBody() {
   const body = document.getElementById('session-body');
   let html = '';
 
-  if (S.activeSession.notes) {
-    html += `<div class="card" style="border-color:var(--accent);margin-bottom:16px"><div class="card-sub" style="color:var(--accent)">📋 ${S.activeSession.notes}</div></div>`;
+  // Session notes card
+  if (S.activeSession.session_notes) {
+    html += `<div class="info-card">📋 ${S.activeSession.session_notes}</div>`;
   }
 
-  S.prescribedItems.forEach(item => {
-    const entry = S.logEntries[item.id];
-    const ex    = item.exercise;
-    const group = item.superset_group ? `<div class="ex-group">${item.superset_group.toUpperCase()}</div>` : '';
+  // Conditioning-only: no exercises, just a note
+  if (S.plannedExercises.length === 0 && S.activeSession.includes_conditioning) {
+    html += `<div class="card" style="text-align:center;padding:32px 16px">
+      <div style="font-size:32px;margin-bottom:12px">🚴</div>
+      <div class="card-title" style="margin-bottom:6px">Conditioning Session</div>
+      <div class="card-sub">Tap Submit to log your conditioning details.</div>
+    </div>`;
+  }
 
-    // Target string
-    let target = '';
-    const parts = [];
-    if (item.target_load)     parts.push(`${item.target_load} lb`);
-    if (item.target_reps_low) {
-      parts.push(item.target_reps_high && item.target_reps_high !== item.target_reps_low
-        ? `${item.target_reps_low}–${item.target_reps_high} reps` : `${item.target_reps_low} reps`);
-    }
-    if (item.target_sets)     parts.push(`${item.target_sets} sets`);
-    if (item.target_rpe_low)  {
-      parts.push(item.target_rpe_high && item.target_rpe_high !== item.target_rpe_low
-        ? `RPE ${item.target_rpe_low}–${item.target_rpe_high}` : `RPE ${item.target_rpe_low}`);
-    }
-    if (parts.length) target = `Target: ${parts.join(' · ')}`;
-    if (item.coach_notes) target += (target ? '<br>' : '') + `<em>${item.coach_notes}</em>`;
+  // Planned exercises
+  S.plannedExercises.forEach(pe => {
+    const st  = S.exState[pe.id];
+    const ex  = pe.exercise;
+    const exName = st.swappedTo ? st.swappedTo.name : ex.name;
 
-    const exName = entry.swappedTo ? entry.swappedTo.name : ex.name;
-    const swapNote = entry.swappedTo ? `<span class="swap-note">↕ swapped from ${ex.name}</span>` : '';
-    const swappedExId = entry.swappedTo ? entry.swappedTo.id : ex.id;
+    const groupHtml = pe.superset_group
+      ? `<div class="ex-group">SUPERSET ${pe.superset_group.toUpperCase()}</div>` : '';
+
+    const swapNoteHtml = st.swappedTo
+      ? `<div class="ex-swap-note">↕ swapped from ${ex.name}</div>` : '';
+
+    // Target reference
+    let targetParts = [];
+    if (pe.target_load)  targetParts.push(`${pe.target_load} lb`);
+    if (pe.reps_display) targetParts.push(pe.reps_display);
+    else if (pe.reps_low) targetParts.push(
+      pe.reps_high && pe.reps_high !== pe.reps_low
+        ? `${pe.reps_low}–${pe.reps_high} reps` : `${pe.reps_low} reps`);
+    if (pe.target_sets)  targetParts.push(`${pe.target_sets} sets`);
+    if (pe.rpe_low)      targetParts.push(
+      pe.rpe_high && pe.rpe_high !== pe.rpe_low
+        ? `RPE ${pe.rpe_low}–${pe.rpe_high}` : `RPE ${pe.rpe_low}`);
+    if (pe.tempo)        targetParts.push(`Tempo ${pe.tempo}`);
+    if (pe.rest_seconds) targetParts.push(`${pe.rest_seconds}s rest`);
+    let targetHtml = '';
+    if (targetParts.length) targetHtml += targetParts.join(' · ');
+    if (pe.coach_notes)  targetHtml += (targetHtml ? '<br>' : '') + `<em>${pe.coach_notes}</em>`;
+
+    // Set rows
+    const setRowsHtml = buildSetRows(`p-${pe.id}`, st.setCount, st.skipped);
 
     html += `
-      <div class="ex-card ${entry.skipped ? 'skipped' : ''}" id="ex-card-${item.id}">
-        ${group}
+      <div class="ex-card ${st.skipped ? 'skipped' : ''}" id="ex-card-p-${pe.id}">
+        ${groupHtml}
         <div class="ex-header">
-          <div>
-            <span class="ex-name" onclick="openSwap('${item.id}')">${exName}</span>
-            <span class="ex-swap-hint">⇄</span>
-          </div>
+          <span class="ex-name" onclick="openSwap('${pe.id}')">${exName}</span>
+          <span class="ex-swap" onclick="openSwap('${pe.id}')">⇄ swap</span>
         </div>
-        ${target ? `<div class="ex-target">${target}</div>` : ''}
-        <div class="log-grid">
-          <div class="log-field"><label>Load (lb)</label>
-            <input type="number" inputmode="decimal" value="${entry.load}" onchange="updateEntry('${item.id}','load',this.value)" ${entry.skipped?'disabled':''}></div>
-          <div class="log-field"><label>Reps</label>
-            <input type="number" inputmode="numeric" value="${entry.reps}" onchange="updateEntry('${item.id}','reps',this.value)" ${entry.skipped?'disabled':''}></div>
-          <div class="log-field"><label>Sets</label>
-            <input type="number" inputmode="numeric" value="${entry.sets}" onchange="updateEntry('${item.id}','sets',this.value)" ${entry.skipped?'disabled':''}></div>
-          <div class="log-field"><label>RPE</label>
-            <input type="number" inputmode="decimal" step="0.5" min="1" max="10" value="${entry.rpe}" onchange="updateEntry('${item.id}','rpe',this.value)" ${entry.skipped?'disabled':''}></div>
-        </div>
-        <input class="notes-input" placeholder="Notes for coach…" value="${entry.notes}" oninput="updateEntry('${item.id}','notes',this.value)" ${entry.skipped?'disabled':''}>
+        ${swapNoteHtml}
+        ${targetHtml ? `<div class="ex-target">${targetHtml}</div>` : ''}
+        <div class="sets-wrap" id="sets-p-${pe.id}">${setRowsHtml}</div>
+        <button class="add-set-btn" id="addbtn-p-${pe.id}"
+          onclick="addSet('p-${pe.id}','${pe.id}',false)"
+          ${st.skipped ? 'disabled style="opacity:.3"' : ''}>＋ Add Set</button>
+        <textarea class="notes-input" id="notes-p-${pe.id}"
+          placeholder="Notes for coach…"
+          ${st.skipped ? 'disabled' : ''}></textarea>
         <div class="ex-footer">
-          ${swapNote}
-          <button class="skip-btn ${entry.skipped?'active':''}" onclick="toggleSkip('${item.id}')">
-            ${entry.skipped ? 'Skipped' : 'Skip'}
+          <button class="skip-btn ${st.skipped ? 'skipped' : ''}"
+            onclick="toggleSkip('${pe.id}')">
+            ${st.skipped ? 'Skipped ✓' : 'Skip'}
           </button>
         </div>
       </div>`;
   });
 
   // Added exercises
-  S.addedItems.forEach((added, idx) => {
+  S.addedExercises.forEach(ae => {
+    const setRowsHtml = buildSetRows(`a-${ae.localId}`, ae.setCount, false);
     html += `
-      <div class="ex-card" id="added-card-${idx}" style="border-color:var(--accent)">
+      <div class="ex-card added-card" id="ex-card-a-${ae.localId}">
         <div class="ex-header">
-          <span class="ex-name">${added.exercise.name}</span>
+          <span class="ex-name">${ae.exName}</span>
           <span style="font-size:11px;color:var(--accent)">+ ADDED</span>
         </div>
-        <div class="log-grid">
-          <div class="log-field"><label>Load (lb)</label>
-            <input type="number" inputmode="decimal" value="${added.load||''}" onchange="updateAdded(${idx},'load',this.value)"></div>
-          <div class="log-field"><label>Reps</label>
-            <input type="number" inputmode="numeric" value="${added.reps||''}" onchange="updateAdded(${idx},'reps',this.value)"></div>
-          <div class="log-field"><label>Sets</label>
-            <input type="number" inputmode="numeric" value="${added.sets||''}" onchange="updateAdded(${idx},'sets',this.value)"></div>
-          <div class="log-field"><label>RPE</label>
-            <input type="number" inputmode="decimal" step="0.5" min="1" max="10" value="${added.rpe||''}" onchange="updateAdded(${idx},'rpe',this.value)"></div>
-        </div>
-        <input class="notes-input" placeholder="Notes…" value="${added.notes||''}" oninput="updateAdded(${idx},'notes',this.value)">
+        <div class="sets-wrap" id="sets-a-${ae.localId}">${setRowsHtml}</div>
+        <button class="add-set-btn" onclick="addSet('a-${ae.localId}','${ae.localId}',true)">
+          ＋ Add Set</button>
+        <textarea class="notes-input" id="notes-a-${ae.localId}"
+          placeholder="Notes…"></textarea>
         <div class="ex-footer">
-          <button class="skip-btn" onclick="removeAdded(${idx})">Remove</button>
+          <button class="remove-btn" onclick="removeAdded('${ae.localId}')">Remove</button>
         </div>
       </div>`;
   });
 
-  html += `<button class="add-ex-btn" onclick="openAdd()">＋  Add Exercise</button>`;
+  html += `<button class="add-ex-btn" onclick="openAddExSheet()">＋  Add Exercise</button>`;
+
+  // Overall session footer
+  html += `
+    <div class="divider"></div>
+    <div class="form-section-label">Session Summary (optional)</div>
+    <div class="session-meta-row">
+      <div class="sf">
+        <label style="display:block;font-size:10px;color:var(--muted);text-align:center;margin-bottom:3px">Overall RPE</label>
+        <input type="number" step="0.5" min="1" max="10" inputmode="decimal"
+          id="overall-rpe" placeholder="—"
+          style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:16px;text-align:center;padding:9px 2px">
+      </div>
+      <div class="notes-wrap">
+        <label>Session notes</label>
+        <textarea class="notes-input" id="session-notes" style="height:40px"
+          placeholder="How'd it feel? Anything worth noting…"></textarea>
+      </div>
+    </div>`;
+
   body.innerHTML = html;
 }
 
-function updateEntry(itemId, field, value) { S.logEntries[itemId][field] = value; }
-function updateAdded(idx, field, value)    { S.addedItems[idx][field] = value; }
-
-function toggleSkip(itemId) {
-  S.logEntries[itemId].skipped = !S.logEntries[itemId].skipped;
-  renderSessionBody();
+// ── Set row helpers ───────────────────────────────────────────────────────────
+function buildSetRows(key, count, disabled) {
+  let html = '';
+  for (let i = 0; i < count; i++) {
+    html += buildOneSetRow(key, i, disabled);
+  }
+  return html;
 }
 
-function removeAdded(idx) {
-  S.addedItems.splice(idx, 1);
-  renderSessionBody();
+function buildOneSetRow(key, idx, disabled) {
+  const dis = disabled ? 'disabled' : '';
+  return `
+    <div class="set-row" id="setrow-${key}-${idx}">
+      <span class="set-num">S${idx+1}</span>
+      <div class="set-fields">
+        <div class="sf"><label>lb</label>
+          <input type="number" inputmode="decimal" id="load-${key}-${idx}"
+            placeholder="—" ${dis}></div>
+        <div class="sf"><label>reps</label>
+          <input type="number" inputmode="numeric" id="reps-${key}-${idx}"
+            placeholder="—" ${dis}></div>
+        <div class="sf"><label>RPE</label>
+          <input type="number" inputmode="decimal" step="0.5" min="1" max="10"
+            id="rpe-${key}-${idx}" placeholder="—" ${dis}></div>
+      </div>
+      <button class="set-del" onclick="removeSet('${key}',${idx})" ${dis}>×</button>
+    </div>`;
 }
 
-// ── Exercise sheet ─────────────────────────────────────────────
-function openSwap(itemId) {
-  S.sheetMode   = 'swap';
-  S.swapItemKey = itemId;
-  document.getElementById('sheet-title').textContent = 'Swap Exercise';
-  openSheet();
+// ── Add / remove sets (DOM manipulation, no full re-render) ───────────────────
+function addSet(key, entityId, isAdded) {
+  // Get current count
+  const wrap = document.getElementById(`sets-${key}`);
+  const currentRows = wrap.querySelectorAll('.set-row').length;
+  const newIdx = currentRows;
+
+  // Update state
+  if (isAdded) {
+    const ae = S.addedExercises.find(a => String(a.localId) === String(entityId));
+    if (ae) ae.setCount = currentRows + 1;
+  } else {
+    if (S.exState[entityId]) S.exState[entityId].setCount = currentRows + 1;
+  }
+
+  // Append new row to DOM
+  wrap.insertAdjacentHTML('beforeend', buildOneSetRow(key, newIdx, false));
 }
 
-function openAdd() {
-  S.sheetMode   = 'add';
-  S.swapItemKey = null;
-  document.getElementById('sheet-title').textContent = 'Add Exercise';
-  openSheet();
+function removeSet(key, idx) {
+  const wrap = document.getElementById(`sets-${key}`);
+  if (!wrap) return;
+  const rows = wrap.querySelectorAll('.set-row');
+  if (rows.length <= 1) { toast('Need at least one set row — use Skip instead.'); return; }
+
+  // Collect all current values before removing
+  const data = [];
+  rows.forEach((row, i) => {
+    if (i === idx) return; // skip the one being deleted
+    data.push({
+      load: document.getElementById(`load-${key}-${i}`)?.value || '',
+      reps: document.getElementById(`reps-${key}-${i}`)?.value || '',
+      rpe:  document.getElementById(`rpe-${key}-${i}`)?.value  || '',
+    });
+  });
+
+  // Re-render set rows with collected data
+  let html = '';
+  data.forEach((d, i) => {
+    html += buildOneSetRow(key, i, false);
+  });
+  wrap.innerHTML = html;
+
+  // Re-fill values
+  data.forEach((d, i) => {
+    const lEl = document.getElementById(`load-${key}-${i}`);
+    const rEl = document.getElementById(`reps-${key}-${i}`);
+    const pEl = document.getElementById(`rpe-${key}-${i}`);
+    if (lEl) lEl.value = d.load;
+    if (rEl) rEl.value = d.reps;
+    if (pEl) pEl.value = d.rpe;
+  });
 }
 
-function openSheet() {
-  document.getElementById('sheet-search').value = '';
-  renderSheetList(S.exerciseLib);
-  document.getElementById('sheet-overlay').classList.add('open');
-  document.getElementById('exercise-sheet').classList.add('open');
-  setTimeout(() => document.getElementById('sheet-search').focus(), 300);
+// ── Skip / unskip exercise (DOM in-place) ─────────────────────────────────────
+function toggleSkip(peId) {
+  const st = S.exState[peId];
+  if (!st) return;
+  st.skipped = !st.skipped;
+
+  const key  = `p-${peId}`;
+  const card = document.getElementById(`ex-card-${key}`);
+  const btn  = card.querySelector('.skip-btn');
+  const addBtn = document.getElementById(`addbtn-${key}`);
+  const notes  = document.getElementById(`notes-${key}`);
+
+  // Disable/enable all inputs in sets-wrap
+  card.querySelectorAll(`#sets-${key} input, #sets-${key} button`).forEach(el => {
+    el.disabled = st.skipped;
+  });
+  if (addBtn)  { addBtn.disabled = st.skipped; addBtn.style.opacity = st.skipped ? '.3' : '1'; }
+  if (notes)   { notes.disabled = st.skipped; }
+
+  card.classList.toggle('skipped', st.skipped);
+  btn.classList.toggle('skipped', st.skipped);
+  btn.textContent = st.skipped ? 'Skipped ✓' : 'Skip';
 }
 
-function closeSheet() {
-  document.getElementById('sheet-overlay').classList.remove('open');
-  document.getElementById('exercise-sheet').classList.remove('open');
+// ── Exercise sheet (swap / add) ───────────────────────────────────────────────
+function openSwap(peId) {
+  S.sheetMode  = 'swap';
+  S.swapExKey  = peId;
+  document.getElementById('ex-sheet-title').textContent = 'Swap Exercise';
+  openExSheet();
 }
 
-function filterExercises(query) {
-  const q = query.toLowerCase();
-  const filtered = q ? S.exerciseLib.filter(e => e.name.toLowerCase().includes(q)) : S.exerciseLib;
-  renderSheetList(filtered);
+function openAddExSheet() {
+  S.sheetMode = 'add';
+  S.swapExKey = null;
+  document.getElementById('ex-sheet-title').textContent = 'Add Exercise';
+  openExSheet();
 }
 
-function renderSheetList(list) {
-  document.getElementById('sheet-list').innerHTML = list.map(ex => `
-    <div class="sheet-item" onclick="selectExercise('${ex.id}','${ex.name.replace(/'/g,"\\'")}')">
+function openExSheet() {
+  document.getElementById('ex-search').value = '';
+  renderExList(S.exerciseLib);
+  document.getElementById('ex-overlay').classList.add('open');
+  document.getElementById('ex-sheet').classList.add('open');
+  setTimeout(() => document.getElementById('ex-search').focus(), 300);
+}
+
+function closeExSheet() {
+  document.getElementById('ex-overlay').classList.remove('open');
+  document.getElementById('ex-sheet').classList.remove('open');
+}
+
+function filterExercises(q) {
+  const lower = q.toLowerCase();
+  const list  = q ? S.exerciseLib.filter(e => e.name.toLowerCase().includes(lower)) : S.exerciseLib;
+  renderExList(list);
+}
+
+function renderExList(list) {
+  document.getElementById('ex-list').innerHTML = list.map(ex => `
+    <div class="sheet-item"
+      onclick="selectExercise('${ex.id}','${ex.name.replace(/'/g,"\\'").replace(/"/g,"&quot;")}')">
       <div class="sheet-item-name">${ex.name}</div>
-      <div class="sheet-item-meta">${ex.movement_pattern || ''} · ${ex.category || ''}</div>
+      <div class="sheet-item-meta">${ex.movement_pattern||''} · ${ex.category||''}</div>
     </div>`).join('');
 }
 
 function selectExercise(exId, exName) {
-  closeSheet();
-  if (S.sheetMode === 'swap' && S.swapItemKey) {
-    S.logEntries[S.swapItemKey].swappedTo = { id: exId, name: exName };
-    renderSessionBody();
+  closeExSheet();
+  if (S.sheetMode === 'swap' && S.swapExKey) {
+    const st = S.exState[S.swapExKey];
+    if (st) st.swappedTo = { id: exId, name: exName };
+    // Update name in DOM in-place
+    const key  = `p-${S.swapExKey}`;
+    const card = document.getElementById(`ex-card-${key}`);
+    if (card) {
+      card.querySelector('.ex-name').textContent = exName;
+      // Add or update swap note
+      let swapNote = card.querySelector('.ex-swap-note');
+      const origName = S.plannedExercises.find(pe => pe.id === S.swapExKey)?.exercise?.name || '';
+      if (!swapNote) {
+        card.querySelector('.ex-header').insertAdjacentHTML(
+          'afterend', `<div class="ex-swap-note">↕ swapped from ${origName}</div>`);
+      }
+    }
   } else if (S.sheetMode === 'add') {
-    S.addedItems.push({ exercise: { id: exId, name: exName }, load:'', reps:'', sets:'', rpe:'', notes:'' });
-    renderSessionBody();
+    const localId = ++S.addedCounter;
+    S.addedExercises.push({ localId, exId, exName, setCount: 1 });
+    // Append new card to session body before the "Add Exercise" button
+    const addBtn = document.querySelector('.add-ex-btn');
+    const key = `a-${localId}`;
+    const newCardHtml = `
+      <div class="ex-card added-card" id="ex-card-${key}">
+        <div class="ex-header">
+          <span class="ex-name">${exName}</span>
+          <span style="font-size:11px;color:var(--accent)">+ ADDED</span>
+        </div>
+        <div class="sets-wrap" id="sets-${key}">${buildOneSetRow(key, 0, false)}</div>
+        <button class="add-set-btn" onclick="addSet('${key}','${localId}',true)">
+          ＋ Add Set</button>
+        <textarea class="notes-input" id="notes-${key}" placeholder="Notes…"></textarea>
+        <div class="ex-footer">
+          <button class="remove-btn" onclick="removeAdded('${localId}')">Remove</button>
+        </div>
+      </div>`;
+    addBtn.insertAdjacentHTML('beforebegin', newCardHtml);
   }
 }
 
-// ── Submit session ─────────────────────────────────────────────
+function removeAdded(localId) {
+  S.addedExercises = S.addedExercises.filter(a => String(a.localId) !== String(localId));
+  const card = document.getElementById(`ex-card-a-${localId}`);
+  if (card) card.remove();
+}
+
+// ── Submit strength session ───────────────────────────────────────────────────
 async function submitSession() {
   const btn = document.getElementById('submit-btn');
   btn.disabled = true;
   btn.textContent = 'Saving…';
 
   try {
-    // 1. Create workout_log record
-    const { data: logRecord, error: logErr } = await db.from('workout_logs').insert({
-      athlete_id:     S.athlete.id,
-      session_id:     S.activeSession.id,
-      completed_date: new Date().toISOString().split('T')[0],
+    const overallRpe   = parseFloat(document.getElementById('overall-rpe').value)  || null;
+    const sessionNotes = document.getElementById('session-notes').value.trim() || null;
+
+    // 1. Create completed_session
+    const { data: cs, error: csErr } = await db.from('completed_sessions').insert({
+      athlete_id:         S.athlete.id,
+      planned_session_id: S.activeSession.id,
+      session_date:       today(),
+      week_of:            S.cycle.start_date,
+      session_type:       S.activeSession.session_type,
+      status:             'completed',
+      overall_rpe:        overallRpe,
+      session_notes:      sessionNotes,
     }).select().single();
 
-    if (logErr) throw logErr;
+    if (csErr) throw csErr;
+    S.completedSessionId = cs.id;
 
-    // 2. Build logged_sets rows
-    const sets = [];
+    // 2. Build completed_strength_sets rows
+    const rows = [];
 
-    // Prescribed items
-    for (const [itemId, entry] of Object.entries(S.logEntries)) {
-      const item = S.prescribedItems.find(p => p.id === itemId);
-      if (!item) continue;
-      const exId = entry.swappedTo ? entry.swappedTo.id : item.exercise.id;
-      sets.push({
-        workout_log_id:      logRecord.id,
-        prescribed_item_id:  itemId,
-        exercise_id:         exId,
-        is_swap:             !!entry.swappedTo,
-        original_exercise_id: entry.swappedTo ? item.exercise.id : null,
-        is_skipped:          entry.skipped || false,
-        actual_load:         entry.load   ? parseFloat(entry.load)   : null,
-        actual_reps:         entry.reps   ? parseInt(entry.reps)     : null,
-        actual_sets:         entry.sets   ? parseInt(entry.sets)     : null,
-        actual_rpe:          entry.rpe    ? parseFloat(entry.rpe)    : null,
-        notes:               entry.notes  || null,
-      });
+    // Prescribed exercises
+    for (const pe of S.plannedExercises) {
+      const st  = S.exState[pe.id] || {};
+      const key = `p-${pe.id}`;
+      const exId = st.swappedTo ? st.swappedTo.id : pe.exercise.id;
+      const notes = (document.getElementById(`notes-${key}`)?.value || '').trim() || null;
+
+      if (st.skipped) {
+        // Log skipped as one row
+        rows.push({
+          completed_session_id: cs.id,
+          planned_exercise_id:  pe.id,
+          exercise_id:          exId,
+          is_swap:              !!st.swappedTo,
+          original_exercise_id: st.swappedTo ? pe.exercise.id : null,
+          is_skipped:           true,
+          set_number:           1,
+          notes:                notes,
+        });
+        continue;
+      }
+
+      const setCount = document.getElementById(`sets-${key}`)?.querySelectorAll('.set-row').length || 1;
+      for (let i = 0; i < setCount; i++) {
+        const load = parseFloat(document.getElementById(`load-${key}-${i}`)?.value) || null;
+        const reps = parseInt(document.getElementById(`reps-${key}-${i}`)?.value)   || null;
+        const rpe  = parseFloat(document.getElementById(`rpe-${key}-${i}`)?.value)  || null;
+        rows.push({
+          completed_session_id: cs.id,
+          planned_exercise_id:  pe.id,
+          exercise_id:          exId,
+          is_swap:              !!st.swappedTo,
+          original_exercise_id: st.swappedTo ? pe.exercise.id : null,
+          is_skipped:           false,
+          set_number:           i + 1,
+          actual_load:          load,
+          actual_reps:          reps,
+          actual_rpe:           rpe,
+          notes:                i === 0 ? notes : null,
+        });
+      }
     }
 
-    // Added items
-    for (const added of S.addedItems) {
-      sets.push({
-        workout_log_id: logRecord.id,
-        exercise_id:    added.exercise.id,
-        is_added:       true,
-        actual_load:    added.load  ? parseFloat(added.load)  : null,
-        actual_reps:    added.reps  ? parseInt(added.reps)    : null,
-        actual_sets:    added.sets  ? parseInt(added.sets)    : null,
-        actual_rpe:     added.rpe   ? parseFloat(added.rpe)   : null,
-        notes:          added.notes || null,
-      });
+    // Added exercises
+    for (const ae of S.addedExercises) {
+      const key   = `a-${ae.localId}`;
+      const notes = (document.getElementById(`notes-${key}`)?.value || '').trim() || null;
+      const setCount = document.getElementById(`sets-${key}`)?.querySelectorAll('.set-row').length || 1;
+      for (let i = 0; i < setCount; i++) {
+        const load = parseFloat(document.getElementById(`load-${key}-${i}`)?.value) || null;
+        const reps = parseInt(document.getElementById(`reps-${key}-${i}`)?.value)   || null;
+        const rpe  = parseFloat(document.getElementById(`rpe-${key}-${i}`)?.value)  || null;
+        rows.push({
+          completed_session_id: cs.id,
+          exercise_id:          ae.exId,
+          is_added:             true,
+          is_skipped:           false,
+          set_number:           i + 1,
+          actual_load:          load,
+          actual_reps:          reps,
+          actual_rpe:           rpe,
+          notes:                i === 0 ? notes : null,
+        });
+      }
     }
 
-    if (sets.length) {
-      const { error: setsErr } = await db.from('logged_sets').insert(sets);
-      if (setsErr) throw setsErr;
+    if (rows.length) {
+      const { error: rowsErr } = await db.from('completed_strength_sets').insert(rows);
+      if (rowsErr) throw rowsErr;
     }
 
-    showScreen('success');
-    // Refresh sessions list in background
+    // Refresh week in background
     loadProgram();
+
+    // Route: conditioning or success
+    if (S.activeSession.includes_conditioning) {
+      openConditioningScreen();
+    } else {
+      showSuccess('Session Logged', 'Strength work saved. Great effort.');
+    }
 
   } catch (err) {
     console.error(err);
-    toast('Error saving session. Try again.', 4000);
+    toast('Error saving session. Check connection and try again.', 4000);
     btn.disabled = false;
     btn.textContent = 'Submit Session';
   }
 }
 
-// ── Boot ───────────────────────────────────────────────────────
+// ── Conditioning screen ───────────────────────────────────────────────────────
+function openConditioningScreen() {
+  const pc = S.plannedConditioning;
+  let planHtml = '';
+  if (pc) {
+    const hrRange = (pc.target_hr_low && pc.target_hr_high)
+      ? `${pc.target_hr_low}–${pc.target_hr_high} bpm` : '—';
+    planHtml = `
+      <div class="cond-plan">
+        <div class="cond-plan-label">Planned</div>
+        <div class="cond-plan-val">${pc.modality || '—'} · ${pc.workout_type || '—'}</div>
+        <div class="cond-plan-sub">
+          ${pc.target_duration_min ? `Target: ${pc.target_duration_min} min` : ''}
+          ${pc.target_hr_low ? `· HR: ${hrRange}` : ''}
+        </div>
+        ${pc.coach_notes ? `<div class="cond-plan-sub" style="color:var(--accent);margin-top:6px">${pc.coach_notes}</div>` : ''}
+      </div>`;
+  }
+
+  document.getElementById('cond-sub').textContent =
+    pc ? `${pc.modality || ''} — ${pc.workout_type || ''}` : 'Log actual conditioning';
+
+  document.getElementById('cond-body').innerHTML = `
+    ${planHtml}
+    <div class="form-section-label">Actual</div>
+    <div class="form-grid">
+      <div class="form-field">
+        <label>Modality</label>
+        <input type="text" id="cond-modality" placeholder="${pc?.modality || 'Echo Bike…'}"
+          value="${pc?.modality || ''}">
+      </div>
+      <div class="form-field">
+        <label>Duration (min)</label>
+        <input type="number" inputmode="decimal" id="cond-duration"
+          placeholder="${pc?.target_duration_min || '—'}">
+      </div>
+      <div class="form-field">
+        <label>Avg HR (bpm)</label>
+        <input type="number" inputmode="numeric" id="cond-avg-hr" placeholder="—">
+      </div>
+      <div class="form-field">
+        <label>Max HR (bpm)</label>
+        <input type="number" inputmode="numeric" id="cond-max-hr" placeholder="—">
+      </div>
+      <div class="form-field">
+        <label>HR Zone</label>
+        <input type="text" id="cond-zone" placeholder="Zone 2 / AeT…">
+      </div>
+      <div class="form-field">
+        <label>RPE</label>
+        <input type="number" step="0.5" min="1" max="10" inputmode="decimal"
+          id="cond-rpe" placeholder="—">
+      </div>
+      <div class="form-field wide">
+        <label>Notes</label>
+        <textarea id="cond-notes" placeholder="How it felt, any issues…"></textarea>
+      </div>
+    </div>`;
+
+  showScreen('conditioning');
+}
+
+async function submitConditioning() {
+  const btn = document.getElementById('cond-submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+
+  try {
+    const pc = S.plannedConditioning;
+    await db.from('completed_conditioning').insert({
+      athlete_id:           S.athlete.id,
+      completed_session_id: S.completedSessionId,
+      conditioning_date:    today(),
+      week_of:              S.cycle.start_date,
+      conditioning_system:  S.cycle.conditioning_system,
+      conditioning_phase:   S.cycle.conditioning_phase,
+      modality:             document.getElementById('cond-modality').value.trim() || pc?.modality || null,
+      workout_type:         pc?.workout_type || null,
+      adaptation_category:  pc?.workout_type?.includes('Steady') ? 'Aerobic Endurance' : null,
+      is_planned:           !!pc,
+      duration_minutes:     parseFloat(document.getElementById('cond-duration').value)  || null,
+      avg_heart_rate:       parseInt(document.getElementById('cond-avg-hr').value)       || null,
+      max_heart_rate:       parseInt(document.getElementById('cond-max-hr').value)       || null,
+      heart_rate_zone:      document.getElementById('cond-zone').value.trim()            || null,
+      rpe:                  parseFloat(document.getElementById('cond-rpe').value)        || null,
+      notes:                document.getElementById('cond-notes').value.trim()           || null,
+    });
+    showSuccess('Session + Conditioning Logged', 'All data saved. Good work.');
+  } catch (err) {
+    console.error(err);
+    toast('Error saving conditioning. Try again.', 4000);
+    btn.disabled = false;
+    btn.textContent = 'Log Conditioning';
+  }
+}
+
+function skipConditioning() {
+  showSuccess('Strength Session Logged', 'Conditioning skipped. Strength data saved.');
+}
+
+function showSuccess(title, sub) {
+  document.getElementById('success-title').textContent = title;
+  document.getElementById('success-sub').textContent   = sub;
+  showScreen('success');
+}
+
+// ── Readiness screen ──────────────────────────────────────────────────────────
+function openReadiness() {
+  document.getElementById('ready-date').textContent = today();
+  document.getElementById('ready-body').innerHTML = `
+    <div class="form-section-label">Recovery & Readiness (1–10)</div>
+    <div class="form-grid">
+      <div class="form-field"><label>Energy</label>
+        <input type="number" min="1" max="10" inputmode="numeric" id="r-energy" placeholder="1–10"></div>
+      <div class="form-field"><label>Soreness</label>
+        <input type="number" min="1" max="10" inputmode="numeric" id="r-soreness" placeholder="1–10"></div>
+      <div class="form-field"><label>Stress</label>
+        <input type="number" min="1" max="10" inputmode="numeric" id="r-stress" placeholder="1–10"></div>
+      <div class="form-field"><label>Motivation</label>
+        <input type="number" min="1" max="10" inputmode="numeric" id="r-motivation" placeholder="1–10"></div>
+    </div>
+    <div class="form-section-label">Metrics</div>
+    <div class="form-grid">
+      <div class="form-field"><label>Sleep (hrs)</label>
+        <input type="number" step="0.5" inputmode="decimal" id="r-sleep" placeholder="—"></div>
+      <div class="form-field"><label>Bodyweight (lb)</label>
+        <input type="number" step="0.1" inputmode="decimal" id="r-bw" placeholder="—"></div>
+      <div class="form-field wide"><label>Waist (inches)</label>
+        <input type="number" step="0.25" inputmode="decimal" id="r-waist" placeholder="—"></div>
+    </div>
+    <div class="form-section-label">Notes</div>
+    <div class="form-grid">
+      <div class="form-field wide">
+        <textarea id="r-notes" placeholder="Anything else worth noting…"></textarea>
+      </div>
+    </div>`;
+  showScreen('readiness');
+}
+
+async function submitReadiness() {
+  const energy    = parseInt(document.getElementById('r-energy').value)    || null;
+  const soreness  = parseInt(document.getElementById('r-soreness').value)  || null;
+  const stress    = parseInt(document.getElementById('r-stress').value)    || null;
+  const motivation= parseInt(document.getElementById('r-motivation').value)|| null;
+  const sleep     = parseFloat(document.getElementById('r-sleep').value)   || null;
+  const bw        = parseFloat(document.getElementById('r-bw').value)      || null;
+  const waist     = parseFloat(document.getElementById('r-waist').value)   || null;
+  const notes     = document.getElementById('r-notes').value.trim()        || null;
+
+  try {
+    await db.from('readiness_logs').insert({
+      athlete_id:    S.athlete.id,
+      log_date:      today(),
+      energy, soreness, stress, motivation,
+      sleep_hours:   sleep,
+      bodyweight_lbs:bw,
+      waist_inches:  waist,
+      notes,
+    });
+    toast('Readiness logged ✓');
+    showScreen('week');
+  } catch (err) {
+    console.error(err);
+    toast('Error saving readiness. Try again.', 4000);
+  }
+}
+
+// ── Pain sheet ────────────────────────────────────────────────────────────────
+function openPainSheet() {
+  document.getElementById('pain-overlay').classList.add('open');
+  document.getElementById('pain-sheet').classList.add('open');
+}
+
+function closePainSheet() {
+  document.getElementById('pain-overlay').classList.remove('open');
+  document.getElementById('pain-sheet').classList.remove('open');
+}
+
+async function submitPain() {
+  const region   = document.getElementById('pain-region').value;
+  const score    = parseInt(document.getElementById('pain-score').value)   || null;
+  const status   = document.getElementById('pain-status').value;
+  const modified = document.getElementById('pain-modified').value === 'true';
+  const trigger  = document.getElementById('pain-trigger').value.trim()    || null;
+  const notes    = document.getElementById('pain-notes').value.trim()      || null;
+
+  if (!region) { toast('Please select a body region.'); return; }
+
+  try {
+    await db.from('pain_injury_logs').insert({
+      athlete_id:       S.athlete.id,
+      log_date:         today(),
+      body_region:      region,
+      pain_score:       score,
+      status:           status,
+      modified_training:modified,
+      trigger:          trigger,
+      notes:            notes,
+    });
+    toast('Pain log saved ✓');
+    closePainSheet();
+  } catch (err) {
+    console.error(err);
+    toast('Error saving pain log. Try again.', 4000);
+  }
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
 (async () => {
   const { data: { session } } = await db.auth.getSession();
-  if (session?.user) {
-    await onLogin(session.user);
-  }
-  // Listen for auth changes
-  db.auth.onAuthStateChange(async (event, session) => {
+  if (session?.user) await onLogin(session.user);
+  db.auth.onAuthStateChange(async (event) => {
     if (event === 'SIGNED_OUT') showScreen('login');
   });
 })();
