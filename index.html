@@ -220,6 +220,20 @@
       max-height: 72vh; display: flex; flex-direction: column;
       transform: translateY(100%); transition: transform .25s ease; }
     .sheet.open { transform: translateY(0); }
+
+    /* Exercise history sheet */
+    .hist-session { padding: 12px 4px; border-bottom: 1px solid var(--border); }
+    .hist-session:last-child { border-bottom: none; }
+    .hist-session-header { font-size: 12px; color: var(--muted); margin-bottom: 8px;
+      font-weight: 600; letter-spacing: .3px; }
+    .hist-set-row { display: flex; align-items: center; gap: 8px; padding: 5px 0;
+      font-size: 14px; color: var(--text); }
+    .hist-set-row .set-num { font-size: 11px; color: var(--muted); min-width: 24px;
+      text-align: center; flex-shrink: 0; }
+    .hist-set-row.top-set { color: var(--accent); font-weight: 700; }
+    .hist-e1rm { font-size: 11px; color: var(--muted); margin-left: auto; flex-shrink: 0; }
+    .hist-set-row.top-set .hist-e1rm { color: var(--accent); }
+    .hist-empty { padding: 32px 16px; text-align: center; color: var(--muted); font-size: 14px; }
     .sheet-handle { width: 40px; height: 4px; background: var(--border);
       border-radius: 2px; margin: 0 auto 16px; }
     .sheet-title  { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
@@ -426,6 +440,14 @@
     <button class="btn" style="margin-top:8px" onclick="submitPain()">Save Pain Log</button>
     <button class="btn secondary" onclick="closePainSheet()">Cancel</button>
   </div>
+</div>
+
+<!-- ══════════════════ EXERCISE HISTORY SHEET ══════════════════ -->
+<div class="sheet-overlay" id="hist-overlay" onclick="closeHistorySheet()"></div>
+<div class="sheet" id="hist-sheet" style="max-height:78vh">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title" id="hist-title">Exercise History</div>
+  <div class="sheet-list" id="hist-body"></div>
 </div>
 
 <!-- ══════════════════ JAVASCRIPT ══════════════════ -->
@@ -696,12 +718,13 @@ function renderSessionBody() {
     const savedSets = S.savedExercises[pe.id];
     if (savedSets) {
       // Already saved — render read-only card
-      html += buildSavedExCard(`p-${pe.id}`, pe.exercise.name, savedSets, pe.superset_group);
+      html += buildSavedExCard(`p-${pe.id}`, pe.exercise.name, pe.exercise.id, savedSets, pe.superset_group);
     } else {
       // Editable card
       const st     = S.exState[pe.id];
       const ex     = pe.exercise;
       const exName = st.swappedTo ? st.swappedTo.name : ex.name;
+      const exId   = st.swappedTo ? st.swappedTo.id  : ex.id;
 
       const groupHtml = pe.superset_group
         ? `<div class="ex-group">SUPERSET ${pe.superset_group.toUpperCase()}</div>` : '';
@@ -724,12 +747,13 @@ function renderSessionBody() {
       if (pe.coach_notes) targetHtml += (targetHtml ? '<br>' : '') + `<em>${pe.coach_notes}</em>`;
 
       const setRowsHtml = buildSetRows(`p-${pe.id}`, st.setCount, st.skipped);
+      const safeExName  = exName.replace(/'/g, "\\'");
 
       html += `
         <div class="ex-card ${st.skipped ? 'skipped' : ''}" id="ex-card-p-${pe.id}">
           ${groupHtml}
           <div class="ex-header">
-            <span class="ex-name" onclick="openSwap('${pe.id}')">${exName}</span>
+            <span class="ex-name" onclick="openExerciseHistory('${exId}','${safeExName}')">${exName}</span>
             <span class="ex-swap" onclick="openSwap('${pe.id}')">⇄ swap</span>
           </div>
           ${swapNoteHtml}
@@ -802,9 +826,10 @@ function renderSessionBody() {
 }
 
 // ── Build saved (read-only) exercise card ─────────────────────────────────────
-function buildSavedExCard(key, exName, sets, supersetGroup) {
-  const groupHtml = supersetGroup
+function buildSavedExCard(key, exName, exId, sets, supersetGroup) {
+  const groupHtml  = supersetGroup
     ? `<div class="ex-group">SUPERSET ${supersetGroup.toUpperCase()}</div>` : '';
+  const safeExName = exName.replace(/'/g, "\\'");
 
   const isSkipped = sets.length === 1 && sets[0].is_skipped;
   let setsHtml;
@@ -846,7 +871,7 @@ function buildSavedExCard(key, exName, sets, supersetGroup) {
     <div class="ex-card saved-card" id="ex-card-${key}">
       ${groupHtml}
       <div class="ex-header">
-        <span class="ex-name">${exName}</span>
+        <span class="ex-name" onclick="openExerciseHistory('${exId}','${safeExName}')">${exName}</span>
         <span class="saved-badge">✓ Saved</span>
       </div>
       ${setsHtml}${noteHtml}
@@ -931,7 +956,8 @@ async function saveExercise(peId) {
     const card = document.getElementById(`ex-card-${key}`);
     if (card) {
       const exName = st.swappedTo ? st.swappedTo.name : pe.exercise.name;
-      card.outerHTML = buildSavedExCard(key, exName, rows.map((r,i) => ({
+      const exIdSaved = st.swappedTo ? st.swappedTo.id : pe.exercise.id;
+      card.outerHTML = buildSavedExCard(key, exName, exIdSaved, rows.map((r,i) => ({
         set_number:  i + 1,
         actual_load: r.actual_load,
         actual_reps: r.actual_reps,
@@ -1007,7 +1033,7 @@ async function saveAddedExercise(localId) {
     S.savedExercises[localId] = rows;
     const card = document.getElementById(`ex-card-${key}`);
     if (card) {
-      card.outerHTML = buildSavedExCard(key, ae.exName, rows.map((r,i) => ({
+      card.outerHTML = buildSavedExCard(key, ae.exName, ae.exId, rows.map((r,i) => ({
         set_number:  i + 1,
         actual_load: r.actual_load,
         actual_reps: r.actual_reps,
@@ -1021,6 +1047,120 @@ async function saveAddedExercise(localId) {
     console.error(err);
     toast('Error saving. Check connection and try again.', 4000);
     if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+  }
+}
+
+// ── Exercise history panel ────────────────────────────────────────────────────
+function epley(load, reps) {
+  if (!load || !reps || reps < 1 || reps > 12) return null;
+  return Math.round(load * (1 + reps / 30));
+}
+
+async function openExerciseHistory(exId, exName) {
+  document.getElementById('hist-title').textContent = exName;
+  document.getElementById('hist-body').innerHTML =
+    '<div style="padding:32px;text-align:center;color:var(--muted);font-size:14px">Loading…</div>';
+  document.getElementById('hist-overlay').classList.add('open');
+  document.getElementById('hist-sheet').classList.add('open');
+  await loadExerciseHistory(exId);
+}
+
+function closeHistorySheet() {
+  document.getElementById('hist-overlay').classList.remove('open');
+  document.getElementById('hist-sheet').classList.remove('open');
+}
+
+async function loadExerciseHistory(exId) {
+  const body = document.getElementById('hist-body');
+  try {
+    // Step 1: get the athlete's recent completed sessions (last 20)
+    const { data: recentSessions } = await db.from('completed_sessions')
+      .select('id,session_date,session_type')
+      .eq('athlete_id', S.athlete.id)
+      .eq('status', 'completed')
+      .order('session_date', { ascending: false })
+      .limit(20);
+
+    if (!recentSessions || recentSessions.length === 0) {
+      body.innerHTML = '<div class="hist-empty">No sessions logged yet.</div>';
+      return;
+    }
+
+    const sessionIds  = recentSessions.map(s => s.id);
+    const sessionMap  = {};
+    recentSessions.forEach(s => { sessionMap[s.id] = s; });
+
+    // Step 2: get all non-skipped sets for this exercise from those sessions
+    const { data: sets } = await db.from('completed_strength_sets')
+      .select('completed_session_id,set_number,actual_load,actual_reps,actual_rpe')
+      .eq('exercise_id', exId)
+      .eq('is_skipped', false)
+      .in('completed_session_id', sessionIds)
+      .order('set_number');
+
+    if (!sets || sets.length === 0) {
+      body.innerHTML = '<div class="hist-empty">No history found for this exercise.</div>';
+      return;
+    }
+
+    // Group by session, take 3 most recent
+    const groups = {};
+    sets.forEach(s => {
+      if (!groups[s.completed_session_id]) groups[s.completed_session_id] = [];
+      groups[s.completed_session_id].push(s);
+    });
+
+    const history = Object.keys(groups)
+      .map(csId => ({ ...sessionMap[csId], sets: groups[csId] }))
+      .filter(s => s.session_date)
+      .sort((a, b) => b.session_date.localeCompare(a.session_date))
+      .slice(0, 3);
+
+    if (history.length === 0) {
+      body.innerHTML = '<div class="hist-empty">No history found for this exercise.</div>';
+      return;
+    }
+
+    let html = '';
+    history.forEach(sess => {
+      const d = new Date(sess.session_date + 'T00:00:00');
+      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+      // Find top set by e1RM (or highest load if reps > 12)
+      let topIdx  = 0;
+      let topE1RM = 0;
+      sess.sets.forEach((s, i) => {
+        const e = epley(s.actual_load, s.actual_reps);
+        if (e && e > topE1RM) { topE1RM = e; topIdx = i; }
+        else if (!e && s.actual_load && s.actual_load > topE1RM) { topE1RM = s.actual_load; topIdx = i; }
+      });
+
+      html += `<div class="hist-session">
+        <div class="hist-session-header">${dateStr}  ·  ${sess.session_type || 'Session'}</div>`;
+
+      sess.sets.forEach((s, i) => {
+        const load   = s.actual_load != null ? `${s.actual_load} lb` : '—';
+        const reps   = s.actual_reps != null ? `${s.actual_reps} reps` : '—';
+        const rpe    = s.actual_rpe  != null ? ` · RPE ${s.actual_rpe}` : '';
+        const e1rm   = epley(s.actual_load, s.actual_reps);
+        const isTop  = i === topIdx;
+        const e1rmHtml = e1rm
+          ? `<span class="hist-e1rm">e1RM ${e1rm}</span>` : '';
+        html += `
+          <div class="hist-set-row ${isTop ? 'top-set' : ''}">
+            <span class="set-num">S${s.set_number}</span>
+            <span>${load} · ${reps}${rpe}</span>
+            ${e1rmHtml}
+          </div>`;
+      });
+
+      html += `</div>`;
+    });
+
+    body.innerHTML = html;
+  } catch (err) {
+    console.error(err);
+    body.innerHTML = '<div class="hist-empty" style="color:var(--danger)">Error loading history.</div>';
   }
 }
 
