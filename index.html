@@ -271,6 +271,10 @@
     .util-btn:active { background: var(--surface2); }
     .util-btn .util-icon { font-size: 18px; display: block; margin-bottom: 4px; }
 
+    /* Ad-hoc session card */
+    .card.adhoc-card { border-style: dashed; border-color: var(--border); }
+    .card.adhoc-card:active { background: var(--surface2); }
+
     /* Misc */
     .spinner  { text-align: center; padding: 48px; color: var(--muted); font-size: 14px; }
     .divider  { height: 1px; background: var(--border); margin: 16px 0; }
@@ -442,6 +446,27 @@
   </div>
 </div>
 
+<!-- ══════════════════ NEW SESSION SHEET ══════════════════ -->
+<div class="sheet-overlay" id="new-sess-overlay" onclick="closeNewSessionSheet()"></div>
+<div class="sheet" id="new-sess-sheet" style="max-height:60vh">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">New Session</div>
+  <div class="form-section-label" style="margin-top:0">Session Type</div>
+  <select id="new-sess-type" class="sheet-search" style="margin-bottom:20px;font-size:15px">
+    <option value="Upper Max Effort">Upper Max Effort</option>
+    <option value="Lower Max Effort">Lower Max Effort</option>
+    <option value="Upper Dynamic Effort">Upper Dynamic Effort</option>
+    <option value="Lower Dynamic Effort">Lower Dynamic Effort</option>
+    <option value="Upper Repeated Effort" selected>Upper Repeated Effort</option>
+    <option value="Lower Repeated Effort">Lower Repeated Effort</option>
+    <option value="Full Body">Full Body</option>
+    <option value="Conditioning Only">Conditioning Only</option>
+    <option value="Open">Open</option>
+  </select>
+  <button class="btn" onclick="startAdHocSession()">Start Session</button>
+  <button class="btn secondary" style="margin-top:10px" onclick="closeNewSessionSheet()">Cancel</button>
+</div>
+
 <!-- ══════════════════ EXERCISE HISTORY SHEET ══════════════════ -->
 <div class="sheet-overlay" id="hist-overlay" onclick="closeHistorySheet()"></div>
 <div class="sheet" id="hist-sheet" style="max-height:78vh">
@@ -485,6 +510,7 @@ let S = {
   exerciseLib: [],
   sheetMode:   null,
   swapExKey:   null,
+  isAdHoc:     false,
 };
 
 function today() { return new Date().toISOString().split('T')[0]; }
@@ -542,7 +568,7 @@ async function doLogout() {
     activeSession:null, plannedExercises:[], plannedConditioning:null,
     activeCompletedSession:null, savedExercises:{},
     exState:{}, addedExercises:[], addedCounter:0,
-    exerciseLib:[], sheetMode:null, swapExKey:null };
+    exerciseLib:[], sheetMode:null, swapExKey:null, isAdHoc:false };
   showScreen('login');
 }
 
@@ -584,7 +610,9 @@ async function loadProgram() {
   const sessHtml = S.sessions.map(s => {
     const comp       = S.completed[s.id];
     const isCondOnly = s.session_type === 'Conditioning Only';
+    const isAdHoc    = s.session_order === null || s.session_order === undefined;
     const icon       = isCondOnly ? '🚴 ' : '';
+    const dayLabel   = isAdHoc ? 'Ad-hoc' : s.day_label;
     let statusBadge;
     if (!comp) {
       statusBadge = `<span class="badge badge-pending">Pending</span>`;
@@ -594,10 +622,10 @@ async function loadProgram() {
       statusBadge = `<span class="badge badge-done">✓ Logged</span>`;
     }
     return `
-      <div class="card tap" onclick="openSession('${s.id}')">
+      <div class="card tap ${isAdHoc ? 'adhoc-card' : ''}" onclick="openSession('${s.id}')">
         <div class="session-row">
           <div>
-            <div class="card-label">${s.day_label}</div>
+            <div class="card-label">${dayLabel}</div>
             <div class="card-title">${icon}${s.session_type || 'Session'}</div>
             <div class="session-meta">${statusBadge}</div>
           </div>
@@ -618,7 +646,10 @@ async function loadProgram() {
       <div class="util-btn" onclick="openPainSheet()">
         <span class="util-icon">🩹</span>Pain
       </div>
-    </div>`;
+    </div>
+    <button class="add-ex-btn" onclick="openNewSessionSheet()" style="margin-top:10px">
+      ➕  New Session
+    </button>`;
 
   body.innerHTML = sessHtml + utilHtml;
   showScreen('week');
@@ -711,6 +742,12 @@ function renderSessionBody() {
 
   if (S.activeSession.session_notes) {
     html += `<div class="info-card">📋 ${S.activeSession.session_notes}</div>`;
+  }
+
+  if (S.plannedExercises.length === 0) {
+    html += `<div class="info-card" style="border-color:var(--border);color:var(--muted)">
+      No exercises planned. Add exercises below, then tap Save on each before finishing.
+    </div>`;
   }
 
   // Planned exercises
@@ -1161,6 +1198,54 @@ async function loadExerciseHistory(exId) {
   } catch (err) {
     console.error(err);
     body.innerHTML = '<div class="hist-empty" style="color:var(--danger)">Error loading history.</div>';
+  }
+}
+
+// ── New session sheet ─────────────────────────────────────────────────────────
+function openNewSessionSheet() {
+  document.getElementById('new-sess-overlay').classList.add('open');
+  document.getElementById('new-sess-sheet').classList.add('open');
+}
+
+function closeNewSessionSheet() {
+  document.getElementById('new-sess-overlay').classList.remove('open');
+  document.getElementById('new-sess-sheet').classList.remove('open');
+}
+
+async function startAdHocSession() {
+  const sessionType = document.getElementById('new-sess-type').value;
+  closeNewSessionSheet();
+
+  document.getElementById('session-title').textContent = 'Today';
+  document.getElementById('session-sub').textContent   = sessionType;
+  document.getElementById('session-body').innerHTML    = '<div class="spinner">Starting session…</div>';
+  const btn = document.getElementById('submit-btn');
+  btn.disabled    = false;
+  btn.className   = 'btn';
+  btn.textContent = sessionType === 'Conditioning Only' ? 'Log Conditioning' : 'Finish Session';
+  showScreen('session');
+
+  try {
+    const dayLabel = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+    const { data: ps, error: psErr } = await db.from('planned_sessions').insert({
+      athlete_id:            S.athlete.id,
+      cycle_id:              S.cycle.id,
+      week_of:               S.cycle.start_date,
+      day_label:             dayLabel,
+      session_order:         null,
+      session_type:          sessionType,
+      includes_conditioning: sessionType === 'Conditioning Only',
+      session_notes:         null,
+    }).select().single();
+    if (psErr) throw psErr;
+
+    S.sessions.push(ps);
+    S.isAdHoc = true;
+    await openSession(ps.id);
+  } catch (err) {
+    console.error(err);
+    toast('Error starting session. Check connection.', 4000);
+    loadProgram();
   }
 }
 
