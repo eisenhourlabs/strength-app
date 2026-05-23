@@ -1524,6 +1524,17 @@ function renderConditioningSessionBody() {
           placeholder="${pc?.modality || 'Echo Bike…'}"
           value="${pc?.modality || ''}">
       </div>
+      ${!pc?.workout_type ? `
+      <div class="form-field">
+        <label>Type</label>
+        <select id="cond-type">
+          <option value="Steady State">Steady State</option>
+          <option value="Long Steady State">Long Steady State</option>
+          <option value="Intervals">Intervals</option>
+          <option value="Tempo">Tempo</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>` : ''}
       <div class="form-field">
         <label>Duration (min)</label>
         <input type="number" inputmode="decimal" id="cond-duration"
@@ -1572,7 +1583,9 @@ async function submitConditioningSession() {
     if (csErr) throw csErr;
 
     const pc          = S.plannedConditioning;
-    const workoutType = pc?.workout_type || null;
+    const workoutType = pc?.workout_type
+      || document.getElementById('cond-type')?.value
+      || null;
 
     await db.from('completed_conditioning').insert({
       athlete_id:           S.athlete.id,
