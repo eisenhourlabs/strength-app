@@ -220,7 +220,8 @@
 
     /* Movement pattern filter chips */
     .chip-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px;
-      margin-bottom: 6px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+      margin-bottom: 6px; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+      flex-shrink: 0; }
     .chip-row::-webkit-scrollbar { display: none; }
     .chip { padding: 5px 11px; border: 1px solid var(--border); border-radius: 20px;
       font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer;
@@ -257,7 +258,8 @@
     .sheet-title  { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
     .sheet-search { width: 100%; background: var(--surface2);
       border: 1px solid var(--border); border-radius: 10px;
-      color: var(--text); font-size: 16px; padding: 12px 14px; margin-bottom: 12px; }
+      color: var(--text); font-size: 16px; padding: 12px 14px; margin-bottom: 12px;
+      flex-shrink: 0; }
     .sheet-search:focus { outline: none; border-color: var(--accent); }
     .sheet-list { overflow-y: auto; flex: 1; }
     .sheet-item { padding: 13px 4px; border-bottom: 1px solid var(--border); cursor: pointer; }
@@ -579,20 +581,7 @@ function today() { return new Date().toISOString().split('T')[0]; }
 
 // ── Pattern filter state ──────────────────────────────────────────────────────
 let activePatternFilter = null;
-const PATTERN_CHIPS = [
-  { label: 'All',       value: null },
-  { label: 'H. Push',   value: 'Horizontal Push' },
-  { label: 'V. Push',   value: 'Vertical Push' },
-  { label: 'H. Pull',   value: 'Horizontal Pull' },
-  { label: 'V. Pull',   value: 'Vertical Pull' },
-  { label: 'Squat',     value: 'Squat' },
-  { label: 'Hinge',     value: 'Hinge' },
-  { label: 'Uni Lower', value: 'Unilateral Lower' },
-  { label: 'Trunk',     value: 'Trunk-Core' },
-  { label: 'Carry',     value: 'Carry' },
-  { label: 'Power',     value: 'Power-Olympic' },
-  { label: 'Cond',      value: 'Conditioning' },
-];
+
 
 // ── Screen navigation ─────────────────────────────────────────────────────────
 function showScreen(name) {
@@ -1808,7 +1797,11 @@ function closeExSheet() {
 }
 
 function renderChips() {
-  document.getElementById('pattern-chips').innerHTML = PATTERN_CHIPS.map(ch => {
+  const patterns = [...new Set(
+    S.exerciseLib.map(e => e.movement_pattern).filter(Boolean)
+  )].sort();
+  const chips = [{ label: 'All', value: null }, ...patterns.map(p => ({ label: p, value: p }))];
+  document.getElementById('pattern-chips').innerHTML = chips.map(ch => {
     const val    = ch.value === null ? 'null' : `'${ch.value}'`;
     const active = activePatternFilter === ch.value ? ' chip-active' : '';
     return `<button class="chip${active}" onclick="setPatternFilter(${val})">${ch.label}</button>`;
