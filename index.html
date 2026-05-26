@@ -263,13 +263,41 @@
     .success-title { font-size: 24px; font-weight: 800; margin-bottom: 8px; }
     .success-sub   { font-size: 15px; color: var(--muted); margin-bottom: 40px; }
 
-    /* Utility row */
-    .util-row { display: flex; gap: 10px; margin-bottom: 4px; }
-    .util-btn { flex: 1; padding: 13px; background: var(--surface);
+    /* Utility grid */
+    .util-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 4px; }
+    .util-btn { padding: 13px; background: var(--surface);
       border: 1px solid var(--border); border-radius: var(--radius);
-      color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer; text-align: center; }
+      color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; text-align: center; }
     .util-btn:active { background: var(--surface2); }
+    .util-btn.util-dim { color: var(--muted); border-color: var(--border); cursor: default; }
     .util-btn .util-icon { font-size: 18px; display: block; margin-bottom: 4px; }
+
+    /* History screen */
+    .hist-week-header { font-size: 11px; font-weight: 600; letter-spacing: 1px;
+      text-transform: uppercase; color: var(--muted); margin: 20px 0 10px;
+      padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+    .hist-week-header:first-child { margin-top: 0; }
+    .hist-sess-card { background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px; margin-bottom: 10px; }
+    .hist-sess-header { display: flex; align-items: flex-start;
+      justify-content: space-between; margin-bottom: 10px; }
+    .hist-sess-day  { font-size: 11px; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .5px; margin-bottom: 3px; }
+    .hist-sess-type { font-size: 15px; font-weight: 700; }
+    .hist-sess-rpe  { font-size: 12px; color: var(--muted); padding-top: 4px; }
+    .hist-ready-strip { display: flex; gap: 12px; padding: 7px 10px;
+      background: var(--surface2); border-radius: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+    .hist-ready-chip { font-size: 11px; color: var(--muted); }
+    .hist-ready-chip span { color: var(--text); font-weight: 600; }
+    .hist-ex-row { display: flex; align-items: baseline; gap: 8px;
+      padding: 6px 0; border-bottom: 1px solid var(--border); }
+    .hist-ex-row:last-of-type { border-bottom: none; }
+    .hist-ex-name { font-size: 13px; font-weight: 600; color: var(--accent);
+      cursor: pointer; flex-shrink: 0; max-width: 44%; }
+    .hist-ex-sets { font-size: 12px; color: var(--muted); flex: 1; line-height: 1.6; }
+    .hist-cond-row { display: flex; align-items: center; gap: 6px; padding: 8px 10px;
+      background: var(--surface2); border-radius: 8px; margin-top: 8px;
+      font-size: 12px; color: var(--muted); flex-wrap: wrap; }
 
     /* Ad-hoc session card */
     .card.adhoc-card { border-style: dashed; border-color: var(--border); }
@@ -467,6 +495,21 @@
   <button class="btn secondary" style="margin-top:10px" onclick="closeNewSessionSheet()">Cancel</button>
 </div>
 
+<!-- ══════════════════ HISTORY SCREEN ══════════════════ -->
+<div class="screen" id="screen-history">
+  <div class="header">
+    <button class="back-btn" onclick="showScreen('week')">‹</button>
+    <div>
+      <div class="header-title">History</div>
+      <div class="header-sub">Last 2 weeks</div>
+    </div>
+    <div style="width:40px"></div>
+  </div>
+  <div class="body no-fab" id="hist-screen-body">
+    <div class="spinner">Loading…</div>
+  </div>
+</div>
+
 <!-- ══════════════════ EXERCISE HISTORY SHEET ══════════════════ -->
 <div class="sheet-overlay" id="hist-overlay" onclick="closeHistorySheet()"></div>
 <div class="sheet" id="hist-sheet" style="max-height:78vh">
@@ -636,15 +679,21 @@ async function loadProgram() {
 
   const utilHtml = `
     <div class="divider"></div>
-    <div class="util-row">
+    <div class="util-grid">
       <div class="util-btn" onclick="openReadiness()">
         <span class="util-icon">📊</span>Readiness
       </div>
-      <div class="util-btn" onclick="openStandaloneConditioning()">
-        <span class="util-icon">🚴</span>Conditioning
-      </div>
       <div class="util-btn" onclick="openPainSheet()">
         <span class="util-icon">🩹</span>Pain
+      </div>
+      <div class="util-btn" onclick="openHistory()">
+        <span class="util-icon">📋</span>History
+      </div>
+      <div class="util-btn util-dim">
+        <span class="util-icon">🏆</span>Tests
+      </div>
+      <div class="util-btn util-dim">
+        <span class="util-icon">📈</span>Trends
       </div>
     </div>
     <button class="add-ex-btn" onclick="openNewSessionSheet()" style="margin-top:10px">
@@ -1192,6 +1241,184 @@ async function loadExerciseHistory(exId) {
       });
 
       html += `</div>`;
+    });
+
+    body.innerHTML = html;
+  } catch (err) {
+    console.error(err);
+    body.innerHTML = '<div class="hist-empty" style="color:var(--danger)">Error loading history.</div>';
+  }
+}
+
+// ── History screen ────────────────────────────────────────────────────────────
+async function openHistory() {
+  document.getElementById('hist-screen-body').innerHTML = '<div class="spinner">Loading…</div>';
+  showScreen('history');
+  await loadHistory();
+}
+
+async function loadHistory() {
+  const body = document.getElementById('hist-screen-body');
+  try {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 14);
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+    // 1. Completed sessions in range
+    const { data: sessions } = await db
+      .from('completed_sessions')
+      .select('*')
+      .eq('athlete_id', S.athlete.id)
+      .gte('session_date', cutoffStr)
+      .order('session_date', { ascending: false });
+
+    if (!sessions || sessions.length === 0) {
+      body.innerHTML = '<div class="hist-empty">No sessions logged in the last 2 weeks.</div>';
+      return;
+    }
+
+    const sessionIds = sessions.map(s => s.id);
+
+    // 2. Strength sets with exercise names
+    const { data: sets } = await db
+      .from('completed_strength_sets')
+      .select('*, exercise:exercise_id(id, name)')
+      .in('completed_session_id', sessionIds)
+      .eq('is_skipped', false)
+      .order('set_number', { ascending: true });
+
+    // 3. Conditioning logs
+    const { data: conds } = await db
+      .from('completed_conditioning')
+      .select('*')
+      .in('completed_session_id', sessionIds);
+
+    // 4. Readiness logs for the same date range
+    const { data: readiness } = await db
+      .from('readiness_logs')
+      .select('*')
+      .eq('athlete_id', S.athlete.id)
+      .gte('log_date', cutoffStr);
+
+    // Index data
+    const setsBySession = {};
+    (sets || []).forEach(s => {
+      if (!setsBySession[s.completed_session_id]) setsBySession[s.completed_session_id] = [];
+      setsBySession[s.completed_session_id].push(s);
+    });
+
+    const condBySession = {};
+    (conds || []).forEach(c => { condBySession[c.completed_session_id] = c; });
+
+    const readinessByDate = {};
+    (readiness || []).forEach(r => { readinessByDate[r.log_date] = r; });
+
+    // Group sessions by week_of
+    const weekMap = {};
+    sessions.forEach(s => {
+      const wk = s.week_of || s.session_date;
+      if (!weekMap[wk]) weekMap[wk] = [];
+      weekMap[wk].push(s);
+    });
+
+    let html = '';
+    const weekKeys = Object.keys(weekMap).sort((a, b) => b.localeCompare(a));
+
+    weekKeys.forEach(wk => {
+      const wkDate  = new Date(wk + 'T00:00:00');
+      const wkLabel = wkDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      html += `<div class="hist-week-header">Week of ${wkLabel}</div>`;
+
+      weekMap[wk].forEach(sess => {
+        const sessDate = new Date(sess.session_date + 'T00:00:00');
+        const dayLabel = sessDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+        const rpeHtml  = sess.overall_rpe
+          ? `<span class="hist-sess-rpe">RPE ${sess.overall_rpe}</span>` : '';
+
+        // Readiness strip
+        let readinessHtml = '';
+        const r = readinessByDate[sess.session_date];
+        if (r) {
+          const chips = [
+            r.energy          != null ? `Energy <span>${r.energy}</span>`         : null,
+            r.sleep_quality   != null ? `Sleep <span>${r.sleep_quality}</span>`    : null,
+            r.muscle_soreness != null ? `Soreness <span>${r.muscle_soreness}</span>` : null,
+          ].filter(Boolean);
+          if (chips.length) readinessHtml = `
+            <div class="hist-ready-strip">
+              ${chips.map(c => `<span class="hist-ready-chip">${c}</span>`).join('')}
+            </div>`;
+        }
+
+        // Exercise rows — group sets by exercise
+        const sessSets = setsBySession[sess.id] || [];
+        const exMap = {};
+        sessSets.forEach(s => {
+          if (!exMap[s.exercise_id]) exMap[s.exercise_id] = { id: s.exercise_id, name: s.exercise?.name || '—', sets: [] };
+          exMap[s.exercise_id].sets.push(s);
+        });
+
+        let exHtml = '';
+        Object.values(exMap).forEach(ex => {
+          // Identify top set by e1RM then load
+          let topIdx = 0, topVal = 0;
+          ex.sets.forEach((s, i) => {
+            const v = epley(s.actual_load, s.actual_reps) || s.actual_load || 0;
+            if (v > topVal) { topVal = v; topIdx = i; }
+          });
+
+          const setSpans = ex.sets.map((s, i) => {
+            const load = s.actual_load != null ? s.actual_load : '—';
+            const reps = s.actual_reps != null ? s.actual_reps : '—';
+            const txt  = `${load}×${reps}`;
+            return i === topIdx
+              ? `<span style="color:var(--accent);font-weight:700">${txt}</span>`
+              : txt;
+          }).join(' · ');
+
+          const safeExName = ex.name.replace(/'/g, "\\'");
+          exHtml += `
+            <div class="hist-ex-row">
+              <span class="hist-ex-name" onclick="openExerciseHistory('${ex.id}','${safeExName}')">${ex.name}</span>
+              <span class="hist-ex-sets">${setSpans}</span>
+            </div>`;
+        });
+
+        // Conditioning row
+        const cond = condBySession[sess.id];
+        let condHtml = '';
+        if (cond) {
+          const parts = [
+            cond.modality,
+            cond.workout_type,
+            cond.duration_minutes ? `${cond.duration_minutes} min` : null,
+            cond.avg_heart_rate   ? `${cond.avg_heart_rate} bpm avg` : null,
+            cond.rpe              ? `RPE ${cond.rpe}` : null,
+          ].filter(Boolean);
+          condHtml = `<div class="hist-cond-row">🚴 ${parts.join(' · ')}</div>`;
+        }
+
+        const notesHtml = sess.session_notes
+          ? `<div style="font-size:12px;color:var(--muted);font-style:italic;margin-top:8px">${sess.session_notes}</div>` : '';
+
+        const emptyHtml = (!exHtml && !cond)
+          ? `<div style="font-size:13px;color:var(--muted)">No exercises logged</div>` : '';
+
+        html += `
+          <div class="hist-sess-card">
+            <div class="hist-sess-header">
+              <div>
+                <div class="hist-sess-day">${dayLabel}</div>
+                <div class="hist-sess-type">${sess.session_type || 'Session'}</div>
+              </div>
+              ${rpeHtml}
+            </div>
+            ${readinessHtml}
+            ${exHtml}${emptyHtml}
+            ${condHtml}
+            ${notesHtml}
+          </div>`;
+      });
     });
 
     body.innerHTML = html;
