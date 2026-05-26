@@ -1279,13 +1279,14 @@ async function loadHistory() {
 
     const sessionIds = sessions.map(s => s.id);
 
-    // 2. Strength sets with exercise names
+    // 2. Strength sets with exercise names, planned order, and superset group
     const { data: sets } = await db
       .from('completed_strength_sets')
-      .select('*, exercise:exercise_id(id, name)')
+      .select('*, exercise:exercise_id(id, name), pe:planned_exercise_id(item_order, superset_group)')
       .in('completed_session_id', sessionIds)
       .eq('is_skipped', false)
-      .order('set_number', { ascending: true });
+      .order('created_at', { ascending: true })
+      .order('set_number',  { ascending: true });
 
     // 3. Conditioning logs
     const { data: conds } = await db
@@ -1350,16 +1351,32 @@ async function loadHistory() {
             </div>`;
         }
 
-        // Exercise rows — group sets by exercise
+        // Exercise rows — group sets by exercise, preserve performance order
         const sessSets = setsBySession[sess.id] || [];
         const exMap = {};
         sessSets.forEach(s => {
-          if (!exMap[s.exercise_id]) exMap[s.exercise_id] = { id: s.exercise_id, name: s.exercise?.name || '—', sets: [] };
+          if (!exMap[s.exercise_id]) exMap[s.exercise_id] = {
+            id:             s.exercise_id,
+            name:           s.exercise?.name || '—',
+            itemOrder:      s.pe?.item_order  ?? null,
+            supersetGroup:  s.pe?.superset_group || null,
+            firstCreatedAt: s.created_at,
+            sets:           [],
+          };
           exMap[s.exercise_id].sets.push(s);
         });
 
+        // Sort: planned item_order first, then by first created_at for ad-hoc/added
+        const sortedEx = Object.values(exMap).sort((a, b) => {
+          if (a.itemOrder != null && b.itemOrder != null) return a.itemOrder - b.itemOrder;
+          if (a.itemOrder != null) return -1;
+          if (b.itemOrder != null) return 1;
+          return (a.firstCreatedAt || '').localeCompare(b.firstCreatedAt || '');
+        });
+
         let exHtml = '';
-        Object.values(exMap).forEach(ex => {
+        let lastSupersetGroup = null;
+        sortedEx.forEach(ex => {
           // Identify top set by e1RM then load
           let topIdx = 0, topVal = 0;
           ex.sets.forEach((s, i) => {
@@ -1377,6 +1394,13 @@ async function loadHistory() {
           }).join(' · ');
 
           const safeExName = ex.name.replace(/'/g, "\\'");
+
+          // Superset label — only show when group changes
+          if (ex.supersetGroup && ex.supersetGroup !== lastSupersetGroup) {
+            exHtml += `<div class="ex-group" style="margin-top:6px">SUPERSET ${ex.supersetGroup.toUpperCase()}</div>`;
+          }
+          lastSupersetGroup = ex.supersetGroup || null;
+
           exHtml += `
             <div class="hist-ex-row">
               <span class="hist-ex-name" onclick="openExerciseHistory('${ex.id}','${safeExName}')">${ex.name}</span>
