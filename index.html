@@ -218,6 +218,16 @@
     .field-wrap input:focus { outline: none; border-color: var(--accent); }
     .login-error { color: var(--danger); font-size: 14px; margin-top: 12px; text-align: center; }
 
+    /* Movement pattern filter chips */
+    .chip-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px;
+      margin-bottom: 6px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    .chip-row::-webkit-scrollbar { display: none; }
+    .chip { padding: 5px 11px; border: 1px solid var(--border); border-radius: 20px;
+      font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer;
+      white-space: nowrap; flex-shrink: 0; background: none; }
+    .chip:active { background: var(--surface2); }
+    .chip.chip-active { background: var(--accent); border-color: var(--accent); color: #111; }
+
     /* Exercise search sheet */
     .sheet-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6);
       z-index: 100; display: none; }
@@ -427,6 +437,7 @@
 <div class="sheet" id="ex-sheet">
   <div class="sheet-handle"></div>
   <div class="sheet-title" id="ex-sheet-title">Select Exercise</div>
+  <div class="chip-row" id="pattern-chips"></div>
   <input class="sheet-search" id="ex-search" placeholder="Search exercises…" oninput="filterExercises(this.value)">
   <div class="sheet-list" id="ex-list"></div>
 </div>
@@ -565,6 +576,23 @@ let S = {
 };
 
 function today() { return new Date().toISOString().split('T')[0]; }
+
+// ── Pattern filter state ──────────────────────────────────────────────────────
+let activePatternFilter = null;
+const PATTERN_CHIPS = [
+  { label: 'All',       value: null },
+  { label: 'H. Push',   value: 'Horizontal Push' },
+  { label: 'V. Push',   value: 'Vertical Push' },
+  { label: 'H. Pull',   value: 'Horizontal Pull' },
+  { label: 'V. Pull',   value: 'Vertical Pull' },
+  { label: 'Squat',     value: 'Squat' },
+  { label: 'Hinge',     value: 'Hinge' },
+  { label: 'Uni Lower', value: 'Unilateral Lower' },
+  { label: 'Trunk',     value: 'Trunk-Core' },
+  { label: 'Carry',     value: 'Carry' },
+  { label: 'Power',     value: 'Power-Olympic' },
+  { label: 'Cond',      value: 'Conditioning' },
+];
 
 // ── Screen navigation ─────────────────────────────────────────────────────────
 function showScreen(name) {
@@ -1744,7 +1772,12 @@ function openSwap(peId) {
   S.sheetMode = 'swap';
   S.swapExKey = peId;
   document.getElementById('ex-sheet-title').textContent = 'Swap Exercise';
-  openExSheet();
+  // Pre-filter to the current exercise's movement pattern
+  const pe        = S.plannedExercises.find(p => p.id === peId);
+  const st        = S.exState[peId];
+  const curExId   = st?.swappedTo?.id || pe?.exercise?.id;
+  const curEx     = S.exerciseLib.find(e => e.id === curExId);
+  openExSheet(curEx?.movement_pattern || null);
 }
 
 function openAddExSheet() {
@@ -1754,9 +1787,16 @@ function openAddExSheet() {
   openExSheet();
 }
 
-function openExSheet() {
+function openExSheet(defaultPattern = null) {
+  activePatternFilter = defaultPattern;
   document.getElementById('ex-search').value = '';
-  renderExList(S.exerciseLib);
+  renderChips();
+  renderExList(getFilteredExercises());
+  // Scroll active chip into view
+  setTimeout(() => {
+    const active = document.querySelector('#pattern-chips .chip-active');
+    if (active) active.scrollIntoView({ inline: 'center', block: 'nearest' });
+  }, 50);
   document.getElementById('ex-overlay').classList.add('open');
   document.getElementById('ex-sheet').classList.add('open');
   setTimeout(() => document.getElementById('ex-search').focus(), 300);
@@ -1767,10 +1807,31 @@ function closeExSheet() {
   document.getElementById('ex-sheet').classList.remove('open');
 }
 
-function filterExercises(q) {
-  const lower = q.toLowerCase();
-  const list  = q ? S.exerciseLib.filter(e => e.name.toLowerCase().includes(lower)) : S.exerciseLib;
-  renderExList(list);
+function renderChips() {
+  document.getElementById('pattern-chips').innerHTML = PATTERN_CHIPS.map(ch => {
+    const val    = ch.value === null ? 'null' : `'${ch.value}'`;
+    const active = activePatternFilter === ch.value ? ' chip-active' : '';
+    return `<button class="chip${active}" onclick="setPatternFilter(${val})">${ch.label}</button>`;
+  }).join('');
+}
+
+function setPatternFilter(pattern) {
+  activePatternFilter = pattern;
+  renderChips();
+  renderExList(getFilteredExercises());
+}
+
+function getFilteredExercises() {
+  const q = (document.getElementById('ex-search')?.value || '').toLowerCase().trim();
+  return S.exerciseLib.filter(ex => {
+    const matchesPat = !activePatternFilter || ex.movement_pattern === activePatternFilter;
+    const matchesTxt = !q || ex.name.toLowerCase().includes(q);
+    return matchesPat && matchesTxt;
+  });
+}
+
+function filterExercises() {
+  renderExList(getFilteredExercises());
 }
 
 function renderExList(list) {
