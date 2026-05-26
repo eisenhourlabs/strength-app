@@ -86,6 +86,14 @@
     .ex-target  { font-size: 12px; color: var(--muted); margin-bottom: 10px; line-height: 1.5; }
     .ex-swap-note { font-size: 11px; color: var(--accent); font-style: italic; margin-bottom: 8px; }
 
+    /* Re-edit and delete buttons */
+    .re-edit-btn { background: none; border: none; color: var(--muted);
+      font-size: 13px; cursor: pointer; padding: 2px 6px; line-height: 1; }
+    .re-edit-btn:active { color: var(--accent); }
+    .sess-del-btn { background: none; border: none; color: var(--muted);
+      font-size: 16px; cursor: pointer; padding: 4px 6px; flex-shrink: 0; }
+    .sess-del-btn:active { color: var(--danger); }
+
     /* Saved badge inline */
     .saved-badge { font-size: 11px; font-weight: 700; color: var(--success);
       background: #1a3a1a; padding: 3px 8px; border-radius: 20px; flex-shrink: 0; }
@@ -672,7 +680,10 @@ async function loadProgram() {
             <div class="card-title">${icon}${s.session_type || 'Session'}</div>
             <div class="session-meta">${statusBadge}</div>
           </div>
-          <div class="arrow">›</div>
+          <div style="display:flex;align-items:center;gap:4px">
+            ${isAdHoc ? `<button class="sess-del-btn" onclick="event.stopPropagation();deleteAdHocSession('${s.id}')" title="Delete session">🗑</button>` : ''}
+            <div class="arrow">›</div>
+          </div>
         </div>
       </div>`;
   }).join('');
@@ -958,7 +969,10 @@ function buildSavedExCard(key, exName, exId, sets, supersetGroup) {
       ${groupHtml}
       <div class="ex-header">
         <span class="ex-name" onclick="openExerciseHistory('${exId}','${safeExName}')">${exName}</span>
-        <span class="saved-badge">✓ Saved</span>
+        <div style="display:flex;align-items:center;gap:4px">
+          <button class="re-edit-btn" onclick="reEditExercise('${key}')" title="Re-open to edit">✎</button>
+          <span class="saved-badge">✓ Saved</span>
+        </div>
       </div>
       ${setsHtml}${noteHtml}
     </div>`;
@@ -1449,6 +1463,58 @@ async function loadHistory() {
   } catch (err) {
     console.error(err);
     body.innerHTML = '<div class="hist-empty" style="color:var(--danger)">Error loading history.</div>';
+  }
+}
+
+// ── Re-edit saved exercise ────────────────────────────────────────────────────
+async function reEditExercise(key) {
+  const isPlanned = key.startsWith('p-');
+  const id        = key.replace(/^[pa]-/, '');
+  try {
+    if (isPlanned) {
+      await db.from('completed_strength_sets')
+        .delete()
+        .eq('completed_session_id', S.activeCompletedSession.id)
+        .eq('planned_exercise_id', id);
+      delete S.savedExercises[id];
+      const pe = S.plannedExercises.find(p => p.id === id);
+      if (pe) S.exState[id] = { skipped: false, swappedTo: null, setCount: pe.target_sets || 3 };
+    } else {
+      const saved = S.savedExercises[id];
+      if (saved?.length) {
+        await db.from('completed_strength_sets')
+          .delete()
+          .eq('completed_session_id', S.activeCompletedSession.id)
+          .eq('exercise_id', saved[0].exercise_id)
+          .eq('is_added', true);
+      }
+      delete S.savedExercises[id];
+    }
+    renderSessionBody();
+    toast('Exercise re-opened ✓');
+  } catch (err) {
+    console.error(err);
+    toast('Error re-opening exercise.', 4000);
+  }
+}
+
+// ── Delete ad-hoc session ─────────────────────────────────────────────────────
+async function deleteAdHocSession(sessionId) {
+  if (!confirm('Delete this session and all logged data?')) return;
+  try {
+    const cs = S.completed[sessionId];
+    if (cs) {
+      await db.from('completed_conditioning').delete().eq('completed_session_id', cs.id);
+      await db.from('completed_sessions').delete().eq('id', cs.id);
+    }
+    await db.from('planned_sessions').delete().eq('id', sessionId);
+    S.sessions = S.sessions.filter(s => s.id !== sessionId);
+    delete S.completed[sessionId];
+    toast('Session deleted');
+    loadProgram();
+  } catch (err) {
+    console.error(err);
+    toast('Error deleting session.', 4000);
   }
 }
 
