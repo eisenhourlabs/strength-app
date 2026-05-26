@@ -1470,6 +1470,11 @@ async function loadHistory() {
 async function reEditExercise(key) {
   const isPlanned = key.startsWith('p-');
   const id        = key.replace(/^[pa]-/, '');
+
+  // Capture previous values before wiping
+  const prevSets  = S.savedExercises[id] || [];
+  const prevNotes = prevSets[0]?.notes || '';
+
   try {
     if (isPlanned) {
       await db.from('completed_strength_sets')
@@ -1478,7 +1483,11 @@ async function reEditExercise(key) {
         .eq('planned_exercise_id', id);
       delete S.savedExercises[id];
       const pe = S.plannedExercises.find(p => p.id === id);
-      if (pe) S.exState[id] = { skipped: false, swappedTo: null, setCount: pe.target_sets || 3 };
+      if (pe) S.exState[id] = {
+        skipped:  false,
+        swappedTo: null,
+        setCount: prevSets.length || pe.target_sets || 3,
+      };
     } else {
       const saved = S.savedExercises[id];
       if (saved?.length) {
@@ -1487,11 +1496,32 @@ async function reEditExercise(key) {
           .eq('completed_session_id', S.activeCompletedSession.id)
           .eq('exercise_id', saved[0].exercise_id)
           .eq('is_added', true);
+        // Restore set count on the added exercise
+        const ae = S.addedExercises.find(a => String(a.localId) === String(id));
+        if (ae) ae.setCount = saved.length;
       }
       delete S.savedExercises[id];
     }
+
+    // Re-render session (shows editable card again)
     renderSessionBody();
-    toast('Exercise re-opened ✓');
+
+    // Pre-populate inputs with previous values
+    prevSets.forEach((s, i) => {
+      const loadEl = document.getElementById(`load-${key}-${i}`);
+      const repsEl = document.getElementById(`reps-${key}-${i}`);
+      const rpeEl  = document.getElementById(`rpe-${key}-${i}`);
+      if (loadEl && s.actual_load != null) loadEl.value = s.actual_load;
+      if (repsEl && s.actual_reps != null) repsEl.value = s.actual_reps;
+      if (rpeEl  && s.actual_rpe  != null) rpeEl.value  = s.actual_rpe;
+    });
+    const notesEl = document.getElementById(`notes-${key}`);
+    if (notesEl && prevNotes) notesEl.value = prevNotes;
+
+    // Scroll re-opened card into view
+    document.getElementById(`ex-card-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    toast('Edit, then tap Save to update ✓');
   } catch (err) {
     console.error(err);
     toast('Error re-opening exercise.', 4000);
