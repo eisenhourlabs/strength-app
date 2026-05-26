@@ -1843,7 +1843,7 @@ async function submitConditioningSession() {
   }
 }
 
-// ── Standalone conditioning (from week overview) ──────────────────────────────
+// ── Standalone conditioning (from week overview) ────────────────────────────────────────────
 function openStandaloneConditioning() {
   S.plannedConditioning = null;
   document.getElementById('cond-sub').textContent = 'Standalone session';
@@ -1944,7 +1944,7 @@ function showSuccess(title, sub) {
   showScreen('success');
 }
 
-// ── Readiness ─────────────────────────────────────────────────────────────────
+// ── Readiness ────────────────────────────────────────────────────────────────────────────────
 function openReadiness() {
   document.getElementById('ready-date').textContent = today();
   document.getElementById('ready-body').innerHTML = `
@@ -2005,7 +2005,7 @@ async function submitReadiness() {
   }
 }
 
-// ── Pain sheet ────────────────────────────────────────────────────────────────
+// ── Pain sheet ────────────────────────────────────────────────────────────────────────────
 function openPainSheet() {
   document.getElementById('pain-overlay').classList.add('open');
   document.getElementById('pain-sheet').classList.add('open');
@@ -2045,7 +2045,7 @@ async function submitPain() {
   }
 }
 
-// ── Boot ──────────────────────────────────────────────────────────────────────
+// ── Boot ──────────────────────────────────────────────────────────────────────────────────────
 (async () => {
   const { data: { session } } = await db.auth.getSession();
   if (session?.user) await onLogin(session.user);
