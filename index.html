@@ -881,6 +881,32 @@ async function loadProgram() {
   S.completed = {};
   (compList || []).forEach(c => { S.completed[c.planned_session_id] = c; });
 
+  // Prefetch all session detail data so sessions work offline
+  const [exAllRes, condAllRes] = await Promise.all([
+    psIds.length ? db.from('planned_exercises')
+      .select('*, exercise:exercise_library(id,name,movement_pattern,category)')
+      .in('session_id', psIds).order('item_order') : { data: [] },
+    psIds.length ? db.from('planned_conditioning_blocks')
+      .select('*').in('session_id', psIds) : { data: [] },
+  ]);
+  const compIds = Object.values(S.completed).map(c => c.id).filter(Boolean);
+  const [compFullRes, setsRes] = await Promise.all([
+    compIds.length ? db.from('completed_sessions').select('*').in('id', compIds) : { data: [] },
+    compIds.length ? db.from('completed_strength_sets')
+      .select('set_number,actual_load,actual_reps,actual_rpe,notes,is_skipped,planned_exercise_id,is_added,completed_session_id')
+      .in('completed_session_id', compIds) : { data: [] },
+  ]);
+  const sessionDetailCache = {};
+  for (const sess of S.sessions) {
+    const comp = S.completed[sess.id];
+    sessionDetailCache[sess.id] = {
+      exercises:        (exAllRes.data   || []).filter(e => e.session_id === sess.id),
+      conditioning:     (condAllRes.data || []).find(c2 => c2.session_id === sess.id) || null,
+      completedSession: comp ? (compFullRes.data || []).find(c2 => c2.id === comp.id) || null : null,
+      savedSets:        comp ? (setsRes.data     || []).filter(s => s.completed_session_id === comp.id) : [],
+    };
+  }
+  try { await idbSet('sessionDetailCache', sessionDetailCache); } catch {}
   try { await idbSet('programCache', { athleteId: S.athlete.id, cycle: S.cycle, sessions: S.sessions, completed: S.completed }); } catch {}
 
   renderWeek();
@@ -905,6 +931,42 @@ async function openSession(sessionId) {
   btn.className   = 'btn';
   btn.textContent = isCondOnly ? 'Log Conditioning' : 'Finish Session';
   showScreen('session');
+
+  // ── Offline path for openSession ─────────────────────────────────────────
+  if (isOffline) {
+    const sdCache = await idbGet('sessionDetailCache');
+    const detail  = sdCache?.[sessionId];
+    if (!detail) {
+      toast('Session data not cached. Open the app while connected first.', 4000);
+      showScreen('week');
+      return;
+    }
+    S.plannedExercises    = detail.exercises    || [];
+    S.plannedConditioning = detail.conditioning || null;
+    if (detail.completedSession) {
+      S.activeCompletedSession = detail.completedSession;
+      (detail.savedSets || []).forEach(s => {
+        const peId = s.planned_exercise_id;
+        if (peId) {
+          if (!S.savedExercises[peId]) S.savedExercises[peId] = [];
+          S.savedExercises[peId].push(s);
+        }
+      });
+      if (S.activeCompletedSession.status === 'completed') {
+        btn.textContent = isCondOnly ? '✓ Logged' : '✓ Session Complete';
+        btn.disabled    = true;
+        btn.className   = 'btn success-state';
+      }
+    }
+    S.plannedExercises.forEach(pe => {
+      if (!S.savedExercises[pe.id]) {
+        const count = pe.target_sets && pe.target_sets > 0 ? pe.target_sets : 1;
+        S.exState[pe.id] = { skipped: false, swappedTo: null, setCount: count };
+      }
+    });
+    if (isCondOnly) { renderConditioningSessionBody(); } else { renderSessionBody(); }
+    return;
+  }
 
   // Load planned exercises and conditioning block
   const [exRes, condRes] = await Promise.all([
@@ -2879,6 +2941,7 @@ async function syncQueue() {
 }
 
 (async () => {
+  updateOfflineBanner();   // show banner immediately if page loaded while offline
   const { data: { session } } = await db.auth.getSession();
   if (session?.user) await onLogin(session.user);
   db.auth.onAuthStateChange(async (event) => {
