@@ -466,6 +466,7 @@
 <div class="sheet" id="ex-sheet">
   <div class="sheet-handle"></div>
   <div class="sheet-title" id="ex-sheet-title">Select Exercise</div>
+  <div id="ex-sheet-hint" style="display:none;font-size:12px;color:var(--muted);padding:0 0 8px;flex-shrink:0"></div>
   <div class="chip-row" id="pattern-chips"></div>
   <input class="sheet-search" id="ex-search" placeholder="Search exercises…" oninput="filterExercises(this.value)">
   <div class="sheet-list" id="ex-list"></div>
@@ -1912,12 +1913,19 @@ function setPatternFilter(pattern) {
   renderExList(getFilteredExercises());
 }
 
+const TEST_STRENGTH_CATEGORIES = new Set([
+  'Power-Speed', 'Upper Strength', 'Lower Strength'
+]);
+
 function getFilteredExercises() {
   const q = (document.getElementById('ex-search')?.value || '').toLowerCase().trim();
+  const isTestMode = S.sheetMode === 'test-ex-select';
   return S.exerciseLib.filter(ex => {
     const matchesPat = !activePatternFilter || ex.movement_pattern === activePatternFilter;
     const matchesTxt = !q || ex.name.toLowerCase().includes(q);
-    return matchesPat && matchesTxt;
+    // In test mode with no active search, restrict to strength-relevant categories
+    const matchesCat = !isTestMode || q || TEST_STRENGTH_CATEGORIES.has(ex.category);
+    return matchesPat && matchesTxt && matchesCat;
   });
 }
 
@@ -1956,7 +1964,7 @@ function selectExercise(exId, exName) {
     const btn = document.getElementById('test-ex-btn');
     btn.textContent = exName;
     btn.classList.add('selected');
-    // re-open the test log sheet (it was behind ex-sheet)
+    // Re-open the test log sheet now that ex-sheet has closed
     document.getElementById('test-log-overlay').classList.add('open');
     document.getElementById('test-log-sheet').classList.add('open');
   } else if (S.sheetMode === 'add') {
@@ -2421,6 +2429,9 @@ function closeTestLogSheet() {
 }
 
 function openTestExSelect() {
+  // Close test log sheet first so ex-sheet renders on top (same z-index)
+  document.getElementById('test-log-overlay').classList.remove('open');
+  document.getElementById('test-log-sheet').classList.remove('open');
   S.sheetMode = 'test-ex-select';
   document.getElementById('ex-sheet-title').textContent = 'Select Exercise';
   openExSheet(null);
