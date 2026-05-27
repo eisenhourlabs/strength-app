@@ -999,6 +999,48 @@ async function openSession(sessionId) {
         btn.className   = 'btn success-state';
       }
     }
+
+    // ── Restore any sets saved offline this session (in the write queue) ────
+    // Without this, exiting and re-entering a session offline shows stale state.
+    const offlineQueue = await idbGetAllQueue();
+
+    // Case A: brand-new session — find the pending create_session for this planned session
+    if (!S.activeCompletedSession) {
+      const createOp = offlineQueue.find(q =>
+        q.op === 'create_session' && q.payload?.planned_session_id === sessionId);
+      if (createOp) {
+        S.activeCompletedSession = { id: createOp.tempSessionId, _isTemp: true, ...createOp.payload };
+        S.completed[sessionId]   = S.activeCompletedSession;
+      }
+    }
+
+    // Case A & B: rebuild savedExercises from any queued insert_sets for this session
+    const csId = S.activeCompletedSession?.id;
+    if (csId) {
+      offlineQueue
+        .filter(q => q.op === 'insert_sets')
+        .forEach(q => {
+          const rows = Array.isArray(q.payload) ? q.payload : [q.payload];
+          rows.forEach(row => {
+            if (row.completed_session_id === csId && row.planned_exercise_id) {
+              const peId = row.planned_exercise_id;
+              if (!S.savedExercises[peId]) S.savedExercises[peId] = [];
+              S.savedExercises[peId].push(row);
+            }
+          });
+        });
+
+      // Check if session was already finished offline
+      const finishOp = offlineQueue.find(q =>
+        (q.op === 'finish_session_update' && (q.tempSessionId === csId || q.sessionId === csId)) ||
+        (q.op === 'finish_session_insert' && q.payload?.planned_session_id === sessionId));
+      if (finishOp) {
+        btn.textContent = isCondOnly ? '✓ Logged' : '✓ Session Complete';
+        btn.disabled    = true;
+        btn.className   = 'btn success-state';
+      }
+    }
+
     const exCount = S.plannedExercises.length;
     toast(`Offline — ${exCount} exercise${exCount !== 1 ? 's' : ''} loaded from cache`, 2500);
     S.plannedExercises.forEach(pe => {
