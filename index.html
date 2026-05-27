@@ -656,6 +656,23 @@ const SUPABASE_URL = 'https://mfqtlgtllocxenrekorg.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_GtJwb3uRDBuXt-qJOlfqKA_A-QSIOtt';
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// Reliable connectivity probe — navigator.onLine lies on mobile (especially iOS)
+async function checkOnline() {
+  if (!navigator.onLine) return false;
+  try {
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), 3000);
+    await fetch(SUPABASE_URL + '/rest/v1/', {
+      method: 'HEAD',
+      headers: { apikey: SUPABASE_KEY },
+      signal: ctrl.signal,
+      cache:  'no-store',
+    });
+    clearTimeout(tid);
+    return true;
+  } catch { return false; }
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 let S = {
   user:         null,
@@ -730,9 +747,9 @@ async function doLogin() {
 async function onLogin(user) {
   S.user = user;
 
-  // Try network; auto-detect offline if Supabase calls fail (navigator.onLine is unreliable on mobile)
+  // Try network; use checkOnline() as ground truth (navigator.onLine lies on iOS)
   try {
-    if (isOffline) throw new Error('offline');
+    if (isOffline || !(await checkOnline())) throw new Error('offline');
     const { data: athlete, error: aErr } = await db.from('athletes')
       .select('id,name,email').eq('email', user.email).single();
     if (aErr) throw aErr;
@@ -754,9 +771,10 @@ async function onLogin(user) {
     if (cached && cached.email === user.email) {
       S.athlete     = cached.athlete;
       S.exerciseLib = cached.exerciseLib || [];
+      toast('Offline — loading from cache…', 2000);
       await loadProgram();
     } else {
-      toast('Offline — open the app while connected first.', 5000);
+      toast('Offline — open the app while connected first to enable offline use.', 5000);
     }
   }
 }
@@ -862,7 +880,13 @@ async function loadProgram() {
     }
   }
 
-  if (isOffline) { await loadFromCache(); return; }
+  // Re-check connectivity here too (state may have changed since onLogin)
+  if (isOffline || !(await checkOnline())) {
+    isOffline = true;
+    updateOfflineBanner();
+    await loadFromCache();
+    return;
+  }
 
   try {
     const { data: cycle } = await db.from('training_cycles')
@@ -945,7 +969,9 @@ async function openSession(sessionId) {
   showScreen('session');
 
   // ── Offline path for openSession ─────────────────────────────────────────
-  if (isOffline) {
+  if (isOffline || !(await checkOnline())) {
+    isOffline = true;
+    updateOfflineBanner();
     const sdCache = await idbGet('sessionDetailCache');
     const detail  = sdCache?.[sessionId];
     if (!detail) {
@@ -970,6 +996,8 @@ async function openSession(sessionId) {
         btn.className   = 'btn success-state';
       }
     }
+    const exCount = S.plannedExercises.length;
+    toast(`Offline — ${exCount} exercise${exCount !== 1 ? 's' : ''} loaded from cache`, 2500);
     S.plannedExercises.forEach(pe => {
       if (!S.savedExercises[pe.id]) {
         const count = pe.target_sets && pe.target_sets > 0 ? pe.target_sets : 1;
@@ -1383,15 +1411,24 @@ async function saveAddedExercise(localId) {
   const ae    = S.addedExercises.find(a => String(a.localId) === String(localId));
   if (!ae) { if (btn) { btn.disabled = false; btn.textContent = 'Save'; } return; }
 
-  const notes    = (document.getElementById(`notes-${key}`)?.value || '').trim() || null;
-  const setCount = document.getElementById(`sets-${key}`)?.querySelectorAll('.set-row').length || 1;
-  const rows     = [];
-  let   hasData  = false;
+  const notes     = (document.getElementById(`notes-${key}`)?.value || '').trim() || null;
+  const setsWrap  = document.getElementById(`sets-${key}`);
+  const setRows   = setsWrap ? Array.from(setsWrap.querySelectorAll('.set-row')) : [];
+  const setCount  = setRows.length || 1;
+  const rows      = [];
+  let   hasData   = false;
 
   for (let i = 0; i < setCount; i++) {
-    const load = parseFloat(document.getElementById(`load-${key}-${i}`)?.value) || null;
-    const reps = parseInt(document.getElementById(`reps-${key}-${i}`)?.value)   || null;
-    const rpe  = parseFloat(document.getElementById(`rpe-${key}-${i}`)?.value)  || null;
+    // Support both named inputs and positional fallback
+    const loadEl = document.getElementById(`load-${key}-${i}`) ||
+                   (setRows[i] ? setRows[i].querySelector('input[id^="load-"]') : null);
+    const repsEl = document.getElementById(`reps-${key}-${i}`) ||
+                   (setRows[i] ? setRows[i].querySelector('input[id^="reps-"]') : null);
+    const rpeEl  = document.getElementById(`rpe-${key}-${i}`) ||
+                   (setRows[i] ? setRows[i].querySelector('input[id^="rpe-"]')  : null);
+    const load   = parseFloat(loadEl?.value) || null;
+    const reps   = parseInt(repsEl?.value)   || null;
+    const rpe    = parseFloat(rpeEl?.value)  || null;
     if (load || reps || rpe) hasData = true;
     rows.push({
       exercise_id: ae.exId,
