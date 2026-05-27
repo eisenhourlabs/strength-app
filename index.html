@@ -363,9 +363,20 @@
       color:var(--success); padding:2px 7px; border-radius:20px; margin-left:6px; }
     .form-section-label { font-size:11px; font-weight:600; letter-spacing:1px;
       text-transform:uppercase; color:var(--muted); margin-bottom:8px; margin-top:4px; }
+
+    /* ── Offline banner ─────────────────────────── */
+    .offline-banner { display:none; position:fixed; top:0; left:0; right:0;
+      background:#b45309; color:#fff; font-size:13px; font-weight:600;
+      text-align:center; padding:calc(var(--safe-top) + 8px) 16px 8px; z-index:500; }
   </style>
+  <script>
+    if ('serviceWorker' in navigator)
+      window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+  </script>
 </head>
 <body>
+
+<div class="offline-banner" id="offline-banner">⚡ Offline — data will sync when connected</div>
 
 <!-- Toast -->
 <div class="toast" id="toast"></div>
@@ -680,6 +691,7 @@ function today() { return new Date().toISOString().split('T')[0]; }
 
 // ── Pattern filter state ──────────────────────────────────────────────────────
 let activePatternFilter = null;
+let isOffline = !navigator.onLine;
 
 
 // ── Screen navigation ─────────────────────────────────────────────────────────
@@ -717,6 +729,19 @@ async function doLogin() {
 
 async function onLogin(user) {
   S.user = user;
+
+  if (isOffline) {
+    const cached = await idbGet('athleteCache');
+    if (cached && cached.email === user.email) {
+      S.athlete     = cached.athlete;
+      S.exerciseLib = cached.exerciseLib || [];
+      await loadProgram();
+    } else {
+      toast('Offline — connect once to enable offline use.', 5000);
+    }
+    return;
+  }
+
   const { data: athlete } = await db.from('athletes')
     .select('id,name,email').eq('email', user.email).single();
   if (!athlete) { toast('Athlete record not found. Contact your coach.'); doLogout(); return; }
@@ -725,6 +750,8 @@ async function onLogin(user) {
   const { data: lib } = await db.from('exercise_library')
     .select('id,name,movement_pattern,category,equipment').order('name');
   S.exerciseLib = lib || [];
+
+  try { await idbSet('athleteCache', { email: user.email, athlete, exerciseLib: S.exerciseLib }); } catch {}
 
   await loadProgram();
 }
@@ -740,13 +767,9 @@ async function doLogout() {
 }
 
 // ── Program loading ───────────────────────────────────────────────────────────
-async function loadProgram() {
+function renderWeek() {
   const body = document.getElementById('week-body');
-
-  const { data: cycle } = await db.from('training_cycles')
-    .select('*').eq('athlete_id', S.athlete.id).eq('status', 'active').single();
-
-  if (!cycle) {
+  if (!S.cycle) {
     body.innerHTML = '<div class="card"><div class="card-title">No active program</div>' +
       '<div class="card-sub">Your coach hasn\'t pushed a program yet.</div></div>';
     document.getElementById('week-name').textContent  = S.athlete.name;
@@ -754,25 +777,10 @@ async function loadProgram() {
     showScreen('week');
     return;
   }
-  S.cycle = cycle;
-
-  const { data: sessions } = await db.from('planned_sessions')
-    .select('*').eq('cycle_id', cycle.id).order('session_order');
-  S.sessions = sessions || [];
-
-  // Load completed sessions (any status)
-  const psIds = S.sessions.map(s => s.id);
-  const { data: compList } = await db.from('completed_sessions')
-    .select('id,planned_session_id,status')
-    .eq('athlete_id', S.athlete.id)
-    .in('planned_session_id', psIds);
-  S.completed = {};
-  (compList || []).forEach(c => { S.completed[c.planned_session_id] = c; });
-
-  const weekDate = new Date(cycle.start_date + 'T00:00:00');
+  const weekDate = new Date(S.cycle.start_date + 'T00:00:00');
   const weekStr  = weekDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   document.getElementById('week-name').textContent  = S.athlete.name;
-  document.getElementById('week-block').textContent = `${cycle.name}  ·  ${weekStr}`;
+  document.getElementById('week-block').textContent = `${S.cycle.name}  ·  ${weekStr}`;
 
   const sessHtml = S.sessions.map(s => {
     const comp       = S.completed[s.id];
@@ -829,6 +837,53 @@ async function loadProgram() {
 
   body.innerHTML = sessHtml + utilHtml;
   showScreen('week');
+}
+
+async function loadProgram() {
+  const body = document.getElementById('week-body');
+
+  if (isOffline) {
+    const cached = await idbGet('programCache');
+    if (cached && cached.athleteId === S.athlete?.id) {
+      S.cycle     = cached.cycle;
+      S.sessions  = cached.sessions  || [];
+      S.completed = cached.completed || {};
+      renderWeek();
+    } else {
+      body.innerHTML = '<div class="card"><div class="card-title" style="color:var(--muted)">Offline</div>' +
+        '<div class="card-sub">Connect once to cache your program for offline use.</div></div>';
+      document.getElementById('week-name').textContent  = S.athlete?.name || '';
+      document.getElementById('week-block').textContent = '';
+      showScreen('week');
+    }
+    return;
+  }
+
+  const { data: cycle } = await db.from('training_cycles')
+    .select('*').eq('athlete_id', S.athlete.id).eq('status', 'active').single();
+
+  if (!cycle) {
+    S.cycle = null; S.sessions = []; S.completed = {};
+    renderWeek();
+    return;
+  }
+  S.cycle = cycle;
+
+  const { data: sessions } = await db.from('planned_sessions')
+    .select('*').eq('cycle_id', cycle.id).order('session_order');
+  S.sessions = sessions || [];
+
+  const psIds = S.sessions.map(s => s.id);
+  const { data: compList } = await db.from('completed_sessions')
+    .select('id,planned_session_id,status')
+    .eq('athlete_id', S.athlete.id)
+    .in('planned_session_id', psIds);
+  S.completed = {};
+  (compList || []).forEach(c => { S.completed[c.planned_session_id] = c; });
+
+  try { await idbSet('programCache', { athleteId: S.athlete.id, cycle: S.cycle, sessions: S.sessions, completed: S.completed }); } catch {}
+
+  renderWeek();
 }
 
 // ── Open session ──────────────────────────────────────────────────────────────
@@ -1147,6 +1202,31 @@ async function saveExercise(peId) {
   }
 
   try {
+    if (isOffline) {
+      if (!S.activeCompletedSession) {
+        const tid = crypto.randomUUID();
+        const sp  = { athlete_id: S.athlete.id, planned_session_id: S.activeSession.id,
+          session_date: today(), week_of: S.cycle.start_date,
+          session_type: S.activeSession.session_type, status: 'in_progress' };
+        await idbQueueWrite({ op: 'create_session', tempSessionId: tid, payload: sp });
+        S.activeCompletedSession        = { id: tid, _isTemp: true, ...sp };
+        S.completed[S.activeSession.id] = S.activeCompletedSession;
+      }
+      const qRows = rows.map(r => ({ ...r, completed_session_id: S.activeCompletedSession.id }));
+      await idbQueueWrite({ op: 'insert_sets', payload: qRows });
+      S.savedExercises[peId] = rows;
+      const offCard = document.getElementById(`ex-card-${key}`);
+      if (offCard) {
+        const exName    = st.swappedTo ? st.swappedTo.name : pe.exercise.name;
+        const exIdSaved = st.swappedTo ? st.swappedTo.id   : pe.exercise.id;
+        offCard.outerHTML = buildSavedExCard(key, exName, exIdSaved, rows.map((r, i) => ({
+          set_number: i+1, actual_load: r.actual_load, actual_reps: r.actual_reps,
+          actual_rpe: r.actual_rpe, notes: r.notes, is_skipped: r.is_skipped,
+        })), pe.superset_group);
+      }
+      toast('Saved offline ✓');
+      return;
+    }
     // Lazy-create completed_session if this is the first save
     if (!S.activeCompletedSession) {
       const { data: cs, error: csErr } = await db.from('completed_sessions').insert({
@@ -1228,6 +1308,29 @@ async function saveAddedExercise(localId) {
   }
 
   try {
+    if (isOffline) {
+      if (!S.activeCompletedSession) {
+        const tid = crypto.randomUUID();
+        const sp  = { athlete_id: S.athlete.id, planned_session_id: S.activeSession.id,
+          session_date: today(), week_of: S.cycle.start_date,
+          session_type: S.activeSession.session_type, status: 'in_progress' };
+        await idbQueueWrite({ op: 'create_session', tempSessionId: tid, payload: sp });
+        S.activeCompletedSession        = { id: tid, _isTemp: true, ...sp };
+        S.completed[S.activeSession.id] = S.activeCompletedSession;
+      }
+      const qRows = rows.map(r => ({ ...r, completed_session_id: S.activeCompletedSession.id }));
+      await idbQueueWrite({ op: 'insert_sets', payload: qRows });
+      S.savedExercises[localId] = rows;
+      const offCard = document.getElementById(`ex-card-${key}`);
+      if (offCard) {
+        offCard.outerHTML = buildSavedExCard(key, ae.exName, ae.exId, rows.map((r, i) => ({
+          set_number: i+1, actual_load: r.actual_load, actual_reps: r.actual_reps,
+          actual_rpe: r.actual_rpe, notes: r.notes, is_skipped: false,
+        })), null);
+      }
+      toast('Saved offline ✓');
+      return;
+    }
     if (!S.activeCompletedSession) {
       const { data: cs, error: csErr } = await db.from('completed_sessions').insert({
         athlete_id:         S.athlete.id,
@@ -1676,6 +1779,7 @@ function closeNewSessionSheet() {
 }
 
 async function startAdHocSession() {
+  if (isOffline) { toast('Cannot start new sessions offline.'); return; }
   const sessionType = document.getElementById('new-sess-type').value;
   closeNewSessionSheet();
 
@@ -1720,6 +1824,27 @@ async function finishSession() {
 
   btn.disabled    = true;
   btn.textContent = 'Finishing…';
+
+  if (isOffline) {
+    if (S.activeCompletedSession) {
+      await idbQueueWrite({ op: 'finish_session_update',
+        tempSessionId: S.activeCompletedSession.id,
+        sessionId: S.activeCompletedSession._isTemp ? null : S.activeCompletedSession.id,
+        payload: { status: 'completed', overall_rpe: overallRpe, session_notes: sessionNotes } });
+      S.completed[S.activeSession.id] = { ...S.activeCompletedSession, status: 'completed' };
+    } else {
+      const tid = crypto.randomUUID();
+      const sp  = { athlete_id: S.athlete.id, planned_session_id: S.activeSession.id,
+        session_date: today(), week_of: S.cycle.start_date,
+        session_type: S.activeSession.session_type,
+        status: 'completed', overall_rpe: overallRpe, session_notes: sessionNotes };
+      await idbQueueWrite({ op: 'finish_session_insert', payload: sp });
+      S.activeCompletedSession        = { id: tid, _isTemp: true, ...sp };
+      S.completed[S.activeSession.id] = S.activeCompletedSession;
+    }
+    showSuccess('Session Complete', 'Saved offline — will sync when connected.');
+    return;
+  }
 
   try {
     if (S.activeCompletedSession) {
@@ -2088,6 +2213,31 @@ async function submitConditioningSession() {
   btn.textContent = 'Saving…';
 
   try {
+    if (isOffline) {
+      const pc2 = S.plannedConditioning;
+      const wt2 = pc2?.workout_type || document.getElementById('cond-type')?.value || null;
+      const tid = crypto.randomUUID();
+      await idbQueueWrite({ op: 'conditioning_session', payload: {
+        session: { athlete_id: S.athlete.id, planned_session_id: S.activeSession.id,
+          session_date: today(), week_of: S.cycle.start_date,
+          session_type: 'Conditioning Only', status: 'completed' },
+        conditioning: { athlete_id: S.athlete.id, conditioning_date: today(),
+          week_of: S.cycle.start_date, conditioning_system: S.cycle.conditioning_system,
+          conditioning_phase: S.cycle.conditioning_phase,
+          modality: document.getElementById('cond-modality')?.value.trim() || pc2?.modality || null,
+          workout_type: wt2, adaptation_category: wt2?.includes('Steady') ? 'Aerobic Endurance' : null,
+          is_planned: !!pc2,
+          duration_minutes: parseFloat(document.getElementById('cond-duration')?.value) || null,
+          avg_heart_rate:   parseInt(document.getElementById('cond-avg-hr')?.value)     || null,
+          max_heart_rate:   parseInt(document.getElementById('cond-max-hr')?.value)     || null,
+          heart_rate_zone:  document.getElementById('cond-zone')?.value.trim()          || null,
+          rpe:   parseFloat(document.getElementById('cond-rpe')?.value)   || null,
+          notes: document.getElementById('cond-notes')?.value.trim()      || null },
+      }});
+      S.completed[S.activeSession.id] = { id: tid, status: 'completed', _isTemp: true };
+      showSuccess('Conditioning Logged', 'Saved offline — will sync when connected.');
+      return;
+    }
     const { data: cs, error: csErr } = await db.from('completed_sessions').insert({
       athlete_id:         S.athlete.id,
       planned_session_id: S.activeSession.id,
@@ -2196,7 +2346,7 @@ async function submitConditioning() {
     const workoutType = pc?.workout_type
       || document.getElementById('cond-type')?.value
       || null;
-    await db.from('completed_conditioning').insert({
+    const condPayload = {
       athlete_id:           S.athlete.id,
       completed_session_id: null,
       conditioning_date:    today(),
@@ -2213,7 +2363,13 @@ async function submitConditioning() {
       heart_rate_zone:      document.getElementById('cond-zone').value.trim()            || null,
       rpe:                  parseFloat(document.getElementById('cond-rpe').value)        || null,
       notes:                document.getElementById('cond-notes').value.trim()           || null,
-    });
+    };
+    if (isOffline) {
+      await idbQueueWrite({ op: 'conditioning_standalone', payload: condPayload });
+      showSuccess('Conditioning Logged', 'Saved offline — will sync when connected.');
+      return;
+    }
+    await db.from('completed_conditioning').insert(condPayload);
     showSuccess('Conditioning Logged', 'Session saved. Good work.');
   } catch (err) {
     console.error(err);
@@ -2276,6 +2432,16 @@ async function submitReadiness() {
   const waist      = parseFloat(document.getElementById('r-waist').value)    || null;
   const notes      = document.getElementById('r-notes').value.trim()         || null;
 
+  if (isOffline) {
+    await idbQueueWrite({ op: 'readiness', payload: {
+      athlete_id: S.athlete.id, log_date: today(),
+      energy, soreness, stress, motivation,
+      sleep_hours: sleep, bodyweight_lbs: bw, waist_inches: waist, notes,
+    }});
+    toast('Readiness saved offline ✓');
+    showScreen('week');
+    return;
+  }
   try {
     await db.from('readiness_logs').insert({
       athlete_id:     S.athlete.id,
@@ -2315,6 +2481,16 @@ async function submitPain() {
 
   if (!region) { toast('Please select a body region.'); return; }
 
+  if (isOffline) {
+    await idbQueueWrite({ op: 'pain', payload: {
+      athlete_id: S.athlete.id, log_date: today(),
+      body_region: region, pain_score: score, status, modified_training: modified,
+      trigger, notes,
+    }});
+    toast('Pain log saved offline ✓');
+    closePainSheet();
+    return;
+  }
   try {
     await db.from('pain_injury_logs').insert({
       athlete_id:       S.athlete.id,
@@ -2455,6 +2631,16 @@ async function submitTest() {
   const notes    = document.getElementById('test-notes').value.trim()        || null;
   const e1rm     = (load && reps) ? epley(load, reps) : null;
   if (!load && !true1rm) { toast('Enter load & reps, or a direct 1RM.'); return; }
+  if (isOffline) {
+    await idbQueueWrite({ op: 'test', payload: {
+      athlete_id: S.athlete.id, exercise_id: testSelectedExId,
+      test_date: testDate, actual_load: load, actual_reps: reps,
+      true_1rm: true1rm, e1rm, rpe, notes,
+    }});
+    toast('Test saved offline ✓');
+    closeTestLogSheet();
+    return;
+  }
   try {
     await db.from('strength_tests').insert({
       athlete_id:  S.athlete.id,
@@ -2534,6 +2720,164 @@ function closeTestHistSheet() {
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────────────────────
+
+// ── IndexedDB module ──────────────────────────────────────────────────────────
+const IDB_NAME = 'strength-app-v1';
+const IDB_VER  = 1;
+
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(IDB_NAME, IDB_VER);
+    req.onupgradeneeded = e => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains('kv'))
+        d.createObjectStore('kv', { keyPath: 'k' });
+      if (!d.objectStoreNames.contains('write_queue'))
+        d.createObjectStore('write_queue', { keyPath: 'id', autoIncrement: true });
+    };
+    req.onsuccess = e => res(e.target.result);
+    req.onerror   = e => rej(e.target.error);
+  });
+}
+async function idbSet(key, value) {
+  const d = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx = d.transaction('kv', 'readwrite');
+    const req = tx.objectStore('kv').put({ k: key, v: value });
+    req.onsuccess = () => res();
+    req.onerror   = e => rej(e.target.error);
+  });
+}
+async function idbGet(key) {
+  const d = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx = d.transaction('kv', 'readonly');
+    const req = tx.objectStore('kv').get(key);
+    req.onsuccess = e => res(e.target.result?.v);
+    req.onerror   = e => rej(e.target.error);
+  });
+}
+async function idbQueueWrite(item) {
+  const d = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx = d.transaction('write_queue', 'readwrite');
+    const req = tx.objectStore('write_queue').add({ ...item, createdAt: Date.now() });
+    req.onsuccess = () => res();
+    req.onerror   = e => rej(e.target.error);
+  });
+}
+async function idbGetAllQueue() {
+  const d = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx = d.transaction('write_queue', 'readonly');
+    const req = tx.objectStore('write_queue').getAll();
+    req.onsuccess = e => res(e.target.result || []);
+    req.onerror   = e => rej(e.target.error);
+  });
+}
+async function idbDeleteQueueItem(id) {
+  const d = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx = d.transaction('write_queue', 'readwrite');
+    const req = tx.objectStore('write_queue').delete(id);
+    req.onsuccess = () => res();
+    req.onerror   = e => rej(e.target.error);
+  });
+}
+
+// ── Offline banner ────────────────────────────────────────────────────────────
+function updateOfflineBanner() {
+  const el = document.getElementById('offline-banner');
+  if (el) el.style.display = isOffline ? 'block' : 'none';
+}
+
+window.addEventListener('offline', () => {
+  isOffline = true;
+  updateOfflineBanner();
+});
+
+window.addEventListener('online', async () => {
+  isOffline = false;
+  updateOfflineBanner();
+  await syncQueue();
+});
+
+// ── Sync engine ───────────────────────────────────────────────────────────────
+function resolveIds(payload, idMap) {
+  if (Array.isArray(payload)) return payload.map(i => resolveIds(i, idMap));
+  if (payload && typeof payload === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(payload))
+      out[k] = (k === 'completed_session_id' && idMap[v]) ? idMap[v] : v;
+    return out;
+  }
+  return payload;
+}
+
+async function syncQueue() {
+  const items = await idbGetAllQueue();
+  if (!items.length) return;
+
+  const idMap = {};
+  let synced = 0, failed = 0;
+
+  for (const item of items) {
+    try {
+      const p = resolveIds(item.payload, idMap);
+      switch (item.op) {
+        case 'create_session': {
+          const { data: cs, error } = await db.from('completed_sessions').insert(p).select().single();
+          if (error) throw error;
+          idMap[item.tempSessionId] = cs.id;
+          break;
+        }
+        case 'insert_sets':
+          await db.from('completed_strength_sets').insert(p);
+          break;
+        case 'finish_session_update': {
+          const realId = idMap[item.tempSessionId] || item.sessionId;
+          if (realId) await db.from('completed_sessions').update(p).eq('id', realId);
+          break;
+        }
+        case 'finish_session_insert':
+          await db.from('completed_sessions').insert(p);
+          break;
+        case 'conditioning_session': {
+          const { data: cs2, error: cse } = await db.from('completed_sessions').insert(p.session).select().single();
+          if (cse) throw cse;
+          await db.from('completed_conditioning').insert({ ...p.conditioning, completed_session_id: cs2.id });
+          break;
+        }
+        case 'conditioning_standalone':
+          await db.from('completed_conditioning').insert(p);
+          break;
+        case 'readiness':
+          await db.from('readiness_logs').insert(p);
+          break;
+        case 'pain':
+          await db.from('pain_injury_logs').insert(p);
+          break;
+        case 'test':
+          await db.from('strength_tests').insert(p);
+          break;
+      }
+      await idbDeleteQueueItem(item.id);
+      synced++;
+    } catch (err) {
+      console.error('Sync failed:', item.op, err);
+      failed++;
+    }
+  }
+
+  if (synced > 0) {
+    toast(`Synced ${synced} item${synced > 1 ? 's' : ''} ✓`);
+    await loadProgram();
+  }
+  if (failed > 0) {
+    toast(`${failed} item${failed > 1 ? 's' : ''} failed to sync — will retry.`, 4000);
+  }
+}
+
 (async () => {
   const { data: { session } } = await db.auth.getSession();
   if (session?.user) await onLogin(session.user);
