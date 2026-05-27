@@ -661,7 +661,7 @@ async function checkOnline() {
   if (!navigator.onLine) return false;
   try {
     const ctrl = new AbortController();
-    const tid  = setTimeout(() => ctrl.abort(), 3000);
+    const tid  = setTimeout(() => ctrl.abort(), 1500);
     await fetch(SUPABASE_URL + '/rest/v1/', {
       method: 'HEAD',
       headers: { apikey: SUPABASE_KEY },
@@ -3020,9 +3020,33 @@ async function syncQueue() {
 }
 
 (async () => {
-  updateOfflineBanner();   // show banner immediately if page loaded while offline
-  const { data: { session } } = await db.auth.getSession();
-  if (session?.user) await onLogin(session.user);
+  // Probe connectivity FIRST — before any Supabase auth calls.
+  // Supabase tries a token refresh if the JWT is expired, which hangs/fails offline
+  // and returns session:null, preventing onLogin from ever being called.
+  const online = await checkOnline();
+
+  if (!online) {
+    // Offline: skip auth entirely, load directly from IDB cache
+    isOffline = true;
+    updateOfflineBanner();
+    const cached = await idbGet('athleteCache');
+    if (cached) {
+      S.user        = { email: cached.email };
+      S.athlete     = cached.athlete;
+      S.exerciseLib = cached.exerciseLib || [];
+      toast('Offline — loading from cache…', 2000);
+      await loadProgram();
+    } else {
+      toast('Offline — open the app while connected first to enable offline use.', 5000);
+      showScreen('login');
+    }
+  } else {
+    // Online: normal Supabase auth flow
+    const { data: { session } } = await db.auth.getSession();
+    if (session?.user) await onLogin(session.user);
+  }
+
+  // Always register auth state change listener
   db.auth.onAuthStateChange(async (event) => {
     if (event === 'SIGNED_OUT') showScreen('login');
   });
