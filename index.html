@@ -2943,6 +2943,8 @@ window.addEventListener('offline', () => {
 window.addEventListener('online', async () => {
   isOffline = false;
   updateOfflineBanner();
+  // Refresh auth token before syncing — it may have expired while offline
+  await db.auth.getSession();
   await syncQueue();
 });
 
@@ -2963,7 +2965,7 @@ async function syncQueue() {
   if (!items.length) return;
 
   const idMap = {};
-  let synced = 0, failed = 0;
+  let synced = 0, failed = 0, lastSyncErr = '';
 
   for (const item of items) {
     try {
@@ -2975,41 +2977,59 @@ async function syncQueue() {
           idMap[item.tempSessionId] = cs.id;
           break;
         }
-        case 'insert_sets':
-          await db.from('completed_strength_sets').insert(p);
-          break;
-        case 'finish_session_update': {
-          const realId = idMap[item.tempSessionId] || item.sessionId;
-          if (realId) await db.from('completed_sessions').update(p).eq('id', realId);
+        case 'insert_sets': {
+          const { error: e2 } = await db.from('completed_strength_sets').insert(p);
+          if (e2) throw e2;
           break;
         }
-        case 'finish_session_insert':
-          await db.from('completed_sessions').insert(p);
+        case 'finish_session_update': {
+          const realId = idMap[item.tempSessionId] || item.sessionId;
+          if (realId) {
+            const { error: e3 } = await db.from('completed_sessions').update(p).eq('id', realId);
+            if (e3) throw e3;
+          }
           break;
+        }
+        case 'finish_session_insert': {
+          const { error: e4 } = await db.from('completed_sessions').insert(p);
+          if (e4) throw e4;
+          break;
+        }
         case 'conditioning_session': {
           const { data: cs2, error: cse } = await db.from('completed_sessions').insert(p.session).select().single();
           if (cse) throw cse;
-          await db.from('completed_conditioning').insert({ ...p.conditioning, completed_session_id: cs2.id });
+          const { error: cce } = await db.from('completed_conditioning').insert({ ...p.conditioning, completed_session_id: cs2.id });
+          if (cce) throw cce;
           break;
         }
-        case 'conditioning_standalone':
-          await db.from('completed_conditioning').insert(p);
+        case 'conditioning_standalone': {
+          const { error: e5 } = await db.from('completed_conditioning').insert(p);
+          if (e5) throw e5;
           break;
-        case 'readiness':
-          await db.from('readiness_logs').insert(p);
+        }
+        case 'readiness': {
+          const { error: e6 } = await db.from('readiness_logs').insert(p);
+          if (e6) throw e6;
           break;
-        case 'pain':
-          await db.from('pain_injury_logs').insert(p);
+        }
+        case 'pain': {
+          const { error: e7 } = await db.from('pain_injury_logs').insert(p);
+          if (e7) throw e7;
           break;
-        case 'test':
-          await db.from('strength_tests').insert(p);
+        }
+        case 'test': {
+          const { error: e8 } = await db.from('strength_tests').insert(p);
+          if (e8) throw e8;
           break;
+        }
       }
       await idbDeleteQueueItem(item.id);
       synced++;
     } catch (err) {
       console.error('Sync failed:', item.op, err);
+      console.error('Sync error detail:', JSON.stringify(err));
       failed++;
+      lastSyncErr = err?.message || err?.code || 'unknown';
     }
   }
 
@@ -3018,7 +3038,7 @@ async function syncQueue() {
     await loadProgram();
   }
   if (failed > 0) {
-    toast(`${failed} item${failed > 1 ? 's' : ''} failed to sync — will retry.`, 4000);
+    toast(`${failed} item${failed > 1 ? 's' : ''} failed to sync — ${lastSyncErr}`, 5000);
   }
 }
 
@@ -3058,11 +3078,3 @@ async function syncQueue() {
 </body>
 </html>
 
-  // Always register auth state change listener
-  db.auth.onAuthStateChange(async (event) => {
-    if (event === 'SIGNED_OUT') showScreen('login');
-  });
-})();
-</script>
-</body>
-</html>
