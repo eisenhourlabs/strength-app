@@ -1242,7 +1242,7 @@ function renderSessionBody() {
       </div>`;
   });
 
-  html += `<button class="add-ex-btn" onclick="openAddExSheet()">＋  Add Exercise</button>`;
+  html += `<button class="add-ex-btn" id="session-add-ex-btn" onclick="openAddExSheet()">＋  Add Exercise</button>`;
 
   // Session summary footer
   const isCompleted = S.activeCompletedSession?.status === 'completed';
@@ -2282,7 +2282,7 @@ function selectExercise(exId, exName) {
     const localId = ++S.addedCounter;
     S.addedExercises.push({ localId, exId, exName, setCount: 1 });
     const key        = `a-${localId}`;
-    const addBtn     = document.querySelector('.add-ex-btn');
+    const addBtn     = document.getElementById('session-add-ex-btn');
     const newCardHtml = `
       <div class="ex-card added-card" id="ex-card-${key}">
         <div class="ex-header">
