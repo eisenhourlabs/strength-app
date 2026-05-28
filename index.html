@@ -548,11 +548,23 @@
 
 <!-- ══════════════════ NEW SESSION SHEET ══════════════════ -->
 <div class="sheet-overlay" id="new-sess-overlay" onclick="closeNewSessionSheet()"></div>
-<div class="sheet" id="new-sess-sheet" style="max-height:60vh">
+<div class="sheet" id="new-sess-sheet" style="max-height:88vh">
   <div class="sheet-handle"></div>
   <div class="sheet-title">New Session</div>
-  <div class="form-section-label" style="margin-top:0">Session Type</div>
-  <select id="new-sess-type" class="sheet-search" style="margin-bottom:20px;font-size:15px">
+
+  <div class="form-section-label" style="margin-top:0">Day</div>
+  <select id="new-sess-day" class="sheet-search" style="margin-bottom:12px;font-size:15px">
+    <option value="Monday">Monday</option>
+    <option value="Tuesday">Tuesday</option>
+    <option value="Wednesday">Wednesday</option>
+    <option value="Thursday">Thursday</option>
+    <option value="Friday">Friday</option>
+    <option value="Saturday">Saturday</option>
+    <option value="Sunday">Sunday</option>
+  </select>
+
+  <div class="form-section-label">Session Type</div>
+  <select id="new-sess-type" class="sheet-search" style="margin-bottom:16px;font-size:15px">
     <option value="Upper Max Effort">Upper Max Effort</option>
     <option value="Lower Max Effort">Lower Max Effort</option>
     <option value="Upper Dynamic Effort">Upper Dynamic Effort</option>
@@ -563,8 +575,16 @@
     <option value="Conditioning Only">Conditioning Only</option>
     <option value="Open">Open</option>
   </select>
-  <button class="btn" onclick="startAdHocSession()">Start Session</button>
-  <button class="btn secondary" style="margin-top:10px" onclick="closeNewSessionSheet()">Cancel</button>
+
+  <button class="btn" onclick="createUserSession()">Create Session</button>
+
+  <div class="divider" style="margin:18px 0 10px"></div>
+  <div class="form-section-label">Copy a previous session</div>
+  <div id="copy-sess-list" style="max-height:200px;overflow-y:auto;margin-bottom:4px">
+    <div style="color:var(--muted);font-size:13px;padding:8px 0">Loading recent sessions…</div>
+  </div>
+
+  <button class="btn secondary" style="margin-top:12px" onclick="closeNewSessionSheet()">Cancel</button>
 </div>
 
 <!-- ══════════════════ TESTS SCREEN ══════════════════ -->
@@ -713,7 +733,6 @@ let S = {
   exerciseLib: [],
   sheetMode:   null,
   swapExKey:   null,
-  isAdHoc:     false,
 };
 
 function today() { return new Date().toISOString().split('T')[0]; }
@@ -797,7 +816,7 @@ async function doLogout() {
     activeSession:null, plannedExercises:[], plannedConditioning:null,
     activeCompletedSession:null, savedExercises:{},
     exState:{}, addedExercises:[], addedCounter:0,
-    exerciseLib:[], sheetMode:null, swapExKey:null, isAdHoc:false };
+    exerciseLib:[], sheetMode:null, swapExKey:null };
   showScreen('login');
 }
 
@@ -829,9 +848,8 @@ async function renderWeek() {
   const sessHtml = S.sessions.map(s => {
     const comp       = S.completed[s.id];
     const isCondOnly = s.session_type === 'Conditioning Only';
-    const isAdHoc    = s.session_order === null || s.session_order === undefined;
     const icon       = isCondOnly ? '🚴 ' : '';
-    const dayLabel   = isAdHoc ? 'Ad-hoc' : s.day_label;
+    const dayLabel   = s.day_label || 'Session';
     let statusBadge;
     if (!comp) {
       statusBadge = `<span class="badge badge-pending">Pending</span>`;
@@ -841,7 +859,7 @@ async function renderWeek() {
       statusBadge = `<span class="badge badge-done">✓ Logged</span>`;
     }
     return `
-      <div class="card tap ${isAdHoc ? 'adhoc-card' : ''}" data-sid="${s.id}" onclick="openSession('${s.id}')">
+      <div class="card tap" data-sid="${s.id}" onclick="openSession('${s.id}')">
         <div class="session-row">
           <div style="flex:1">
             <div class="card-label">${dayLabel}</div>
@@ -849,7 +867,7 @@ async function renderWeek() {
             <div class="session-meta">${statusBadge}</div>
           </div>
           <div style="display:flex;align-items:center;gap:6px">
-            ${isAdHoc ? `<button class="sess-del-btn" onclick="event.stopPropagation();deleteAdHocSession('${s.id}')" title="Delete session">🗑</button>` : ''}
+            <button class="sess-del-btn" onclick="event.stopPropagation();deleteSession('${s.id}')" title="Delete session">🗑</button>
             <span class="drag-handle" onclick="event.stopPropagation()">⠿</span>
             <div class="arrow">›</div>
           </div>
@@ -878,6 +896,9 @@ async function renderWeek() {
     </div>
     <button class="add-ex-btn" onclick="openNewSessionSheet()" style="margin-top:10px">
       ➕  New Session
+    </button>
+    <button class="btn secondary" onclick="startNewWeek()" style="margin-top:8px;font-size:13px;padding:10px">
+      🗓  Start New Week
     </button>`;
 
   body.innerHTML = `<div id="session-list">${sessHtml}</div>` + utilHtml;
@@ -2017,8 +2038,8 @@ async function reEditExercise(key) {
 }
 
 // ── Delete ad-hoc session ─────────────────────────────────────────────────────
-async function deleteAdHocSession(sessionId) {
-  if (!confirm('Delete this session and all logged data?')) return;
+async function deleteSession(sessionId) {
+  if (!confirm('Delete this session and all its data?')) return;
   try {
     const cs = S.completed[sessionId];
     if (cs) {
@@ -2037,9 +2058,19 @@ async function deleteAdHocSession(sessionId) {
 }
 
 // ── New session sheet ─────────────────────────────────────────────────────────
+const DAY_ORDER = { Monday:1, Tuesday:2, Wednesday:3, Thursday:4, Friday:5, Saturday:6, Sunday:7 };
+
 function openNewSessionSheet() {
+  // Pre-select today's day
+  const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+  const dayEl = document.getElementById('new-sess-day');
+  if (dayEl && DAY_ORDER[todayName]) dayEl.value = todayName;
+
   document.getElementById('new-sess-overlay').classList.add('open');
   document.getElementById('new-sess-sheet').classList.add('open');
+
+  // Load recent sessions for copy section (non-blocking)
+  loadRecentSessionsForCopy();
 }
 
 function closeNewSessionSheet() {
@@ -2047,14 +2078,52 @@ function closeNewSessionSheet() {
   document.getElementById('new-sess-sheet').classList.remove('open');
 }
 
-async function startAdHocSession() {
-  if (isOffline) { toast('Cannot start new sessions offline.'); return; }
+async function loadRecentSessionsForCopy() {
+  const list = document.getElementById('copy-sess-list');
+  if (!list) return;
+  if (isOffline) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0">Not available offline.</div>';
+    return;
+  }
+  try {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 28);
+    const { data: sessions } = await db.from('completed_sessions')
+      .select('id, session_type, session_date')
+      .eq('athlete_id', S.athlete.id)
+      .eq('status', 'completed')
+      .gte('session_date', cutoff.toISOString().slice(0, 10))
+      .order('session_date', { ascending: false })
+      .limit(6);
+
+    if (!sessions || sessions.length === 0) {
+      list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0">No completed sessions in the last 4 weeks.</div>';
+      return;
+    }
+    list.innerHTML = sessions.map(s => {
+      const d       = new Date(s.session_date + 'T00:00:00');
+      const dateStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      const safe    = (s.session_type || 'Session').replace(/'/g, "\'");
+      return `<div class="sheet-item" onclick="copyPreviousSession('${s.id}','${safe}')">
+        <div class="sheet-item-name">${s.session_type || 'Session'}</div>
+        <div class="sheet-item-meta">${dateStr}</div>
+      </div>`;
+    }).join('');
+  } catch (_) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0">Could not load sessions.</div>';
+  }
+}
+
+// Create a blank user-built session with the selected day/type
+async function createUserSession() {
+  if (isOffline) { toast('Cannot create sessions offline.'); return; }
   const sessionType = document.getElementById('new-sess-type').value;
+  const dayName     = document.getElementById('new-sess-day').value;
   closeNewSessionSheet();
 
-  document.getElementById('session-title').textContent = 'Today';
+  document.getElementById('session-title').textContent = dayName;
   document.getElementById('session-sub').textContent   = sessionType;
-  document.getElementById('session-body').innerHTML    = '<div class="spinner">Starting session…</div>';
+  document.getElementById('session-body').innerHTML    = '<div class="spinner">Creating…</div>';
   const btn = document.getElementById('submit-btn');
   btn.disabled    = false;
   btn.className   = 'btn';
@@ -2062,12 +2131,11 @@ async function startAdHocSession() {
   showScreen('session');
 
   try {
-    const dayLabel = new Date().toLocaleDateString('en-US', { weekday: 'long' });
     const { data: ps, error: psErr } = await db.from('planned_sessions').insert({
       athlete_id:            S.athlete.id,
-      cycle_id:              S.cycle.id,
-      week_of:               S.cycle.start_date,
-      day_label:             dayLabel,
+      cycle_id:              S.cycle?.id,
+      week_of:               S.cycle?.start_date || today(),
+      day_label:             dayName,
       session_order:         null,
       session_type:          sessionType,
       includes_conditioning: sessionType === 'Conditioning Only',
@@ -2076,12 +2144,116 @@ async function startAdHocSession() {
     if (psErr) throw psErr;
 
     S.sessions.push(ps);
-    S.isAdHoc = true;
     await openSession(ps.id);
   } catch (err) {
     console.error(err);
-    toast('Error starting session. Check connection.', 4000);
+    toast('Error creating session. Check connection.', 4000);
     loadProgram();
+  }
+}
+
+// Copy a previous completed session's exercises into a new session
+async function copyPreviousSession(completedSessionId, sessionType) {
+  if (isOffline) { toast('Cannot create sessions offline.'); return; }
+  const dayName = document.getElementById('new-sess-day').value;
+  closeNewSessionSheet();
+
+  document.getElementById('session-title').textContent = dayName;
+  document.getElementById('session-sub').textContent   = sessionType;
+  document.getElementById('session-body').innerHTML    = '<div class="spinner">Copying session…</div>';
+  const btn = document.getElementById('submit-btn');
+  btn.disabled    = false;
+  btn.className   = 'btn';
+  btn.textContent = sessionType === 'Conditioning Only' ? 'Log Conditioning' : 'Finish Session';
+  showScreen('session');
+
+  try {
+    // Create the new planned session
+    const { data: ps, error: psErr } = await db.from('planned_sessions').insert({
+      athlete_id:            S.athlete.id,
+      cycle_id:              S.cycle?.id,
+      week_of:               S.cycle?.start_date || today(),
+      day_label:             dayName,
+      session_order:         null,
+      session_type:          sessionType,
+      includes_conditioning: sessionType === 'Conditioning Only',
+      session_notes:         null,
+    }).select().single();
+    if (psErr) throw psErr;
+
+    // Load the source session's sets (real data only, not placeholders)
+    const { data: sets } = await db.from('completed_strength_sets')
+      .select('exercise_id, set_number, actual_load, actual_reps')
+      .eq('completed_session_id', completedSessionId)
+      .gt('set_number', 0)
+      .eq('is_skipped', false)
+      .order('set_number');
+
+    if (sets && sets.length > 0) {
+      // Unique exercises in first-appearance order
+      const seen = new Set();
+      const uniqueExes = [];
+      sets.forEach(s => {
+        if (s.exercise_id && !seen.has(s.exercise_id)) {
+          seen.add(s.exercise_id);
+          const exSets   = sets.filter(r => r.exercise_id === s.exercise_id);
+          const topLoad  = Math.max(...exSets.map(r => r.actual_load || 0)) || null;
+          const firstReps = exSets[0]?.actual_reps || null;
+          uniqueExes.push({ exercise_id: s.exercise_id, topLoad, firstReps, setCount: exSets.length });
+        }
+      });
+
+      // Insert as planned_exercises so they appear as proper exercise tiles
+      const peRows = uniqueExes.map((ex, i) => ({
+        session_id:   ps.id,
+        exercise_id:  ex.exercise_id,
+        item_order:   i + 1,
+        target_load:  ex.topLoad,
+        target_sets:  ex.setCount,
+        reps_low:     ex.firstReps,
+      }));
+      await db.from('planned_exercises').insert(peRows);
+    }
+
+    S.sessions.push(ps);
+    toast(`Copied ${sets?.length ? 'exercises' : 'session'} ✓`, 1500);
+    await openSession(ps.id);
+  } catch (err) {
+    console.error(err);
+    toast('Error copying session.', 4000);
+    loadProgram();
+  }
+}
+
+// Start a new training week
+async function startNewWeek() {
+  if (isOffline) { toast('Cannot start new week offline.'); return; }
+  if (!confirm('Start a new week? The current week will be archived and the session list will clear.')) return;
+
+  try {
+    // Archive the current cycle
+    if (S.cycle?.id) {
+      await db.from('training_cycles').update({ status: 'completed' }).eq('id', S.cycle.id);
+    }
+
+    // Create the new cycle
+    const todayStr = today();
+    const { data: newCycle, error: cycleErr } = await db.from('training_cycles').insert({
+      athlete_id:  S.athlete.id,
+      name:        `Week of ${todayStr}`,
+      start_date:  todayStr,
+      status:      'active',
+    }).select().single();
+    if (cycleErr) throw cycleErr;
+
+    S.cycle    = newCycle;
+    S.sessions = [];
+    S.completed = {};
+    toast('New week started ✓');
+    await renderWeek();
+  } catch (err) {
+    console.error(err);
+    toast('Error starting new week.', 4000);
   }
 }
 
@@ -3482,10 +3654,4 @@ async function syncQueue() {
 
   // Always register auth state change listener
   db.auth.onAuthStateChange(async (event) => {
-    if (event === 'SIGNED_OUT') showScreen('login');
-  });
-})();
-</script>
-</body>
-</html>
-
+    if (event === 'SIGNED_OUT') showScreen('l
