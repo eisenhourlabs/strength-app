@@ -420,7 +420,7 @@
 <!-- ══════════════════ SESSION ══════════════════ -->
 <div class="screen" id="screen-session">
   <div class="header">
-    <button class="back-btn" onclick="loadProgram()">‹</button>
+    <button class="back-btn" onclick="leaveSession()">‹</button>
     <div style="flex:1">
       <div class="header-title" id="session-title"></div>
       <div class="header-sub"  id="session-sub"></div>
@@ -953,9 +953,10 @@ async function loadProgram() {
 
 // ── Open session ──────────────────────────────────────────────────────────────
 // ── Reconstruct S.addedExercises from is_added=true rows (re-enter session) ───
+// set_number === 0 rows are placeholders (exercise added but not yet saved).
+// set_number  >  0 rows are real saved data.
 function reconstructAddedExercises(allRows) {
   const addedRows = (allRows || []).filter(s => s.is_added && s.exercise_id);
-  // Group by exercise_id so each distinct added exercise gets one entry
   const byExId = {};
   addedRows.forEach(s => {
     const eid = String(s.exercise_id);
@@ -963,11 +964,19 @@ function reconstructAddedExercises(allRows) {
     byExId[eid].push(s);
   });
   Object.entries(byExId).forEach(([exId, rows]) => {
-    const lib    = S.exerciseLib.find(e => String(e.id) === exId);
-    const exName = lib ? lib.name : 'Added Exercise';
-    const localId = ++S.addedCounter;
-    S.addedExercises.push({ localId, exId, exName, setCount: rows.length });
-    S.savedExercises[localId] = rows;
+    const lib      = S.exerciseLib.find(e => String(e.id) === exId);
+    const exName   = lib ? lib.name : 'Added Exercise';
+    const localId  = ++S.addedCounter;
+    const realRows = rows.filter(r => (r.set_number || 0) > 0);
+    if (realRows.length > 0) {
+      // Exercise has real saved data — render as a saved (read-only) card
+      S.addedExercises.push({ localId, exId, exName, setCount: realRows.length });
+      S.savedExercises[localId] = realRows;
+    } else {
+      // Only placeholder — exercise was added but not yet filled in
+      S.addedExercises.push({ localId, exId, exName, setCount: 1 });
+      // Do NOT populate S.savedExercises[localId] → renders as empty editable tile
+    }
   });
 }
 
@@ -1081,7 +1090,7 @@ async function openSession(sessionId) {
         S.exState[pe.id] = { skipped: false, swappedTo: null, setCount: count };
       }
     });
-    if (isCondOnly) { renderConditioningSessionBody(); } else { renderSessionBody(); }
+    if (isCondOnly) { renderConditioningSessionBody(); } else { renderSessionBody(); restoreDraft(sessionId); }
     return;
   }
 
@@ -1174,6 +1183,7 @@ async function openSession(sessionId) {
     renderConditioningSessionBody();
   } else {
     renderSessionBody();
+    restoreDraft(sessionId);
   }
 }
 
@@ -1256,10 +1266,14 @@ function renderSessionBody() {
     }
   });
 
-  // Added exercises (editable)
+  // Added exercises — saved card if real data exists, editable tile otherwise
   S.addedExercises.forEach(ae => {
-    const key = `a-${ae.localId}`;
-    html += `
+    const key       = `a-${ae.localId}`;
+    const savedSets = S.savedExercises[ae.localId];
+    if (savedSets && savedSets.length > 0) {
+      html += buildSavedExCard(key, ae.exName, ae.exId, savedSets, null);
+    } else {
+      html += `
       <div class="ex-card added-card" id="ex-card-${key}">
         <div class="ex-header">
           <span class="ex-name">${ae.exName}</span>
@@ -1274,6 +1288,7 @@ function renderSessionBody() {
             onclick="saveAddedExercise('${ae.localId}')">Save</button>
         </div>
       </div>`;
+    }
   });
 
   html += `<button class="add-ex-btn" id="session-add-ex-btn" onclick="openAddExSheet()">＋  Add Exercise</button>`;
@@ -1426,6 +1441,7 @@ async function saveExercise(peId) {
       const qRows = rows.map(r => ({ ...r, completed_session_id: S.activeCompletedSession.id }));
       await idbQueueWrite({ op: 'insert_sets', payload: qRows });
       S.savedExercises[peId] = rows;
+      clearExerciseDraft(S.activeSession.id, key);
       const offCard = document.getElementById(`ex-card-${key}`);
       if (offCard) {
         const exName    = st.swappedTo ? st.swappedTo.name : pe.exercise.name;
@@ -1460,6 +1476,7 @@ async function saveExercise(peId) {
 
     // Mark locally as saved and lock the card
     S.savedExercises[peId] = rows;
+    clearExerciseDraft(S.activeSession.id, key);
     const card = document.getElementById(`ex-card-${key}`);
     if (card) {
       const exName = st.swappedTo ? st.swappedTo.name : pe.exercise.name;
@@ -1541,6 +1558,7 @@ async function saveAddedExercise(localId) {
       const qRows = rows.map(r => ({ ...r, completed_session_id: S.activeCompletedSession.id }));
       await idbQueueWrite({ op: 'insert_sets', payload: qRows });
       S.savedExercises[localId] = rows;
+      clearExerciseDraft(S.activeSession.id, `a-${ae.exId}`);
       const offCard = document.getElementById(`ex-card-${key}`);
       if (offCard) {
         offCard.outerHTML = buildSavedExCard(key, ae.exName, ae.exId, rows.map((r, i) => ({
@@ -1566,10 +1584,15 @@ async function saveAddedExercise(localId) {
     }
 
     const insertRows = rows.map(r => ({ ...r, completed_session_id: S.activeCompletedSession.id }));
+    // Remove placeholder row (set_number=0) before inserting real data
+    await db.from('completed_strength_sets').delete()
+      .eq('completed_session_id', S.activeCompletedSession.id)
+      .eq('exercise_id', ae.exId).eq('is_added', true).eq('set_number', 0);
     const { error: rowsErr } = await db.from('completed_strength_sets').insert(insertRows);
     if (rowsErr) throw rowsErr;
 
     S.savedExercises[localId] = rows;
+    clearExerciseDraft(S.activeSession.id, `a-${ae.exId}`);
     const card = document.getElementById(`ex-card-${key}`);
     if (card) {
       card.outerHTML = buildSavedExCard(key, ae.exName, ae.exId, rows.map((r,i) => ({
@@ -2111,6 +2134,141 @@ function handleSubmit() {
   }
 }
 
+// ── Session draft — persist pre-filled (unsaved) input values across re-entries ──
+// Draft is stored in IDB under sessionDraftCache.
+// Keys: "p-{peId}" for planned, "a-{exId}" for added (exId is stable; localId is not).
+
+async function captureDraft() {
+  if (!S.activeSession) return;
+  const sessionId = S.activeSession.id;
+  const draft = {};
+
+  // Planned exercises — only capture unsaved (no entry in S.savedExercises)
+  S.plannedExercises.forEach(pe => {
+    if (S.savedExercises[pe.id]) return;
+    const key  = `p-${pe.id}`;
+    const wrap = document.getElementById(`sets-${key}`);
+    if (!wrap) return;
+    const rowCount = wrap.querySelectorAll('.set-row').length;
+    const sets = [];
+    for (let i = 0; i < rowCount; i++) {
+      sets.push({
+        load: document.getElementById(`load-${key}-${i}`)?.value || '',
+        reps: document.getElementById(`reps-${key}-${i}`)?.value || '',
+        rpe:  document.getElementById(`rpe-${key}-${i}`)?.value  || '',
+      });
+    }
+    const notes    = document.getElementById(`notes-${key}`)?.value || '';
+    const hasData  = sets.some(s => s.load || s.reps || s.rpe) || notes;
+    if (hasData) draft[key] = { sets, notes };
+  });
+
+  // Added exercises — only capture unsaved
+  S.addedExercises.forEach(ae => {
+    if (S.savedExercises[ae.localId]) return;
+    const key  = `a-${ae.localId}`;
+    const wrap = document.getElementById(`sets-${key}`);
+    if (!wrap) return;
+    const rowCount = wrap.querySelectorAll('.set-row').length;
+    const sets = [];
+    for (let i = 0; i < rowCount; i++) {
+      sets.push({
+        load: document.getElementById(`load-${key}-${i}`)?.value || '',
+        reps: document.getElementById(`reps-${key}-${i}`)?.value || '',
+        rpe:  document.getElementById(`rpe-${key}-${i}`)?.value  || '',
+      });
+    }
+    const notes    = document.getElementById(`notes-${key}`)?.value || '';
+    const hasData  = sets.some(s => s.load || s.reps || s.rpe) || notes;
+    if (hasData) draft[`a-${ae.exId}`] = { sets, notes }; // key by exId, not localId
+  });
+
+  try {
+    const allDrafts = (await idbGet('sessionDraftCache')) || {};
+    if (Object.keys(draft).length > 0) {
+      allDrafts[sessionId] = draft;
+    } else {
+      delete allDrafts[sessionId];
+    }
+    await idbSet('sessionDraftCache', allDrafts);
+  } catch (err) {
+    console.error('draft capture failed:', err);
+  }
+}
+
+async function restoreDraft(sessionId) {
+  try {
+    const allDrafts = (await idbGet('sessionDraftCache')) || {};
+    const draft = allDrafts[sessionId];
+    if (!draft) return;
+
+    // Planned exercises
+    S.plannedExercises.forEach(pe => {
+      if (S.savedExercises[pe.id]) return;
+      const key = `p-${pe.id}`;
+      const d   = draft[key];
+      if (!d) return;
+      // Add extra set rows if draft has more than the default
+      const wrap = document.getElementById(`sets-${key}`);
+      if (!wrap) return;
+      const existing = wrap.querySelectorAll('.set-row').length;
+      for (let i = existing; i < d.sets.length; i++) addSet(key, pe.id, false);
+      // Fill in values
+      d.sets.forEach((s, i) => {
+        const loadEl = document.getElementById(`load-${key}-${i}`);
+        const repsEl = document.getElementById(`reps-${key}-${i}`);
+        const rpeEl  = document.getElementById(`rpe-${key}-${i}`);
+        if (loadEl) loadEl.value = s.load;
+        if (repsEl) repsEl.value = s.reps;
+        if (rpeEl)  rpeEl.value  = s.rpe;
+      });
+      const notesEl = document.getElementById(`notes-${key}`);
+      if (notesEl) notesEl.value = d.notes || '';
+    });
+
+    // Added exercises — match by exId
+    S.addedExercises.forEach(ae => {
+      if (S.savedExercises[ae.localId]) return;
+      const d   = draft[`a-${ae.exId}`];
+      if (!d) return;
+      const key  = `a-${ae.localId}`;
+      const wrap = document.getElementById(`sets-${key}`);
+      if (!wrap) return;
+      const existing = wrap.querySelectorAll('.set-row').length;
+      for (let i = existing; i < d.sets.length; i++) addSet(key, ae.localId, true);
+      d.sets.forEach((s, i) => {
+        const loadEl = document.getElementById(`load-${key}-${i}`);
+        const repsEl = document.getElementById(`reps-${key}-${i}`);
+        const rpeEl  = document.getElementById(`rpe-${key}-${i}`);
+        if (loadEl) loadEl.value = s.load;
+        if (repsEl) repsEl.value = s.reps;
+        if (rpeEl)  rpeEl.value  = s.rpe;
+      });
+      const notesEl = document.getElementById(`notes-${key}`);
+      if (notesEl) notesEl.value = d.notes || '';
+    });
+  } catch (err) {
+    console.error('draft restore failed:', err);
+  }
+}
+
+async function clearExerciseDraft(sessionId, draftKey) {
+  try {
+    const allDrafts = (await idbGet('sessionDraftCache')) || {};
+    if (allDrafts[sessionId]) {
+      delete allDrafts[sessionId][draftKey];
+      if (Object.keys(allDrafts[sessionId]).length === 0) delete allDrafts[sessionId];
+      await idbSet('sessionDraftCache', allDrafts);
+    }
+  } catch (_) {}
+}
+
+// Back button for session screen — capture draft before leaving
+async function leaveSession() {
+  await captureDraft();
+  loadProgram();
+}
+
 // ── Set row helpers ───────────────────────────────────────────────────────────
 function buildSetRows(key, count, disabled) {
   let html = '';
@@ -2287,6 +2445,49 @@ function renderExList(list) {
     </div>`).join('');
 }
 
+// ── Persist "intent to do this exercise" immediately so it survives re-entry ──
+// Saves a set_number=0 placeholder row. On re-enter the session, reconstructAddedExercises
+// detects this and restores the empty editable tile. Real saves delete the placeholder first.
+async function persistAddedExercisePlaceholder(localId, exId) {
+  try {
+    const placeholderRow = {
+      exercise_id: exId, is_added: true, is_skipped: false,
+      set_number: 0, actual_load: null, actual_reps: null, actual_rpe: null,
+    };
+    if (isOffline || !(await checkOnline())) {
+      isOffline = true; updateOfflineBanner();
+      if (!S.activeCompletedSession) {
+        const tid = crypto.randomUUID();
+        const sp  = { athlete_id: S.athlete.id, planned_session_id: S.activeSession.id,
+          session_date: today(), week_of: S.cycle?.start_date,
+          session_type: S.activeSession.session_type, status: 'in_progress' };
+        await idbQueueWrite({ op: 'create_session', tempSessionId: tid, payload: sp });
+        S.activeCompletedSession        = { id: tid, _isTemp: true, ...sp };
+        S.completed[S.activeSession.id] = S.activeCompletedSession;
+      }
+      await idbQueueWrite({ op: 'insert_sets',
+        payload: [{ ...placeholderRow, completed_session_id: S.activeCompletedSession.id }] });
+    } else {
+      if (!S.activeCompletedSession) {
+        const { data: cs, error: csErr } = await db.from('completed_sessions').insert({
+          athlete_id: S.athlete.id, planned_session_id: S.activeSession.id,
+          session_date: today(), week_of: S.cycle?.start_date,
+          session_type: S.activeSession.session_type, status: 'in_progress',
+        }).select().single();
+        if (csErr) throw csErr;
+        S.activeCompletedSession        = cs;
+        S.completed[S.activeSession.id] = cs;
+      }
+      await db.from('completed_strength_sets').insert({
+        ...placeholderRow, completed_session_id: S.activeCompletedSession.id,
+      });
+    }
+  } catch (err) {
+    console.error('placeholder save failed:', err);
+    // Non-blocking — tile is visible; just won't persist if app is fully restarted
+  }
+}
+
 function selectExercise(exId, exName) {
   closeExSheet();
   if (S.sheetMode === 'swap' && S.swapExKey) {
@@ -2315,6 +2516,7 @@ function selectExercise(exId, exName) {
   } else if (S.sheetMode === 'add') {
     const localId = ++S.addedCounter;
     S.addedExercises.push({ localId, exId, exName, setCount: 1 });
+    persistAddedExercisePlaceholder(localId, exId);   // fire-and-forget DB write
     const key        = `a-${localId}`;
     const addBtn     = document.getElementById('session-add-ex-btn');
     const newCardHtml = `
@@ -2336,10 +2538,20 @@ function selectExercise(exId, exName) {
   }
 }
 
-function removeAdded(localId) {
+async function removeAdded(localId) {
+  const ae = S.addedExercises.find(a => String(a.localId) === String(localId));
   S.addedExercises = S.addedExercises.filter(a => String(a.localId) !== String(localId));
+  delete S.savedExercises[localId];
   const card = document.getElementById(`ex-card-a-${localId}`);
   if (card) card.remove();
+  // Clean up placeholder row from DB (fire-and-forget)
+  if (ae && S.activeCompletedSession && !S.activeCompletedSession._isTemp) {
+    try {
+      await db.from('completed_strength_sets').delete()
+        .eq('completed_session_id', S.activeCompletedSession.id)
+        .eq('exercise_id', ae.exId).eq('is_added', true).eq('set_number', 0);
+    } catch (_) {}
+  }
 }
 
 // ── Conditioning-only session ─────────────────────────────────────────────────
@@ -3054,6 +3266,14 @@ async function syncQueue() {
           break;
         }
         case 'insert_sets': {
+          // If syncing real added-exercise rows, delete any set_number=0 placeholder first
+          const realAddedRows = Array.isArray(p)
+            ? p.filter(r => r.is_added && (r.set_number || 0) > 0) : [];
+          for (const r of realAddedRows) {
+            await db.from('completed_strength_sets').delete()
+              .eq('completed_session_id', r.completed_session_id)
+              .eq('exercise_id', r.exercise_id).eq('is_added', true).eq('set_number', 0);
+          }
           const { error: e2 } = await db.from('completed_strength_sets').insert(p);
           if (e2) throw e2;
           break;
