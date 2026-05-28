@@ -12,6 +12,7 @@
   <title>Strength App</title>
   <link rel="manifest" href="manifest.json">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -93,6 +94,14 @@
     .sess-del-btn { background: none; border: none; color: var(--muted);
       font-size: 16px; cursor: pointer; padding: 4px 6px; flex-shrink: 0; }
     .sess-del-btn:active { color: var(--danger); }
+
+    /* Drag-to-reorder */
+    .drag-handle { color: var(--border); font-size: 15px; cursor: grab;
+      flex-shrink: 0; touch-action: none; user-select: none;
+      padding: 0 6px; line-height: 1; }
+    .drag-handle:active { cursor: grabbing; color: var(--muted); }
+    .sortable-ghost  { opacity: 0.35; }
+    .sortable-chosen { outline: 2px solid var(--accent) !important; border-radius: var(--radius); }
 
     /* Saved badge inline */
     .saved-badge { font-size: 11px; font-weight: 700; color: var(--success);
@@ -793,7 +802,16 @@ async function doLogout() {
 }
 
 // ── Program loading ───────────────────────────────────────────────────────────
-function renderWeek() {
+async function renderWeek() {
+  // Apply any saved display order before rendering
+  const savedOrder = await idbGet('sessionOrderCache');
+  if (savedOrder?.cycleId === S.cycle?.id && savedOrder.order?.length) {
+    const orderMap = {};
+    savedOrder.order.forEach((id, i) => { orderMap[id] = i; });
+    S.sessions = [...S.sessions].sort((a, b) =>
+      (orderMap[a.id] ?? 9999) - (orderMap[b.id] ?? 9999));
+  }
+
   const body = document.getElementById('week-body');
   if (!S.cycle) {
     body.innerHTML = '<div class="card"><div class="card-title">No active program</div>' +
@@ -823,15 +841,16 @@ function renderWeek() {
       statusBadge = `<span class="badge badge-done">✓ Logged</span>`;
     }
     return `
-      <div class="card tap ${isAdHoc ? 'adhoc-card' : ''}" onclick="openSession('${s.id}')">
+      <div class="card tap ${isAdHoc ? 'adhoc-card' : ''}" data-sid="${s.id}" onclick="openSession('${s.id}')">
         <div class="session-row">
-          <div>
+          <div style="flex:1">
             <div class="card-label">${dayLabel}</div>
             <div class="card-title">${icon}${s.session_type || 'Session'}</div>
             <div class="session-meta">${statusBadge}</div>
           </div>
-          <div style="display:flex;align-items:center;gap:4px">
+          <div style="display:flex;align-items:center;gap:6px">
             ${isAdHoc ? `<button class="sess-del-btn" onclick="event.stopPropagation();deleteAdHocSession('${s.id}')" title="Delete session">🗑</button>` : ''}
+            <span class="drag-handle" onclick="event.stopPropagation()">⠿</span>
             <div class="arrow">›</div>
           </div>
         </div>
@@ -861,7 +880,8 @@ function renderWeek() {
       ➕  New Session
     </button>`;
 
-  body.innerHTML = sessHtml + utilHtml;
+  body.innerHTML = `<div id="session-list">${sessHtml}</div>` + utilHtml;
+  initSessionSort();
   showScreen('week');
 }
 
@@ -1090,7 +1110,7 @@ async function openSession(sessionId) {
         S.exState[pe.id] = { skipped: false, swappedTo: null, setCount: count };
       }
     });
-    if (isCondOnly) { renderConditioningSessionBody(); } else { renderSessionBody(); restoreDraft(sessionId); }
+    if (isCondOnly) { renderConditioningSessionBody(); } else { renderSessionBody(); await restoreDraft(sessionId); initExerciseSort(sessionId); }
     return;
   }
 
@@ -1183,7 +1203,8 @@ async function openSession(sessionId) {
     renderConditioningSessionBody();
   } else {
     renderSessionBody();
-    restoreDraft(sessionId);
+    await restoreDraft(sessionId);
+    initExerciseSort(sessionId);
   }
 }
 
@@ -1202,6 +1223,7 @@ function renderSessionBody() {
     </div>`;
   }
 
+  html += '<div id="exercise-list">';
   // Planned exercises
   S.plannedExercises.forEach(pe => {
     const savedSets = S.savedExercises[pe.id];
@@ -1242,6 +1264,7 @@ function renderSessionBody() {
         <div class="ex-card ${st.skipped ? 'skipped' : ''}" id="ex-card-p-${pe.id}">
           ${groupHtml}
           <div class="ex-header">
+            <span class="drag-handle">⠿</span>
             <span class="ex-name" onclick="openExerciseHistory('${exId}','${safeExName}')">${exName}</span>
             <span class="ex-swap" onclick="openSwap('${pe.id}')">⇄ swap</span>
           </div>
@@ -1276,6 +1299,7 @@ function renderSessionBody() {
       html += `
       <div class="ex-card added-card" id="ex-card-${key}">
         <div class="ex-header">
+          <span class="drag-handle">⠿</span>
           <span class="ex-name">${ae.exName}</span>
           <span style="font-size:11px;color:var(--accent)">+ ADDED</span>
         </div>
@@ -1291,6 +1315,7 @@ function renderSessionBody() {
     }
   });
 
+  html += '</div>'; // end #exercise-list
   html += `<button class="add-ex-btn" id="session-add-ex-btn" onclick="openAddExSheet()">＋  Add Exercise</button>`;
 
   // Session summary footer
@@ -1365,6 +1390,7 @@ function buildSavedExCard(key, exName, exId, sets, supersetGroup) {
     <div class="ex-card saved-card" id="ex-card-${key}">
       ${groupHtml}
       <div class="ex-header">
+        <span class="drag-handle">⠿</span>
         <span class="ex-name" onclick="openExerciseHistory('${exId}','${safeExName}')">${exName}</span>
         <div style="display:flex;align-items:center;gap:4px">
           <button class="re-edit-btn" onclick="reEditExercise('${key}')" title="Re-open to edit">✎</button>
@@ -2183,6 +2209,23 @@ async function captureDraft() {
     if (hasData) draft[`a-${ae.exId}`] = { sets, notes }; // key by exId, not localId
   });
 
+  // Capture exercise order from DOM
+  const exList = document.getElementById('exercise-list');
+  if (exList) {
+    const orderKeys = [];
+    exList.querySelectorAll('.ex-card').forEach(card => {
+      const rawKey = card.id.replace('ex-card-', '');
+      if (rawKey.startsWith('p-')) {
+        orderKeys.push(rawKey);
+      } else if (rawKey.startsWith('a-')) {
+        const localId = rawKey.slice(2);
+        const ae = S.addedExercises.find(a => String(a.localId) === localId);
+        if (ae) orderKeys.push(`a-${ae.exId}`);
+      }
+    });
+    if (orderKeys.length > 1) draft['__order'] = orderKeys;
+  }
+
   try {
     const allDrafts = (await idbGet('sessionDraftCache')) || {};
     if (Object.keys(draft).length > 0) {
@@ -2247,6 +2290,22 @@ async function restoreDraft(sessionId) {
       const notesEl = document.getElementById(`notes-${key}`);
       if (notesEl) notesEl.value = d.notes || '';
     });
+    // Reorder exercise tiles to match saved order
+    if (draft.__order) {
+      const container = document.getElementById('exercise-list');
+      if (container) {
+        draft.__order.forEach(key => {
+          let cardEl;
+          if (key.startsWith('p-')) {
+            cardEl = document.getElementById(`ex-card-${key}`);
+          } else if (key.startsWith('a-')) {
+            const ae = S.addedExercises.find(a => String(a.exId) === key.slice(2));
+            if (ae) cardEl = document.getElementById(`ex-card-a-${ae.localId}`);
+          }
+          if (cardEl) container.appendChild(cardEl);
+        });
+      }
+    }
   } catch (err) {
     console.error('draft restore failed:', err);
   }
@@ -2261,6 +2320,61 @@ async function clearExerciseDraft(sessionId, draftKey) {
       await idbSet('sessionDraftCache', allDrafts);
     }
   } catch (_) {}
+}
+
+// ── Sortable drag-to-reorder ─────────────────────────────────────────────────
+
+function initSessionSort() {
+  const list = document.getElementById('session-list');
+  if (!list || typeof Sortable === 'undefined') return;
+  if (list._sortable) list._sortable.destroy();
+  list._sortable = Sortable.create(list, {
+    handle:      '.drag-handle',
+    animation:   150,
+    ghostClass:  'sortable-ghost',
+    chosenClass: 'sortable-chosen',
+    onEnd: async function() {
+      const newOrder = Array.from(list.querySelectorAll('.card[data-sid]'))
+        .map(c => c.dataset.sid);
+      S.sessions = newOrder
+        .map(id => S.sessions.find(s => s.id === id))
+        .filter(Boolean);
+      try {
+        await idbSet('sessionOrderCache', { cycleId: S.cycle?.id, order: newOrder });
+      } catch (_) {}
+    },
+  });
+}
+
+function initExerciseSort(sessionId) {
+  const container = document.getElementById('exercise-list');
+  if (!container || typeof Sortable === 'undefined') return;
+  if (container._sortable) container._sortable.destroy();
+  container._sortable = Sortable.create(container, {
+    handle:      '.drag-handle',
+    animation:   150,
+    ghostClass:  'sortable-ghost',
+    chosenClass: 'sortable-chosen',
+    onEnd: function() {
+      // Rebuild S arrays to match new DOM order
+      const newPlanned = [];
+      const newAdded   = [];
+      container.querySelectorAll('.ex-card').forEach(card => {
+        const key = card.id.replace('ex-card-', '');
+        if (key.startsWith('p-')) {
+          const pe = S.plannedExercises.find(p => p.id === key.slice(2));
+          if (pe) newPlanned.push(pe);
+        } else if (key.startsWith('a-')) {
+          const ae = S.addedExercises.find(a => String(a.localId) === key.slice(2));
+          if (ae) newAdded.push(ae);
+        }
+      });
+      if (newPlanned.length || newAdded.length) {
+        S.plannedExercises = newPlanned;
+        S.addedExercises   = newAdded;
+      }
+    },
+  });
 }
 
 // Back button for session screen — capture draft before leaving
@@ -2522,6 +2636,7 @@ function selectExercise(exId, exName) {
     const newCardHtml = `
       <div class="ex-card added-card" id="ex-card-${key}">
         <div class="ex-header">
+          <span class="drag-handle">⠿</span>
           <span class="ex-name">${exName}</span>
           <span style="font-size:11px;color:var(--accent)">+ ADDED</span>
         </div>

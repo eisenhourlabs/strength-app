@@ -1,7 +1,8 @@
-const CACHE = 'strength-v2';
+const CACHE = 'strength-v3';
 const ASSETS = [
   './index.html', './manifest.json',
-  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js'
+  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js'
 ];
 
 self.addEventListener('install', e => {
