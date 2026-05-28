@@ -3654,4 +3654,9 @@ async function syncQueue() {
 
   // Always register auth state change listener
   db.auth.onAuthStateChange(async (event) => {
-    if (event === 'SIGNED_OUT') showScreen('l
+    if (event === 'SIGNED_OUT') showScreen('login');
+  });
+})();
+</script>
+</body>
+</html>
