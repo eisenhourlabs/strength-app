@@ -377,6 +377,45 @@
     .offline-banner { display:none; position:fixed; top:0; left:0; right:0;
       background:#b45309; color:#fff; font-size:13px; font-weight:600;
       text-align:center; padding:calc(var(--safe-top) + 8px) 16px 8px; z-index:500; }
+
+    /* ── Trends screen ───────────────────────────────────────────── */
+    .trends-section { margin-bottom: 28px; }
+    .trends-section-title { font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.07em; color: var(--muted); margin-bottom: 12px;
+      padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+    .snap-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 4px; }
+    .snap-card { background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px 12px; }
+    .snap-val { font-size: 22px; font-weight: 700; color: var(--fg); line-height: 1.15; }
+    .snap-val.pos { color: #22c55e; }
+    .snap-val.neg { color: #ef4444; }
+    .snap-label { font-size: 11px; color: var(--muted); margin-top: 4px; }
+    .snap-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .trends-chart-box { background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px 10px 8px; margin-bottom: 10px; }
+    .trends-chart-title { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+    .pr-row { display: flex; justify-content: space-between; align-items: baseline;
+      padding: 8px 12px; background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); margin-bottom: 6px; gap: 8px; }
+    .pr-name { font-size: 13px; color: var(--fg); flex: 1; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pr-val  { font-size: 14px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+    .pr-date { font-size: 11px; color: var(--muted); white-space: nowrap; }
+    .pain-flag { background: var(--surface); border-radius: var(--radius);
+      padding: 10px 12px; margin-bottom: 6px; border-left: 3px solid #ef4444; }
+    .pain-region { font-size: 14px; font-weight: 600; color: var(--fg); }
+    .pain-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
+    .ex-trend-select { width: 100%; margin-bottom: 10px; }
+    .trends-stat-strip { display: flex; gap: 8px; margin-bottom: 10px; }
+    .trends-stat-pill { flex: 1; background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 10px 8px; text-align: center; }
+    .trends-stat-num { font-size: 20px; font-weight: 700; color: var(--fg); }
+    .trends-stat-lbl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .horiz-bar-row { margin-bottom: 8px; }
+    .horiz-bar-meta { display: flex; justify-content: space-between;
+      font-size: 12px; margin-bottom: 3px; }
+    .horiz-bar-track { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+    .horiz-bar-fill  { height: 100%; border-radius: 4px; transition: width 0.3s; }
   </style>
   <script>
     if ('serviceWorker' in navigator)
@@ -472,6 +511,18 @@
   <div class="submit-bar">
     <button class="btn" onclick="submitReadiness()">Save Readiness Log</button>
   </div>
+</div>
+
+<!-- ══════════════════ TRENDS SCREEN ══════════════════ -->
+<div class="screen" id="screen-trends">
+  <div class="header">
+    <button class="back-btn" onclick="showScreen('week')">&#8249;</button>
+    <div>
+      <div class="header-title">Trends</div>
+      <div class="header-sub">Last 12 weeks</div>
+    </div>
+  </div>
+  <div class="body" id="trends-body"></div>
 </div>
 
 <!-- ══════════════════ SUCCESS ══════════════════ -->
@@ -890,7 +941,7 @@ async function renderWeek() {
       <div class="util-btn" onclick="openTests()">
         <span class="util-icon">🏆</span>Tests
       </div>
-      <div class="util-btn util-dim">
+      <div class="util-btn" onclick="openTrends()">
         <span class="util-icon">📈</span>Trends
       </div>
     </div>
@@ -1864,9 +1915,9 @@ async function loadHistory() {
         const r = readinessByDate[sess.session_date];
         if (r) {
           const chips = [
-            r.energy          != null ? `Energy <span>${r.energy}</span>`         : null,
-            r.sleep_quality   != null ? `Sleep <span>${r.sleep_quality}</span>`    : null,
-            r.muscle_soreness != null ? `Soreness <span>${r.muscle_soreness}</span>` : null,
+            r.energy      != null ? `Energy <span>${r.energy}</span>`     : null,
+            r.sleep_hours != null ? `Sleep <span>${r.sleep_hours}</span>`     : null,
+            r.soreness    != null ? `Soreness <span>${r.soreness}</span>` : null,
           ].filter(Boolean);
           if (chips.length) readinessHtml = `
             <div class="hist-ready-strip">
@@ -3643,6 +3694,379 @@ async function syncQueue() {
   if (failed > 0) {
     toast(`${failed} item${failed > 1 ? 's' : ''} failed to sync — ${lastSyncErr}`, 5000);
   }
+}
+
+
+// ── Trends ─────────────────────────────────────────────────────────────────────
+
+function getWeekMonday(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().slice(0, 10);
+}
+
+function last12WeekKeys() {
+  const keys = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i * 7);
+    keys.push(getWeekMonday(d.toISOString().slice(0, 10)));
+  }
+  return [...new Set(keys)].slice(-12);
+}
+
+function shortWeekLabel(wkKey) {
+  const d = new Date(wkKey + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
+}
+
+// SVG bar chart — values[], labels[], opts: { height, color, formatVal }
+function trendsBarChart(values, labels, opts) {
+  opts = opts || {};
+  const W = 320, H = opts.height || 130;
+  const pL = 4, pR = 4, pT = 18, pB = 24;
+  const cW = W - pL - pR, cH = H - pT - pB;
+  const n = values.length;
+  if (!n) return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto"><text x="' + (W/2) + '" y="' + (H/2) + '" text-anchor="middle" font-size="11" fill="var(--muted)">No data yet</text></svg>';
+  const max = Math.max(...values, 1);
+  const slot = cW / n;
+  const bW = Math.max(4, Math.floor(slot * 0.65));
+  const color = opts.color || 'var(--accent)';
+  let rects = '', xlbls = '';
+  values.forEach(function(v, i) {
+    const bH = v > 0 ? Math.max(2, (v / max) * cH) : 0;
+    const x = (pL + i * slot + (slot - bW) / 2).toFixed(1);
+    const y = (pT + cH - bH).toFixed(1);
+    rects += '<rect x="' + x + '" y="' + y + '" width="' + bW + '" height="' + bH.toFixed(1) + '" fill="' + color + '" rx="2" opacity="0.85"/>';
+    if (v > 0) {
+      const lbl = opts.formatVal ? opts.formatVal(v) : v;
+      rects += '<text x="' + (parseFloat(x) + bW/2).toFixed(1) + '" y="' + (parseFloat(y) - 3).toFixed(1) + '" text-anchor="middle" font-size="8" fill="var(--muted)">' + lbl + '</text>';
+    }
+    if (labels[i]) xlbls += '<text x="' + (pL + i * slot + slot/2).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle" font-size="8" fill="var(--muted)">' + labels[i] + '</text>';
+  });
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto"><line x1="' + pL + '" y1="' + (pT + cH) + '" x2="' + (W - pR) + '" y2="' + (pT + cH) + '" stroke="var(--border)" stroke-width="1"/>' + rects + xlbls + '</svg>';
+}
+
+// SVG line chart — points (number|null)[], labels[], opts: { height, decimals }
+function trendsLineChart(points, labels, opts) {
+  opts = opts || {};
+  const W = 320, H = opts.height || 110;
+  const pL = 38, pR = 8, pT = 14, pB = 22;
+  const cW = W - pL - pR, cH = H - pT - pB;
+  const n = points.length;
+  const valid = points.filter(function(v) { return v != null; });
+  if (!valid.length) return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto"><text x="' + (W/2) + '" y="' + (H/2) + '" text-anchor="middle" font-size="11" fill="var(--muted)">No data yet</text></svg>';
+  const minV = Math.min.apply(null, valid);
+  const maxV = Math.max.apply(null, valid);
+  const range = maxV - minV || 1;
+  const dec = opts.decimals != null ? opts.decimals : 1;
+  const toX = function(i) { return pL + (i / (n - 1 || 1)) * cW; };
+  const toY = function(v) { return pT + cH - ((v - minV) / range) * cH; };
+  const step = n > 10 ? 4 : n > 6 ? 2 : 1;
+  let segs = '', dots = '', xlbls = '';
+  let prevI = null;
+  points.forEach(function(v, i) {
+    if (v == null) { prevI = null; return; }
+    if (prevI !== null && points[prevI] != null) {
+      segs += '<line x1="' + toX(prevI).toFixed(1) + '" y1="' + toY(points[prevI]).toFixed(1) + '" x2="' + toX(i).toFixed(1) + '" y2="' + toY(v).toFixed(1) + '" stroke="var(--accent)" stroke-width="2"/>';
+    }
+    dots += '<circle cx="' + toX(i).toFixed(1) + '" cy="' + toY(v).toFixed(1) + '" r="3" fill="var(--accent)"/>';
+    prevI = i;
+  });
+  labels.forEach(function(lbl, i) {
+    if (i % step === 0 || i === n - 1) xlbls += '<text x="' + toX(i).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle" font-size="8" fill="var(--muted)">' + lbl + '</text>';
+  });
+  const axes = '<line x1="' + pL + '" y1="' + pT + '" x2="' + pL + '" y2="' + (pT + cH) + '" stroke="var(--border)" stroke-width="1"/><line x1="' + pL + '" y1="' + (pT + cH) + '" x2="' + (pL + cW) + '" y2="' + (pT + cH) + '" stroke="var(--border)" stroke-width="1"/>';
+  const yax = '<text x="' + (pL - 4) + '" y="' + (pT + 8) + '" text-anchor="end" font-size="8" fill="var(--muted)">' + maxV.toFixed(dec) + '</text><text x="' + (pL - 4) + '" y="' + (pT + cH) + '" text-anchor="end" font-size="8" fill="var(--muted)">' + minV.toFixed(dec) + '</text>';
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto">' + axes + yax + segs + dots + xlbls + '</svg>';
+}
+
+// Horizontal bar breakdown — items: [{label, value}]
+function trendsHorizChart(items, color) {
+  if (!items.length) return '<div style="color:var(--muted);font-size:12px;padding:6px 0">No data yet</div>';
+  color = color || 'var(--accent)';
+  const maxV = Math.max.apply(null, items.map(function(x) { return x.value; }));
+  return items.map(function(item) {
+    const pct = (item.value / maxV * 100).toFixed(1);
+    return '<div class="horiz-bar-row"><div class="horiz-bar-meta"><span style="color:var(--fg)">' + item.label + '</span><span style="color:var(--muted)">' + item.value + ' sets</span></div><div class="horiz-bar-track"><div class="horiz-bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div></div>';
+  }).join('');
+}
+
+async function openTrends() {
+  document.getElementById('trends-body').innerHTML = '<div class="spinner">Loading…</div>';
+  showScreen('trends');
+  await loadTrends();
+}
+
+async function loadTrends() {
+  const body = document.getElementById('trends-body');
+  if (isOffline) {
+    body.innerHTML = '<div style="color:var(--muted);padding:24px;text-align:center">Trends require an internet connection.</div>';
+    return;
+  }
+  try {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 84);
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+    const { data: sessions } = await db.from('completed_sessions')
+      .select('*').eq('athlete_id', S.athlete.id)
+      .gte('session_date', cutoffStr).order('session_date');
+
+    const sessionIds = (sessions || []).map(function(s) { return s.id; });
+
+    const [readyRes, painRes, condRes, setsRes] = await Promise.all([
+      db.from('readiness_logs').select('*').eq('athlete_id', S.athlete.id).gte('log_date', cutoffStr).order('log_date'),
+      db.from('pain_injury_logs').select('*').eq('athlete_id', S.athlete.id).neq('status', 'resolved').order('log_date', { ascending: false }),
+      db.from('completed_conditioning').select('*').eq('athlete_id', S.athlete.id).gte('conditioning_date', cutoffStr).order('conditioning_date'),
+      sessionIds.length
+        ? db.from('completed_strength_sets')
+            .select('*, exercise:exercise_id(id,name,primary_muscle_group,movement_pattern,adaptation_category)')
+            .in('completed_session_id', sessionIds).eq('is_skipped', false).gt('set_number', 0).order('created_at')
+        : Promise.resolve({ data: [] }),
+    ]);
+
+    const allSessions  = sessions        || [];
+    const readiness    = readyRes.data   || [];
+    const painItems    = painRes.data    || [];
+    const conditioning = condRes.data    || [];
+    const sets         = setsRes.data    || [];
+
+    // Attach session_date to each set
+    const sessDateMap = {};
+    allSessions.forEach(function(s) { sessDateMap[s.id] = s.session_date; });
+    sets.forEach(function(s) { s._sd = sessDateMap[s.completed_session_id] || null; });
+
+    const weekKeys   = last12WeekKeys();
+    const weekLabels = weekKeys.map(shortWeekLabel);
+
+    // Store for dynamic exercise trend chart
+    window._tSets   = sets;
+    window._tWkKeys = weekKeys;
+    window._tWkLbls = weekLabels;
+
+    body.innerHTML = [
+      renderTrendsSnapshot(allSessions, readiness, sets, weekKeys),
+      renderTrendsStrength(sets),
+      renderTrendsVolume(sets, weekKeys, weekLabels),
+      renderTrendsConsistency(allSessions, weekKeys, weekLabels),
+      renderTrendsReadiness(readiness, weekKeys, weekLabels),
+      renderTrendsConditioning(conditioning, weekKeys, weekLabels),
+      renderTrendsPain(painItems),
+    ].join('');
+
+    // Auto-render first exercise trend chart
+    const sel = document.getElementById('ex-trend-select');
+    if (sel && sel.value) renderExTrend(sel.value);
+
+  } catch (err) {
+    console.error('loadTrends:', err);
+    body.innerHTML = '<div style="color:var(--muted);padding:24px;text-align:center">Error loading trends. Check connection.</div>';
+  }
+}
+
+// ── Snapshot ─────────────────────────────────────────────────────
+function renderTrendsSnapshot(sessions, readiness, sets, weekKeys) {
+  const thisWk = weekKeys[weekKeys.length - 1];
+  const lastWk = weekKeys[weekKeys.length - 2];
+
+  const thisWkSess = sessions.filter(function(s) { return getWeekMonday(s.session_date) === thisWk; }).length;
+
+  const tonByWk = {};
+  sets.forEach(function(s) {
+    if (!s._sd) return;
+    const wk = getWeekMonday(s._sd);
+    tonByWk[wk] = (tonByWk[wk] || 0) + (s.actual_load || 0) * (s.actual_reps || 0);
+  });
+  const tonThis = Math.round(tonByWk[thisWk] || 0);
+  const tonLast = Math.round(tonByWk[lastWk] || 0);
+  let volHtml;
+  if (tonLast > 0) {
+    const pct = Math.round((tonThis - tonLast) / tonLast * 100);
+    const cls  = pct >= 0 ? 'pos' : 'neg';
+    const sign = pct >= 0 ? '+' : '';
+    volHtml = '<div class="snap-val ' + cls + '">' + sign + pct + '%</div><div class="snap-label">Volume vs last week</div><div class="snap-sub">' + tonThis.toLocaleString() + ' lb·reps</div>';
+  } else {
+    volHtml = '<div class="snap-val">' + tonThis.toLocaleString() + '</div><div class="snap-label">lb·reps this week</div>';
+  }
+
+  const latestReady = readiness.length ? readiness[readiness.length - 1] : null;
+  const readyScore  = latestReady && latestReady.readiness_score != null ? latestReady.readiness_score : null;
+  const readyHtml   = readyScore != null
+    ? '<div class="snap-val">' + readyScore + '</div><div class="snap-label">Readiness score</div><div class="snap-sub">' + latestReady.log_date + '</div>'
+    : '<div class="snap-val" style="color:var(--muted)">—</div><div class="snap-label">Readiness score</div>';
+
+  const bwEntry = readiness.slice().reverse().find(function(r) { return r.bodyweight_lbs != null; });
+  const bwHtml  = bwEntry
+    ? '<div class="snap-val">' + bwEntry.bodyweight_lbs + '</div><div class="snap-label">Bodyweight (lb)</div><div class="snap-sub">' + bwEntry.log_date + '</div>'
+    : '<div class="snap-val" style="color:var(--muted)">—</div><div class="snap-label">Bodyweight (lb)</div>';
+
+  return '<div class="trends-section"><div class="trends-section-title">This Week</div><div class="snap-grid"><div class="snap-card"><div class="snap-val">' + thisWkSess + '</div><div class="snap-label">Sessions logged</div></div><div class="snap-card">' + volHtml + '</div><div class="snap-card">' + readyHtml + '</div><div class="snap-card">' + bwHtml + '</div></div></div>';
+}
+
+// ── Strength: PR board + per-exercise load trend ──────────────────
+function renderTrendsStrength(sets) {
+  const prMap = {};
+  sets.forEach(function(s) {
+    if (!s.actual_load || !s.actual_reps || !s.exercise) return;
+    const e1rm = s.actual_reps === 1 ? s.actual_load : Math.round(s.actual_load * (1 + s.actual_reps / 30));
+    const key  = s.exercise.id;
+    if (!prMap[key] || e1rm > prMap[key].e1rm) {
+      prMap[key] = { name: s.exercise.name, e1rm: e1rm, load: s.actual_load, reps: s.actual_reps, date: s._sd };
+    }
+  });
+  const prs = Object.values(prMap).sort(function(a, b) { return a.name.localeCompare(b.name); });
+
+  const prHtml = prs.length === 0
+    ? '<div style="color:var(--muted);font-size:13px;padding:8px 0">No strength data yet.</div>'
+    : prs.map(function(p) {
+        const dateStr = p.date ? new Date(p.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+        return '<div class="pr-row"><div class="pr-name">' + p.name + '</div><div><span class="pr-val">' + p.e1rm + ' lb</span> <span class="pr-date">' + p.load + '×' + p.reps + ' · ' + dateStr + '</span></div></div>';
+      }).join('');
+
+  const exOptions = prs.map(function(p) {
+    return '<option value="' + p.name.replace(/"/g, '&quot;') + '">' + p.name + '</option>';
+  }).join('');
+
+  const trendSection = prs.length > 0
+    ? '<div class="trends-chart-title" style="margin-top:16px;margin-bottom:8px">Load Trend by Exercise (top set per week)</div><select class="ex-trend-select" id="ex-trend-select" onchange="renderExTrend(this.value)">' + exOptions + '</select><div class="trends-chart-box" style="margin-top:0" id="ex-trend-chart"></div>'
+    : '';
+
+  return '<div class="trends-section"><div class="trends-section-title">Strength — Est. 1RM Board</div>' + prHtml + trendSection + '</div>';
+}
+
+function renderExTrend(exName) {
+  const sets     = window._tSets   || [];
+  const weekKeys = window._tWkKeys || [];
+  const weekLbls = window._tWkLbls || [];
+  const topByWk  = {};
+  sets.forEach(function(s) {
+    if (!s.exercise || s.exercise.name !== exName || !s.actual_load || !s._sd) return;
+    const wk = getWeekMonday(s._sd);
+    if (!topByWk[wk] || s.actual_load > topByWk[wk]) topByWk[wk] = s.actual_load;
+  });
+  const values = weekKeys.map(function(wk) { return topByWk[wk] != null ? topByWk[wk] : null; });
+  const el = document.getElementById('ex-trend-chart');
+  if (el) el.innerHTML = trendsLineChart(values, weekLbls, { decimals: 0 });
+}
+
+// ── Volume & Workload ─────────────────────────────────────────────
+function renderTrendsVolume(sets, weekKeys, weekLabels) {
+  const tonByWk = {};
+  weekKeys.forEach(function(k) { tonByWk[k] = 0; });
+  sets.forEach(function(s) {
+    if (!s._sd || !s.actual_load || !s.actual_reps) return;
+    const wk = getWeekMonday(s._sd);
+    if (tonByWk[wk] !== undefined) tonByWk[wk] += s.actual_load * s.actual_reps;
+  });
+  const tonValues  = weekKeys.map(function(k) { return Math.round(tonByWk[k]); });
+  const tonnageChrt = trendsBarChart(tonValues, weekLabels, { formatVal: function(v) { return v >= 1000 ? (v/1000).toFixed(1) + 'k' : v; } });
+
+  const last4 = new Set(weekKeys.slice(-4));
+  const mgMap = {}, mpMap = {}, acMap = {};
+  sets.forEach(function(s) {
+    if (!s._sd || !getWeekMonday || !last4.has(getWeekMonday(s._sd))) return;
+    const mg = (s.exercise && s.exercise.primary_muscle_group) || 'Unknown';
+    const mp = (s.exercise && s.exercise.movement_pattern)     || 'Unknown';
+    const ac = (s.exercise && s.exercise.adaptation_category)  || 'Unknown';
+    mgMap[mg] = (mgMap[mg] || 0) + 1;
+    mpMap[mp] = (mpMap[mp] || 0) + 1;
+    acMap[ac] = (acMap[ac] || 0) + 1;
+  });
+  const sort = function(obj) { return Object.entries(obj).map(function(e) { return { label: e[0], value: e[1] }; }).sort(function(a,b) { return b.value - a.value; }); };
+
+  return '<div class="trends-section"><div class="trends-section-title">Volume &amp; Workload</div><div class="trends-chart-box"><div class="trends-chart-title">Weekly Tonnage (lb × reps)</div>' + tonnageChrt + '</div><div class="trends-chart-box"><div class="trends-chart-title">Sets by Muscle Group — last 4 weeks</div>' + trendsHorizChart(sort(mgMap)) + '</div><div class="trends-chart-box"><div class="trends-chart-title">Sets by Movement Pattern — last 4 weeks</div>' + trendsHorizChart(sort(mpMap), '#8b5cf6') + '</div><div class="trends-chart-box"><div class="trends-chart-title">Sets by Adaptation Category — last 4 weeks</div>' + trendsHorizChart(sort(acMap), '#f59e0b') + '</div></div>';
+}
+
+// ── Consistency ───────────────────────────────────────────────────
+function renderTrendsConsistency(sessions, weekKeys, weekLabels) {
+  const byWk = {};
+  weekKeys.forEach(function(k) { byWk[k] = 0; });
+  sessions.forEach(function(s) {
+    const wk = getWeekMonday(s.session_date);
+    if (byWk[wk] !== undefined) byWk[wk]++;
+  });
+  const values = weekKeys.map(function(k) { return byWk[k]; });
+  const chart  = trendsBarChart(values, weekLabels, { height: 110 });
+
+  const byMonth = {};
+  sessions.forEach(function(s) {
+    const m = s.session_date.slice(0, 7);
+    byMonth[m] = (byMonth[m] || 0) + 1;
+  });
+  const monthRows = Object.entries(byMonth).sort(function(a,b) { return b[0].localeCompare(a[0]); }).map(function(e) {
+    const d   = new Date(e[0] + '-01T00:00:00');
+    const lbl = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    return '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px"><span style="color:var(--fg)">' + lbl + '</span><span style="color:var(--accent);font-weight:600">' + e[1] + '</span></div>';
+  }).join('');
+
+  const ytd = sessions.filter(function(s) { return s.session_date.startsWith(new Date().getFullYear().toString()); }).length;
+
+  return '<div class="trends-section"><div class="trends-section-title">Consistency</div><div class="trends-stat-strip"><div class="trends-stat-pill"><div class="trends-stat-num">' + ytd + '</div><div class="trends-stat-lbl">Sessions YTD</div></div><div class="trends-stat-pill"><div class="trends-stat-num">' + sessions.length + '</div><div class="trends-stat-lbl">Last 12 weeks</div></div></div><div class="trends-chart-box"><div class="trends-chart-title">Sessions per Week</div>' + chart + '</div>' + monthRows + '</div>';
+}
+
+// ── Readiness & Recovery ─────────────────────────────────────────
+function renderTrendsReadiness(readiness, weekKeys, weekLabels) {
+  if (!readiness.length) return '<div class="trends-section"><div class="trends-section-title">Readiness &amp; Recovery</div><div style="color:var(--muted);font-size:13px;padding:8px 0">No readiness data yet.</div></div>';
+
+  const byWk = {};
+  readiness.forEach(function(r) {
+    const wk = getWeekMonday(r.log_date);
+    if (!byWk[wk] || r.log_date > byWk[wk].log_date) byWk[wk] = r;
+  });
+  const readyScores = weekKeys.map(function(k) { return byWk[k] && byWk[k].readiness_score != null ? parseFloat(byWk[k].readiness_score) : null; });
+  const bwVals      = weekKeys.map(function(k) { return byWk[k] && byWk[k].bodyweight_lbs != null ? parseFloat(byWk[k].bodyweight_lbs) : null; });
+  const waistVals   = weekKeys.map(function(k) { return byWk[k] && byWk[k].waist_inches   != null ? parseFloat(byWk[k].waist_inches)   : null; });
+  const sleepVals   = weekKeys.map(function(k) { return byWk[k] && byWk[k].sleep_hours    != null ? parseFloat(byWk[k].sleep_hours)    : null; });
+
+  const hasBW    = bwVals.some(function(v)    { return v != null; });
+  const hasWaist = waistVals.some(function(v) { return v != null; });
+  const hasSleep = sleepVals.some(function(v) { return v != null; });
+
+  // Latest waist for snapshot
+  const latestWaist = readiness.slice().reverse().find(function(r) { return r.waist_inches != null; });
+  const waistSnap   = latestWaist ? '<div class="snap-grid" style="margin-bottom:12px"><div class="snap-card"><div class="snap-val">' + latestWaist.waist_inches + '"</div><div class="snap-label">Latest waist</div><div class="snap-sub">' + latestWaist.log_date + '</div></div></div>' : '';
+
+  return '<div class="trends-section"><div class="trends-section-title">Readiness &amp; Recovery</div>' + waistSnap + '<div class="trends-chart-box"><div class="trends-chart-title">Readiness Score (1–10)</div>' + trendsLineChart(readyScores, weekLabels, { decimals: 1 }) + '</div>' + (hasBW ? '<div class="trends-chart-box"><div class="trends-chart-title">Bodyweight (lb)</div>' + trendsLineChart(bwVals, weekLabels, { decimals: 1 }) + '</div>' : '') + (hasWaist ? '<div class="trends-chart-box"><div class="trends-chart-title">Waist (inches)</div>' + trendsLineChart(waistVals, weekLabels, { decimals: 2 }) + '</div>' : '') + (hasSleep ? '<div class="trends-chart-box"><div class="trends-chart-title">Sleep (hours)</div>' + trendsLineChart(sleepVals, weekLabels, { decimals: 1 }) + '</div>' : '') + '</div>';
+}
+
+// ── Conditioning ──────────────────────────────────────────────────
+function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
+  if (!conditioning.length) return '<div class="trends-section"><div class="trends-section-title">Conditioning</div><div style="color:var(--muted);font-size:13px;padding:8px 0">No conditioning data yet.</div></div>';
+  const byWk = {};
+  weekKeys.forEach(function(k) { byWk[k] = 0; });
+  conditioning.forEach(function(c) {
+    const dateStr = c.conditioning_date || (c.created_at ? c.created_at.slice(0,10) : null);
+    if (!dateStr) return;
+    const wk = getWeekMonday(dateStr);
+    if (byWk[wk] !== undefined && c.duration_minutes) byWk[wk] += c.duration_minutes;
+  });
+  const values = weekKeys.map(function(k) { return Math.round(byWk[k]); });
+  const chart  = trendsBarChart(values, weekLabels, { height: 110, color: '#06b6d4' });
+  const modalMap = {};
+  conditioning.forEach(function(c) { const m = c.modality || 'Unknown'; modalMap[m] = (modalMap[m] || 0) + 1; });
+  const modalItems = Object.entries(modalMap).map(function(e) { return { label: e[0], value: e[1] }; }).sort(function(a,b) { return b.value - a.value; });
+  return '<div class="trends-section"><div class="trends-section-title">Conditioning</div><div class="trends-chart-box"><div class="trends-chart-title">Minutes per Week</div>' + chart + '</div><div class="trends-chart-box"><div class="trends-chart-title">Sessions by Modality (' + conditioning.length + ' total)</div>' + trendsHorizChart(modalItems, '#06b6d4') + '</div></div>';
+}
+
+// ── Pain / Watch Items ────────────────────────────────────────────
+function renderTrendsPain(painItems) {
+  if (!painItems.length) return '<div class="trends-section"><div class="trends-section-title">Watch Items</div><div style="color:var(--muted);font-size:13px;padding:8px 0">No active pain or injury flags. ✓</div></div>';
+  const scMap = { 'new': '#ef4444', 'worse': '#ef4444', 'same': '#f59e0b', 'improving': '#22c55e' };
+  const html  = painItems.map(function(p) {
+    const sc   = scMap[p.status] || '#94a3b8';
+    const meta = [
+      p.pain_score != null ? 'Pain: ' + p.pain_score + '/10' : null,
+      p.status     ? p.status.charAt(0).toUpperCase() + p.status.slice(1) : null,
+      p.log_date   ? new Date(p.log_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null,
+      p.modified_training ? 'Training modified' : null,
+    ].filter(Boolean).join(' · ');
+    const notesHtml = p.notes ? '<div class="pain-meta" style="margin-top:4px;font-style:italic">' + p.notes + '</div>' : '';
+    return '<div class="pain-flag" style="border-left-color:' + sc + '"><div class="pain-region">' + p.body_region + '</div><div class="pain-meta">' + meta + '</div>' + notesHtml + '</div>';
+  }).join('');
+  return '<div class="trends-section"><div class="trends-section-title">Watch Items</div>' + html + '</div>';
 }
 
 (async () => {
