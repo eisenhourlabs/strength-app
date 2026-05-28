@@ -926,7 +926,7 @@ async function loadProgram() {
     const [compFullRes, setsRes] = await Promise.all([
       compIds.length ? db.from('completed_sessions').select('*').in('id', compIds) : { data: [] },
       compIds.length ? db.from('completed_strength_sets')
-        .select('set_number,actual_load,actual_reps,actual_rpe,notes,is_skipped,planned_exercise_id,is_added,completed_session_id')
+        .select('set_number,actual_load,actual_reps,actual_rpe,notes,is_skipped,planned_exercise_id,is_added,exercise_id,completed_session_id')
         .in('completed_session_id', compIds) : { data: [] },
     ]);
     const sessionDetailCache = {};
@@ -952,6 +952,25 @@ async function loadProgram() {
 }
 
 // ── Open session ──────────────────────────────────────────────────────────────
+// ── Reconstruct S.addedExercises from is_added=true rows (re-enter session) ───
+function reconstructAddedExercises(allRows) {
+  const addedRows = (allRows || []).filter(s => s.is_added && s.exercise_id);
+  // Group by exercise_id so each distinct added exercise gets one entry
+  const byExId = {};
+  addedRows.forEach(s => {
+    const eid = String(s.exercise_id);
+    if (!byExId[eid]) byExId[eid] = [];
+    byExId[eid].push(s);
+  });
+  Object.entries(byExId).forEach(([exId, rows]) => {
+    const lib    = S.exerciseLib.find(e => String(e.id) === exId);
+    const exName = lib ? lib.name : 'Added Exercise';
+    const localId = ++S.addedCounter;
+    S.addedExercises.push({ localId, exId, exName, setCount: rows.length });
+    S.savedExercises[localId] = rows;
+  });
+}
+
 async function openSession(sessionId) {
   S.activeSession          = S.sessions.find(s => s.id === sessionId);
   S.exState                = {};
@@ -993,6 +1012,7 @@ async function openSession(sessionId) {
           S.savedExercises[peId].push(s);
         }
       });
+      reconstructAddedExercises(detail.savedSets);
       if (S.activeCompletedSession.status === 'completed') {
         btn.textContent = isCondOnly ? '✓ Logged' : '✓ Session Complete';
         btn.disabled    = true;
@@ -1029,6 +1049,18 @@ async function openSession(sessionId) {
             }
           });
         });
+
+      // Rebuild S.addedExercises from any queued is_added sets for this session
+      const queuedAddedRows = [];
+      offlineQueue.filter(q => q.op === 'insert_sets').forEach(q => {
+        const rows = Array.isArray(q.payload) ? q.payload : [q.payload];
+        rows.forEach(row => {
+          if (row.completed_session_id === csId && row.is_added && row.exercise_id) {
+            queuedAddedRows.push(row);
+          }
+        });
+      });
+      if (queuedAddedRows.length) reconstructAddedExercises(queuedAddedRows);
 
       // Check if session was already finished offline
       const finishOp = offlineQueue.find(q =>
@@ -1079,7 +1111,7 @@ async function openSession(sessionId) {
 
       // Load already-saved sets so we can render them as locked
       const { data: savedSets } = await db.from('completed_strength_sets')
-        .select('set_number,actual_load,actual_reps,actual_rpe,notes,is_skipped,planned_exercise_id,is_added')
+        .select('set_number,actual_load,actual_reps,actual_rpe,notes,is_skipped,planned_exercise_id,is_added,exercise_id')
         .eq('completed_session_id', S.activeCompletedSession.id)
         .order('set_number');
 
@@ -1090,6 +1122,7 @@ async function openSession(sessionId) {
           S.savedExercises[peId].push(s);
         }
       });
+      reconstructAddedExercises(savedSets);
 
       // If session is already completed, disable Finish button
       if (S.activeCompletedSession.status === 'completed') {
@@ -1120,6 +1153,7 @@ async function openSession(sessionId) {
           S.savedExercises[peId].push(s);
         }
       });
+      reconstructAddedExercises(detail.savedSets);
       if (S.activeCompletedSession.status === 'completed') {
         btn.textContent = isCondOnly ? '✓ Logged' : '✓ Session Complete';
         btn.disabled    = true;
