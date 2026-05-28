@@ -2089,7 +2089,7 @@ async function loadRecentSessionsForCopy() {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 28);
     const { data: sessions } = await db.from('completed_sessions')
-      .select('id, session_type, session_date')
+      .select('id, planned_session_id, session_type, session_date')
       .eq('athlete_id', S.athlete.id)
       .eq('status', 'completed')
       .gte('session_date', cutoff.toISOString().slice(0, 10))
@@ -2104,7 +2104,7 @@ async function loadRecentSessionsForCopy() {
       const d       = new Date(s.session_date + 'T00:00:00');
       const dateStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
       const safe    = (s.session_type || 'Session').replace(/'/g, "\'");
-      return `<div class="sheet-item" onclick="copyPreviousSession('${s.id}','${safe}')">
+      return `<div class="sheet-item" onclick="copyPreviousSession('${s.id}','${safe}','${s.planned_session_id||''}')">
         <div class="sheet-item-name">${s.session_type || 'Session'}</div>
         <div class="sheet-item-meta">${dateStr}</div>
       </div>`;
@@ -2153,7 +2153,7 @@ async function createUserSession() {
 }
 
 // Copy a previous completed session's exercises into a new session
-async function copyPreviousSession(completedSessionId, sessionType) {
+async function copyPreviousSession(completedSessionId, sessionType, plannedSessionId) {
   if (isOffline) { toast('Cannot create sessions offline.'); return; }
   const dayName = document.getElementById('new-sess-day').value;
   closeNewSessionSheet();
@@ -2181,7 +2181,7 @@ async function copyPreviousSession(completedSessionId, sessionType) {
     }).select().single();
     if (psErr) throw psErr;
 
-    // Load the source session's sets (real data only, not placeholders)
+    // Load the source session's completed sets (real data only, not placeholders)
     const { data: sets } = await db.from('completed_strength_sets')
       .select('exercise_id, set_number, actual_load, actual_reps')
       .eq('completed_session_id', completedSessionId)
@@ -2189,34 +2189,54 @@ async function copyPreviousSession(completedSessionId, sessionType) {
       .eq('is_skipped', false)
       .order('set_number');
 
+    let copiedCount = 0;
+
     if (sets && sets.length > 0) {
-      // Unique exercises in first-appearance order
+      // Build from completed sets — use actual loads as targets
       const seen = new Set();
       const uniqueExes = [];
       sets.forEach(s => {
         if (s.exercise_id && !seen.has(s.exercise_id)) {
           seen.add(s.exercise_id);
-          const exSets   = sets.filter(r => r.exercise_id === s.exercise_id);
-          const topLoad  = Math.max(...exSets.map(r => r.actual_load || 0)) || null;
+          const exSets    = sets.filter(r => r.exercise_id === s.exercise_id);
+          const topLoad   = Math.max(...exSets.map(r => r.actual_load || 0)) || null;
           const firstReps = exSets[0]?.actual_reps || null;
           uniqueExes.push({ exercise_id: s.exercise_id, topLoad, firstReps, setCount: exSets.length });
         }
       });
-
-      // Insert as planned_exercises so they appear as proper exercise tiles
       const peRows = uniqueExes.map((ex, i) => ({
-        session_id:   ps.id,
-        exercise_id:  ex.exercise_id,
-        item_order:   i + 1,
-        target_load:  ex.topLoad,
-        target_sets:  ex.setCount,
-        reps_low:     ex.firstReps,
+        session_id:  ps.id,
+        exercise_id: ex.exercise_id,
+        item_order:  i + 1,
+        target_load: ex.topLoad,
+        target_sets: ex.setCount,
+        reps_low:    ex.firstReps,
       }));
       await db.from('planned_exercises').insert(peRows);
+      copiedCount = uniqueExes.length;
+
+    } else if (plannedSessionId) {
+      // Fallback: copy directly from planned_exercises of the source session
+      const { data: srcPEs } = await db.from('planned_exercises')
+        .select('exercise_id, target_load, target_sets, reps_low, item_order')
+        .eq('session_id', plannedSessionId)
+        .order('item_order');
+      if (srcPEs && srcPEs.length > 0) {
+        const peRows = srcPEs.map((ex, i) => ({
+          session_id:  ps.id,
+          exercise_id: ex.exercise_id,
+          item_order:  i + 1,
+          target_load: ex.target_load,
+          target_sets: ex.target_sets,
+          reps_low:    ex.reps_low,
+        }));
+        await db.from('planned_exercises').insert(peRows);
+        copiedCount = srcPEs.length;
+      }
     }
 
     S.sessions.push(ps);
-    toast(`Copied ${sets?.length ? 'exercises' : 'session'} ✓`, 1500);
+    toast(`Copied ${copiedCount} exercise${copiedCount !== 1 ? 's' : ''} ✓`, 1500);
     await openSession(ps.id);
   } catch (err) {
     console.error(err);
