@@ -487,10 +487,32 @@
       text-align:center; padding:calc(var(--safe-top) + 8px) 16px 8px; z-index:500; }
 
     /* ── Trends screen ───────────────────────────────────────────── */
-    .trends-section { margin-bottom: 28px; }
+    .trends-section { margin-bottom: 16px; }
+    .trends-section-hdr { display: flex; align-items: center; justify-content: space-between;
+      padding-bottom: 8px; border-bottom: 1px solid var(--border); margin-bottom: 12px;
+      cursor: pointer; user-select: none; -webkit-user-select: none; }
     .trends-section-title { font-size: 11px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.07em; color: var(--muted); margin-bottom: 12px;
-      padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+      letter-spacing: 0.07em; color: var(--muted); }
+    .trends-section-chevron { font-size: 14px; color: var(--muted); transition: transform 0.2s; }
+    .trends-section-chevron.collapsed { transform: rotate(-90deg); }
+    .trends-section-body { }
+    .trends-section-body.collapsed { display: none; }
+    .trends-ctrl-bar { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 14px; }
+    .trends-ctrl-btn { font-size: 12px; padding: 4px 10px; border-radius: 20px;
+      border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+      cursor: pointer; }
+    .trends-period-select { font-size: 12px; padding: 4px 8px; border-radius: 6px;
+      border: 1px solid var(--border); background: var(--surface2); color: var(--fg);
+      cursor: pointer; margin-bottom: 10px; }
+    .ready-score-pip { display: inline-flex; align-items: center; justify-content: center;
+      width: 32px; height: 32px; border-radius: 50%; font-size: 13px; font-weight: 700;
+      background: var(--surface); border: 2px solid var(--border); color: var(--fg); }
+    .ready-score-pip.good  { border-color: #22c55e; color: #22c55e; }
+    .ready-score-pip.ok    { border-color: #f59e0b; color: #f59e0b; }
+    .ready-score-pip.low   { border-color: #ef4444; color: #ef4444; }
+    .ready-last-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .ready-last-pill { font-size: 12px; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px; padding: 3px 10px; color: var(--muted); }
     .snap-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 4px; }
     .snap-card { background: var(--surface); border: 1px solid var(--border);
       border-radius: var(--radius); padding: 14px 12px; }
@@ -4599,20 +4621,16 @@ async function loadTrends() {
     const weekKeys   = last12WeekKeys();
     const weekLabels = weekKeys.map(shortWeekLabel);
 
-    // Store for dynamic exercise trend chart
-    window._tSets   = sets;
-    window._tWkKeys = weekKeys;
-    window._tWkLbls = weekLabels;
+    // Store for dynamic exercise trend chart and period selector refresh
+    window._tSets         = sets;
+    window._tWkKeys       = weekKeys;
+    window._tWkLbls       = weekLabels;
+    window._tAllSessions  = allSessions;
+    window._tReadiness    = readiness;
+    window._tConditioning = conditioning;
+    window._tPainItems    = painItems;
 
-    body.innerHTML = [
-      renderTrendsSnapshot(allSessions, readiness, sets, weekKeys),
-      renderTrendsStrength(sets),
-      renderTrendsVolume(sets, weekKeys, weekLabels),
-      renderTrendsConsistency(allSessions, weekKeys, weekLabels),
-      renderTrendsReadiness(readiness, weekKeys, weekLabels),
-      renderTrendsConditioning(conditioning, weekKeys, weekLabels),
-      renderTrendsPain(painItems),
-    ].join('');
+    renderTrendsBody(body, allSessions, readiness, sets, weekKeys, weekLabels, conditioning, painItems);
 
     // Auto-render first exercise trend chart
     const sel = document.getElementById('ex-trend-select');
@@ -4622,6 +4640,58 @@ async function loadTrends() {
     console.error('loadTrends:', err);
     body.innerHTML = '<div style="color:var(--muted);padding:24px;text-align:center">Error loading trends. Check connection.</div>';
   }
+}
+
+// ── Trends collapsible helpers ────────────────────────────────────
+var _tOpen = {}; // section open state: id -> bool (default true)
+
+function trendSection(id, title, bodyHtml) {
+  if (_tOpen[id] === undefined) _tOpen[id] = true;
+  const open = _tOpen[id];
+  return '<div class="trends-section" id="tsec-' + id + '">'
+    + '<div class="trends-section-hdr" onclick="toggleTrendSection(\'' + id + '\')">'
+    + '<span class="trends-section-title">' + title + '</span>'
+    + '<span class="trends-section-chevron' + (open ? '' : ' collapsed') + '">›</span>'
+    + '</div>'
+    + '<div class="trends-section-body' + (open ? '' : ' collapsed') + '" id="tsec-body-' + id + '">'
+    + bodyHtml
+    + '</div></div>';
+}
+
+function toggleTrendSection(id) {
+  _tOpen[id] = !_tOpen[id];
+  const body    = document.getElementById('tsec-body-' + id);
+  const chevron = document.querySelector('#tsec-' + id + ' .trends-section-chevron');
+  if (body)    body.classList.toggle('collapsed', !_tOpen[id]);
+  if (chevron) chevron.classList.toggle('collapsed', !_tOpen[id]);
+}
+
+function trendsExpandAll()   { Object.keys(_tOpen).forEach(function(k) { _tOpen[k] = true;  }); reRenderTrendsBody(); }
+function trendsCollapseAll() { Object.keys(_tOpen).forEach(function(k) { _tOpen[k] = false; }); reRenderTrendsBody(); }
+
+function reRenderTrendsBody() {
+  const body = document.getElementById('trends-body');
+  if (!body) return;
+  renderTrendsBody(body, window._tAllSessions, window._tReadiness, window._tSets,
+    window._tWkKeys, window._tWkLbls, window._tConditioning, window._tPainItems);
+  const sel = document.getElementById('ex-trend-select');
+  if (sel && sel.value) renderExTrend(sel.value);
+}
+
+function renderTrendsBody(body, allSessions, readiness, sets, weekKeys, weekLabels, conditioning, painItems) {
+  const ctrlBar = '<div class="trends-ctrl-bar">'
+    + '<button class="trends-ctrl-btn" onclick="trendsExpandAll()">Expand All</button>'
+    + '<button class="trends-ctrl-btn" onclick="trendsCollapseAll()">Collapse All</button>'
+    + '</div>';
+  body.innerHTML = ctrlBar + [
+    renderTrendsSnapshot(allSessions, readiness, sets, weekKeys),
+    renderTrendsStrength(sets),
+    renderTrendsVolume(sets, weekKeys, weekLabels),
+    renderTrendsConsistency(allSessions, weekKeys, weekLabels),
+    renderTrendsReadiness(readiness, weekKeys, weekLabels),
+    renderTrendsConditioning(conditioning, weekKeys, weekLabels),
+    renderTrendsPain(painItems),
+  ].join('');
 }
 
 // ── Snapshot ─────────────────────────────────────────────────────
@@ -4655,7 +4725,7 @@ function renderTrendsSnapshot(sessions, readiness, sets, weekKeys) {
     ? '<div class="snap-val">' + energySnap + '/5</div><div class="snap-label">Energy</div><div class="snap-sub">' + latestReady.log_date + '</div>'
     : '<div class="snap-val" style="color:var(--muted)">—</div><div class="snap-label">Energy</div>';
 
-  return '<div class="trends-section"><div class="trends-section-title">This Week</div><div class="snap-grid"><div class="snap-card"><div class="snap-val">' + thisWkSess + '</div><div class="snap-label">Sessions logged</div></div><div class="snap-card">' + volHtml + '</div><div class="snap-card">' + readyHtml + '</div></div></div>';
+  return trendSection('thisweek', 'This Week', '<div class="snap-grid"><div class="snap-card"><div class="snap-val">' + thisWkSess + '</div><div class="snap-label">Sessions logged</div></div><div class="snap-card">' + volHtml + '</div><div class="snap-card">' + readyHtml + '</div></div>');
 }
 
 // ── Strength: PR board + per-exercise load trend ──────────────────
@@ -4725,11 +4795,11 @@ function renderTrendsStrength(sets) {
       + '</select>'
     : '';
 
-  const trendSection = exSelectHtml
+  const exTrendSection = exSelectHtml
     ? '<div class="trends-chart-title" style="margin-top:16px;margin-bottom:8px">Load Trend by Exercise (top set per week)</div>' + exSelectHtml + '<div class="trends-chart-box" style="margin-top:0" id="ex-trend-chart"></div>'
     : '';
 
-  return '<div class="trends-section"><div class="trends-section-title">Strength — Est. 1RM Board</div>' + prHtml + trendSection + '</div>';
+  return trendSection('strength', 'Strength — Est. 1RM Board', prHtml + exTrendSection);
 }
 
 function renderExTrend(exName) {
@@ -4756,13 +4826,42 @@ function renderTrendsVolume(sets, weekKeys, weekLabels) {
     const wk = getWeekMonday(s._sd);
     if (tonByWk[wk] !== undefined) tonByWk[wk] += s.actual_load * s.actual_reps;
   });
-  const tonValues  = weekKeys.map(function(k) { return Math.round(tonByWk[k]); });
+  const tonValues   = weekKeys.map(function(k) { return Math.round(tonByWk[k]); });
   const tonnageChrt = trendsBarChart(tonValues, weekLabels, { formatVal: function(v) { return v >= 1000 ? (v/1000).toFixed(1) + 'k' : v; } });
 
-  const last4 = new Set(weekKeys.slice(-4));
+  const period = (document.getElementById('vol-period-select') || {}).value || '4w';
+  const breakdownHtml = buildVolumeBreakdown(sets, weekKeys, period);
+
+  const periodSelect = '<select class="trends-period-select" id="vol-period-select" onchange="refreshVolumeBreakdown()">'
+    + '<option value="1w"' + (period === '1w' ? ' selected' : '') + '>This Week</option>'
+    + '<option value="2w"' + (period === '2w' ? ' selected' : '') + '>Last Week</option>'
+    + '<option value="4w"' + (period === '4w' ? ' selected' : '') + '>Last 4 Weeks</option>'
+    + '</select>';
+
+  const body = '<div class="trends-chart-box"><div class="trends-chart-title">Weekly Tonnage (lb × reps)</div>' + tonnageChrt + '</div>'
+    + periodSelect
+    + '<div id="vol-breakdown">' + breakdownHtml + '</div>';
+
+  return trendSection('volume', 'Volume &amp; Workload', body);
+}
+
+function buildVolumeBreakdown(sets, weekKeys, period) {
+  var cutKeys;
+  if (period === '1w') {
+    const thisMonday = getWeekMonday(today());
+    cutKeys = new Set([thisMonday]);
+  } else if (period === '2w') {
+    const thisMonday = getWeekMonday(today());
+    const d = new Date(thisMonday + 'T00:00:00');
+    d.setDate(d.getDate() - 7);
+    cutKeys = new Set([d.toISOString().slice(0,10)]);
+  } else {
+    cutKeys = new Set(weekKeys.slice(-4));
+  }
+  const label = period === '1w' ? 'This Week' : period === '2w' ? 'Last Week' : 'Last 4 Weeks';
   const mgMap = {}, mpMap = {}, acMap = {};
   sets.forEach(function(s) {
-    if (!s._sd || !getWeekMonday || !last4.has(getWeekMonday(s._sd))) return;
+    if (!s._sd || !cutKeys.has(getWeekMonday(s._sd))) return;
     const mg = (s.exercise && s.exercise.primary_muscle_group) || 'Unknown';
     const mp = (s.exercise && s.exercise.movement_pattern)     || 'Unknown';
     const ac = (s.exercise && s.exercise.adaptation_category)  || 'Unknown';
@@ -4771,8 +4870,18 @@ function renderTrendsVolume(sets, weekKeys, weekLabels) {
     acMap[ac] = (acMap[ac] || 0) + 1;
   });
   const sort = function(obj) { return Object.entries(obj).map(function(e) { return { label: e[0], value: e[1] }; }).sort(function(a,b) { return b.value - a.value; }); };
+  const empty = '<div style="color:var(--muted);font-size:13px;padding:8px 0">No data for this period.</div>';
+  const hasSets = Object.keys(mgMap).length > 0;
+  return (!hasSets ? empty : '')
+    + (hasSets ? '<div class="trends-chart-box"><div class="trends-chart-title">Sets by Muscle Group — ' + label + '</div>' + trendsHorizChart(sort(mgMap)) + '</div>' : '')
+    + (hasSets ? '<div class="trends-chart-box"><div class="trends-chart-title">Sets by Movement Pattern — ' + label + '</div>' + trendsHorizChart(sort(mpMap), '#8b5cf6') + '</div>' : '')
+    + (hasSets ? '<div class="trends-chart-box"><div class="trends-chart-title">Sets by Adaptation — ' + label + '</div>' + trendsHorizChart(sort(acMap), '#f59e0b') + '</div>' : '');
+}
 
-  return '<div class="trends-section"><div class="trends-section-title">Volume &amp; Workload</div><div class="trends-chart-box"><div class="trends-chart-title">Weekly Tonnage (lb × reps)</div>' + tonnageChrt + '</div><div class="trends-chart-box"><div class="trends-chart-title">Sets by Muscle Group — last 4 weeks</div>' + trendsHorizChart(sort(mgMap)) + '</div><div class="trends-chart-box"><div class="trends-chart-title">Sets by Movement Pattern — last 4 weeks</div>' + trendsHorizChart(sort(mpMap), '#8b5cf6') + '</div><div class="trends-chart-box"><div class="trends-chart-title">Sets by Adaptation Category — last 4 weeks</div>' + trendsHorizChart(sort(acMap), '#f59e0b') + '</div></div>';
+function refreshVolumeBreakdown() {
+  const sel = document.getElementById('vol-period-select');
+  const el  = document.getElementById('vol-breakdown');
+  if (sel && el) el.innerHTML = buildVolumeBreakdown(window._tSets || [], window._tWkKeys || [], sel.value);
 }
 
 // ── Consistency ───────────────────────────────────────────────────
@@ -4799,41 +4908,72 @@ function renderTrendsConsistency(sessions, weekKeys, weekLabels) {
 
   const ytd = sessions.filter(function(s) { return s.session_date.startsWith(new Date().getFullYear().toString()); }).length;
 
-  return '<div class="trends-section"><div class="trends-section-title">Consistency</div><div class="trends-stat-strip"><div class="trends-stat-pill"><div class="trends-stat-num">' + ytd + '</div><div class="trends-stat-lbl">Sessions YTD</div></div><div class="trends-stat-pill"><div class="trends-stat-num">' + sessions.length + '</div><div class="trends-stat-lbl">Last 12 weeks</div></div></div><div class="trends-chart-box"><div class="trends-chart-title">Sessions per Week</div>' + chart + '</div>' + monthRows + '</div>';
+  return trendSection('consistency', 'Consistency', '<div class="trends-stat-strip"><div class="trends-stat-pill"><div class="trends-stat-num">' + ytd + '</div><div class="trends-stat-lbl">Sessions YTD</div></div><div class="trends-stat-pill"><div class="trends-stat-num">' + sessions.length + '</div><div class="trends-stat-lbl">Last 12 weeks</div></div></div><div class="trends-chart-box"><div class="trends-chart-title">Sessions per Week</div>' + chart + '</div>' + monthRows);
 }
 
 // ── Readiness & Recovery ─────────────────────────────────────────
 function renderTrendsReadiness(readiness, weekKeys, weekLabels) {
-  if (!readiness.length) return '<div class="trends-section"><div class="trends-section-title">Readiness &amp; Recovery</div><div style="color:var(--muted);font-size:13px;padding:8px 0">No readiness data yet.</div></div>';
+  if (!readiness.length) return trendSection('readiness', 'Readiness &amp; Recovery', '<div style="color:var(--muted);font-size:13px;padding:8px 0">No readiness data yet.</div>');
 
-  const byWk = {};
+  // Compute composite readiness score per week (avg of energy + (5-soreness) + (5-stress) + motivation, scaled 1-5)
+  const scoreByWk = {};
   readiness.forEach(function(r) {
     const wk = getWeekMonday(r.log_date);
-    if (!byWk[wk] || r.log_date > byWk[wk].log_date) byWk[wk] = r;
+    if (!scoreByWk[wk]) scoreByWk[wk] = [];
+    const vals = [];
+    if (r.energy     != null) vals.push(parseFloat(r.energy));
+    if (r.soreness   != null) vals.push(6 - parseFloat(r.soreness)); // invert: low soreness = good
+    if (r.stress     != null) vals.push(6 - parseFloat(r.stress));   // invert: low stress = good
+    if (r.motivation != null) vals.push(parseFloat(r.motivation));
+    if (vals.length) scoreByWk[wk].push(vals.reduce(function(a,b){return a+b;},0) / vals.length);
   });
-  const energyVals   = weekKeys.map(function(k) { return byWk[k] && byWk[k].energy     != null ? parseFloat(byWk[k].energy)     : null; });
-  const sorenessVals = weekKeys.map(function(k) { return byWk[k] && byWk[k].soreness   != null ? parseFloat(byWk[k].soreness)   : null; });
-  const stressVals   = weekKeys.map(function(k) { return byWk[k] && byWk[k].stress     != null ? parseFloat(byWk[k].stress)     : null; });
-  const motivVals    = weekKeys.map(function(k) { return byWk[k] && byWk[k].motivation != null ? parseFloat(byWk[k].motivation) : null; });
-  const sleepVals    = weekKeys.map(function(k) { return byWk[k] && byWk[k].sleep_hours!= null ? parseFloat(byWk[k].sleep_hours): null; });
+  const scoreVals = weekKeys.map(function(k) {
+    const arr = scoreByWk[k];
+    return arr && arr.length ? parseFloat((arr.reduce(function(a,b){return a+b;},0)/arr.length).toFixed(1)) : null;
+  });
 
-  const hasEnergy   = energyVals.some(function(v)   { return v != null; });
-  const hasSoreness = sorenessVals.some(function(v) { return v != null; });
-  const hasStress   = stressVals.some(function(v)   { return v != null; });
-  const hasMotiv    = motivVals.some(function(v)    { return v != null; });
-  const hasSleep    = sleepVals.some(function(v)    { return v != null; });
+  // Most recent log for the pill strip
+  const latest = readiness.slice().sort(function(a,b){ return b.log_date.localeCompare(a.log_date); })[0];
+  var pillHtml = '';
+  if (latest) {
+    const scoreNum = scoreVals.filter(function(v){return v!=null;}).slice(-1)[0];
+    const scoreClass = scoreNum == null ? '' : scoreNum >= 4 ? 'good' : scoreNum >= 3 ? 'ok' : 'low';
+    const scoreDisp  = scoreNum != null ? scoreNum.toFixed(1) : '—';
+    pillHtml = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
+      + '<div class="ready-score-pip ' + scoreClass + '">' + scoreDisp + '</div>'
+      + '<div style="font-size:12px;color:var(--muted)">Latest score &nbsp;·&nbsp; ' + new Date(latest.log_date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}) + '</div>'
+      + '</div>'
+      + '<div class="ready-last-row">'
+      + (latest.energy     != null ? '<span class="ready-last-pill">⚡ Energy ' + latest.energy + '/5</span>' : '')
+      + (latest.soreness   != null ? '<span class="ready-last-pill">💪 Soreness ' + latest.soreness + '/5</span>' : '')
+      + (latest.stress     != null ? '<span class="ready-last-pill">🧠 Stress ' + latest.stress + '/5</span>' : '')
+      + (latest.motivation != null ? '<span class="ready-last-pill">🔥 Motivation ' + latest.motivation + '/5</span>' : '')
+      + (latest.sleep_hours!= null ? '<span class="ready-last-pill">😴 Sleep ' + latest.sleep_hours + 'h</span>' : '')
+      + '</div>';
+  }
 
-  return '<div class="trends-section"><div class="trends-section-title">Readiness &amp; Recovery</div>'
-    + (hasEnergy   ? '<div class="trends-chart-box"><div class="trends-chart-title">Energy (1–5)</div>'     + trendsLineChart(energyVals,   weekLabels, { decimals: 1 }) + '</div>' : '')
-    + (hasSoreness ? '<div class="trends-chart-box"><div class="trends-chart-title">Soreness (1–5)</div>'   + trendsLineChart(sorenessVals, weekLabels, { decimals: 1 }) + '</div>' : '')
-    + (hasStress   ? '<div class="trends-chart-box"><div class="trends-chart-title">Stress (1–5)</div>'     + trendsLineChart(stressVals,   weekLabels, { decimals: 1 }) + '</div>' : '')
-    + (hasMotiv    ? '<div class="trends-chart-box"><div class="trends-chart-title">Motivation (1–5)</div>' + trendsLineChart(motivVals,    weekLabels, { decimals: 1 }) + '</div>' : '')
-    + (hasSleep    ? '<div class="trends-chart-box"><div class="trends-chart-title">Sleep (hours)</div>'    + trendsLineChart(sleepVals,    weekLabels, { decimals: 1 }) + '</div>' : '')
-    + '</div>';
+  const chartHtml = '<div class="trends-chart-box"><div class="trends-chart-title">Readiness Score per Week (1–5)</div>'
+    + trendsLineChart(scoreVals, weekLabels, { decimals: 1, min: 1, max: 5 }) + '</div>';
+
+  return trendSection('readiness', 'Readiness &amp; Recovery', pillHtml + chartHtml);
+}
+
+function condAdaptation(workoutType, modality) {
+  // Derive adaptation zone from workout_type / modality
+  if (!workoutType && !modality) return 'Unknown';
+  const wt = (workoutType || '').toLowerCase();
+  const mo = (modality || '').toLowerCase();
+  if (wt === 'intervals') return 'Anaerobic / Mixed';
+  if (wt === 'circuit' || mo === 'circuit training') return 'Mixed / GPP';
+  if (wt === 'tempo') return 'Threshold';
+  if (wt === 'steady state' || mo === 'run' || mo === 'ruck' || mo === 'walk'
+      || mo === 'rower' || mo === 'skierge' || mo === 'cycling'
+      || mo === 'echo bike' || mo === 'swimming') return 'Aerobic Base';
+  return 'Other';
 }
 
 function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
-  if (!conditioning.length) return '<div class="trends-section"><div class="trends-section-title">Conditioning</div><div style="color:var(--muted);font-size:13px;padding:8px 0">No conditioning data yet.</div></div>';
+  if (!conditioning.length) return trendSection('conditioning', 'Conditioning', '<div style="color:var(--muted);font-size:13px;padding:8px 0">No conditioning data yet.</div>');
 
   // ── Minutes per week (12-week bar) ────────────────────────────────────────
   const byWk = {};
@@ -4877,62 +5017,68 @@ function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
     .map(function(e) { return { label: e[0], value: parseFloat((e[1] / 1609.34).toFixed(1)) }; })
     .sort(function(a,b) { return b.value - a.value; });
 
-  // ── Effort distribution (30 days) ─────────────────────────────────────────
-  // effort_level lives on completed_sessions; conditioning rows may not carry it directly.
-  // We use whatever is on the row (joined via the view, if present).
-  const EFFORT_ORDER = ['Easy','Moderate','Hard','Intervals'];
-  const effortMap = {};
+  // ── Adaptation breakdown (30 days) ───────────────────────────────────────
+  const adaptMap = {};
   recent.forEach(function(row) {
-    const e = row.effort_level || null;
-    if (!e) return;
-    effortMap[e] = (effortMap[e] || 0) + 1;
+    const zone = condAdaptation(row.workout_type, row.modality);
+    adaptMap[zone] = (adaptMap[zone] || 0) + (row.duration_minutes || 1);
   });
-  const effortItems = EFFORT_ORDER
-    .filter(function(e) { return effortMap[e]; })
-    .map(function(e) { return { label: e, value: effortMap[e] }; });
-  const effortColors = { Easy: '#22c55e', Moderate: '#f59e0b', Hard: '#ef4444', Intervals: '#8b5cf6' };
+  const adaptColors = {
+    'Aerobic Base': '#22c55e', 'Threshold': '#f59e0b',
+    'Anaerobic / Mixed': '#ef4444', 'Mixed / GPP': '#8b5cf6', 'Other': '#94a3b8'
+  };
+  const adaptItems = Object.entries(adaptMap)
+    .map(function(e) { return { label: e[0], value: Math.round(e[1]) }; })
+    .sort(function(a,b) { return b.value - a.value; });
+
+  // ── Workout type breakdown (30 days) ─────────────────────────────────────
+  const wtMap = {};
+  recent.forEach(function(row) {
+    const wt = row.workout_type || 'Unspecified';
+    wtMap[wt] = (wtMap[wt] || 0) + (row.duration_minutes || 1);
+  });
+  const wtItems = Object.entries(wtMap)
+    .map(function(e) { return { label: e[0], value: Math.round(e[1]) }; })
+    .sort(function(a,b) { return b.value - a.value; });
 
   // ── Build HTML ─────────────────────────────────────────────────────────────
-  var html = '<div class="trends-section"><div class="trends-section-title">Conditioning</div>';
+  var body = '';
 
-  // Row 1: Minutes/Week
-  html += '<div class="trends-chart-box"><div class="trends-chart-title">Minutes per Week</div>' + minChart + '</div>';
+  body += '<div class="trends-chart-box"><div class="trends-chart-title">Minutes per Week</div>' + minChart + '</div>';
 
-  // Row 2: Time by modality
-  if (timeItems.length) {
-    html += '<div class="trends-chart-box"><div class="trends-chart-title">Time by Modality — last 30 days (min)</div>' + trendsHorizChart(timeItems, '#06b6d4') + '</div>';
-  }
-
-  // Row 3: Distance by modality (only if any data)
-  if (distItems.length) {
-    html += '<div class="trends-chart-box"><div class="trends-chart-title">Distance by Modality — last 30 days (mi)</div>' + trendsHorizChart(distItems, '#0ea5e9') + '</div>';
-  }
-
-  // Row 4: Effort distribution (only if effort data present)
-  if (effortItems.length) {
-    const effortTotal = effortItems.reduce(function(s,x) { return s + x.value; }, 0);
-    var effortHtml = '<div style="display:flex;flex-direction:column;gap:6px;">';
-    effortItems.forEach(function(ei) {
-      const pct = Math.round(ei.value / effortTotal * 100);
-      const col = effortColors[ei.label] || '#94a3b8';
-      effortHtml += '<div style="display:flex;align-items:center;gap:8px;font-size:13px;">'
-        + '<span style="width:72px;color:var(--text-secondary)">' + ei.label + '</span>'
-        + '<div style="flex:1;background:var(--surface-2);border-radius:4px;height:14px;overflow:hidden;">'
-        + '<div style="width:' + pct + '%;background:' + col + ';height:100%;border-radius:4px;"></div></div>'
-        + '<span style="width:38px;text-align:right;color:var(--text-secondary)">' + pct + '%</span>'
+  if (adaptItems.length) {
+    // Custom color horiz chart for adaptation
+    const adaptTotal = adaptItems.reduce(function(s,i){return s+i.value;},0);
+    var adaptRows = '';
+    adaptItems.forEach(function(item) {
+      const pct = adaptTotal ? Math.round(item.value / adaptTotal * 100) : 0;
+      const col = adaptColors[item.label] || '#94a3b8';
+      adaptRows += '<div class="horiz-bar-row">'
+        + '<div class="horiz-bar-meta"><span>' + item.label + '</span><span>' + item.value + ' min (' + pct + '%)</span></div>'
+        + '<div class="horiz-bar-track"><div class="horiz-bar-fill" style="width:' + pct + '%;background:' + col + '"></div></div>'
         + '</div>';
     });
-    effortHtml += '</div>';
-    html += '<div class="trends-chart-box"><div class="trends-chart-title">Effort Distribution — last 30 days</div>' + effortHtml + '</div>';
+    body += '<div class="trends-chart-box"><div class="trends-chart-title">By Adaptation Zone — last 30 days</div>' + adaptRows + '</div>';
   }
 
-  html += '</div>';
-  return html;
+  if (wtItems.length) {
+    body += '<div class="trends-chart-box"><div class="trends-chart-title">By Workout Type — last 30 days (min)</div>' + trendsHorizChart(wtItems, '#06b6d4') + '</div>';
+  }
+
+  if (timeItems.length) {
+    body += '<div class="trends-chart-box"><div class="trends-chart-title">Time by Modality — last 30 days (min)</div>' + trendsHorizChart(timeItems, '#0891b2') + '</div>';
+  }
+
+  if (distItems.length) {
+    body += '<div class="trends-chart-box"><div class="trends-chart-title">Distance by Modality — last 30 days (mi)</div>' + trendsHorizChart(distItems, '#0e7490') + '</div>';
+  }
+
+  return trendSection('conditioning', 'Conditioning', body);
 }
 
-// ── Pain / Watch Items ────────────────────────────────────────────
+
 function renderTrendsPain(painItems) {
-  if (!painItems.length) return '<div class="trends-section"><div class="trends-section-title">Watch Items</div><div style="color:var(--muted);font-size:13px;padding:8px 0">No active pain or injury flags. ✓</div></div>';
+  if (!painItems.length) return trendSection('pain', 'Watch Items', '<div style="color:var(--muted);font-size:13px;padding:8px 0">No active pain or injury flags. ✓</div>');
   const scMap = { 'new': '#ef4444', 'worse': '#ef4444', 'same': '#f59e0b', 'improving': '#22c55e' };
   const html  = painItems.map(function(p) {
     const sc   = scMap[p.status] || '#94a3b8';
@@ -4945,7 +5091,7 @@ function renderTrendsPain(painItems) {
     const notesHtml = p.notes ? '<div class="pain-meta" style="margin-top:4px;font-style:italic">' + p.notes + '</div>' : '';
     return '<div class="pain-flag" style="border-left-color:' + sc + '"><div class="pain-region">' + p.body_region + '</div><div class="pain-meta">' + meta + '</div>' + notesHtml + '</div>';
   }).join('');
-  return '<div class="trends-section"><div class="trends-section-title">Watch Items</div>' + html + '</div>';
+  return trendSection('pain', 'Watch Items', html);
 }
 
 (async () => {
