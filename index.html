@@ -416,6 +416,16 @@
       font-size: 12px; margin-bottom: 3px; }
     .horiz-bar-track { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
     .horiz-bar-fill  { height: 100%; border-radius: 4px; transition: width 0.3s; }
+
+    /* ── Conditioning blocks ─────────────────────────────────────── */
+    .cond-block { background: var(--surface2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px; margin-bottom: 10px; }
+    .cond-block-hdr { display: flex; align-items: center; margin-bottom: 10px; }
+    .cond-block-num { font-size: 12px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.05em; color: var(--muted); }
+    .dist-row { display: flex; gap: 4px; align-items: center; }
+    .dist-row input  { flex: 1; min-width: 0; }
+    .dist-row select { width: 64px; flex-shrink: 0; }
   </style>
   <script>
     if ('serviceWorker' in navigator)
@@ -781,6 +791,9 @@ let S = {
   addedExercises: [],
   addedCounter:   0,
 
+  condBlocks:       [],
+  condBlockCounter: 0,
+
   exerciseLib: [],
   sheetMode:   null,
   swapExKey:   null,
@@ -866,7 +879,7 @@ async function doLogout() {
   S = { user:null, athlete:null, cycle:null, sessions:[], completed:{},
     activeSession:null, plannedExercises:[], plannedConditioning:null,
     activeCompletedSession:null, savedExercises:{},
-    exState:{}, addedExercises:[], addedCounter:0,
+    exState:{}, addedExercises:[], addedCounter:0, condBlocks:[], condBlockCounter:0,
     exerciseLib:[], sheetMode:null, swapExKey:null };
   showScreen('login');
 }
@@ -2913,265 +2926,283 @@ async function removeAdded(localId) {
 }
 
 // ── Conditioning-only session ─────────────────────────────────────────────────
+const COND_MODALITIES = ['Echo Bike','SkiErg','Rower','Run','Ruck','Walk','Cycling','Sled','Jump Rope','Versaclimber','Swimming','Other'];
+const COND_LOAD_MODS  = ['Ruck','Sled'];
+const COND_DIST_CONV  = { mi: 1609.34, km: 1000, m: 1, ft: 0.3048 };
+
+function renderCondBlock(b, idx, total) {
+  const modOpts = ['<option value="">Select modality…</option>']
+    .concat(COND_MODALITIES.map(function(m) { return '<option value="' + m + '"' + (b.modality === m ? ' selected' : '') + '>' + m + '</option>'; }))
+    .join('');
+  const showLoad = COND_LOAD_MODS.includes(b.modality);
+  const removeBtn = total > 1
+    ? '<button class="sess-del-btn" onclick="removeCondBlock(' + b.id + ')" style="margin-left:auto" title="Remove">&#x2715;</button>'
+    : '';
+  return '<div class="cond-block" id="cond-block-' + b.id + '">'
+    + '<div class="cond-block-hdr"><span class="cond-block-num">Block ' + (idx + 1) + '</span>' + removeBtn + '</div>'
+    + '<div class="form-grid">'
+    + '<div class="form-field wide"><label>Modality</label>'
+    + '<select id="cond-mod-' + b.id + '" onchange="updateCondBlockFields(' + b.id + ')">' + modOpts + '</select></div>'
+    + '<div class="form-field"><label>Duration (min)</label>'
+    + '<input type="number" inputmode="decimal" id="cond-dur-' + b.id + '" placeholder="—" value="' + (b.duration || '') + '"></div>'
+    + '<div class="form-field"><label>Distance</label>'
+    + '<div class="dist-row">'
+    + '<input type="number" inputmode="decimal" id="cond-dist-' + b.id + '" placeholder="—" value="' + (b.distance || '') + '">'
+    + '<select id="cond-dunit-' + b.id + '">'
+    + '<option value="mi"' + (b.distUnit === 'mi' ? ' selected' : '') + '>mi</option>'
+    + '<option value="km"' + (b.distUnit === 'km' ? ' selected' : '') + '>km</option>'
+    + '<option value="m"'  + (b.distUnit === 'm'  ? ' selected' : '') + '>m</option>'
+    + '<option value="ft"' + (b.distUnit === 'ft' ? ' selected' : '') + '>ft</option>'
+    + '</select></div></div>'
+    + '<div class="form-field" id="cond-load-row-' + b.id + '" style="' + (showLoad ? '' : 'display:none') + '">'
+    + '<label>Load (lb)</label>'
+    + '<input type="number" inputmode="decimal" id="cond-load-' + b.id + '" placeholder="—" value="' + (b.load || '') + '"></div>'
+    + '</div></div>';
+}
+
+function renderCondSessionFields(pc) {
+  let planHtml = '';
+  if (pc) {
+    const hrRange = (pc.target_hr_low && pc.target_hr_high) ? pc.target_hr_low + '–' + pc.target_hr_high + ' bpm' : null;
+    planHtml = '<div class="cond-plan">'
+      + '<div class="cond-plan-label">Coach Plan</div>'
+      + '<div class="cond-plan-val">' + (pc.modality || '—') + ' · ' + (pc.workout_type || '—') + '</div>'
+      + '<div class="cond-plan-sub">' + (pc.target_duration_min ? pc.target_duration_min + ' min' : '') + (hrRange ? ' · HR ' + hrRange : '') + '</div>'
+      + (pc.coach_notes ? '<div class="cond-plan-sub" style="color:var(--accent);margin-top:6px">' + pc.coach_notes + '</div>' : '')
+      + '</div>';
+  }
+  return planHtml
+    + '<div class="form-section-label" style="margin-top:4px">Session</div>'
+    + '<div class="form-grid">'
+    + '<div class="form-field wide"><label>Effort Level</label>'
+    + '<select id="cond-effort" onchange="updateCondIntervalFields()">'
+    + '<option value="Easy">Easy</option><option value="Moderate">Moderate</option>'
+    + '<option value="Hard">Hard</option><option value="Intervals">Intervals</option>'
+    + '</select></div>'
+    + '<div class="form-field" id="cond-rounds-row" style="display:none"><label>Rounds completed</label>'
+    + '<input type="number" inputmode="numeric" id="cond-rounds" placeholder="—"></div>'
+    + '<div class="form-field" id="cond-maxhr-row" style="display:none"><label>Max HR (bpm)</label>'
+    + '<input type="number" inputmode="numeric" id="cond-max-hr" placeholder="—"></div>'
+    + '<div class="form-field"><label>Avg HR (bpm)</label>'
+    + '<input type="number" inputmode="numeric" id="cond-avg-hr" placeholder="—"></div>'
+    + '<div class="form-field"><label>RPE (1–10)</label>'
+    + '<input type="number" step="0.5" min="1" max="10" inputmode="decimal" id="cond-rpe" placeholder="—"></div>'
+    + '<div class="form-field wide"><label>Notes</label>'
+    + '<textarea id="cond-notes" placeholder="How it felt, any issues…"></textarea></div>'
+    + '</div>';
+}
+
+function renderCondBlocksHtml() {
+  return '<div class="form-section-label">Modalities</div>'
+    + '<div id="cond-blocks-list">'
+    + S.condBlocks.map(function(b, i) { return renderCondBlock(b, i, S.condBlocks.length); }).join('')
+    + '</div>'
+    + '<button class="btn secondary" onclick="addCondBlock()" style="margin-top:6px;font-size:13px">➕ Add Modality</button>';
+}
+
+function updateCondIntervalFields() {
+  const isInt = document.getElementById('cond-effort') && document.getElementById('cond-effort').value === 'Intervals';
+  ['cond-rounds-row','cond-maxhr-row'].forEach(function(id) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = isInt ? '' : 'none';
+  });
+}
+
+function updateCondBlockFields(id) {
+  const modEl = document.getElementById('cond-mod-' + id);
+  const mod   = modEl ? modEl.value : '';
+  const loadRow = document.getElementById('cond-load-row-' + id);
+  if (loadRow) loadRow.style.display = COND_LOAD_MODS.includes(mod) ? '' : 'none';
+  const b = S.condBlocks.find(function(x) { return x.id === id; });
+  if (b) b.modality = mod;
+}
+
+function addCondBlock() {
+  S.condBlockCounter++;
+  S.condBlocks.push({ id: S.condBlockCounter, modality: '', duration: '', distance: '', distUnit: 'mi', load: '' });
+  const list = document.getElementById('cond-blocks-list');
+  if (list) list.innerHTML = S.condBlocks.map(function(b, i) { return renderCondBlock(b, i, S.condBlocks.length); }).join('');
+}
+
+function removeCondBlock(id) {
+  if (S.condBlocks.length <= 1) return;
+  S.condBlocks = S.condBlocks.filter(function(b) { return b.id !== id; });
+  const list = document.getElementById('cond-blocks-list');
+  if (list) list.innerHTML = S.condBlocks.map(function(b, i) { return renderCondBlock(b, i, S.condBlocks.length); }).join('');
+}
+
+function getCondBlockValues() {
+  return S.condBlocks.map(function(b) {
+    const mod  = (document.getElementById('cond-mod-'   + b.id) || {value:''}).value.trim();
+    const dur  = parseFloat((document.getElementById('cond-dur-'   + b.id) || {value:''}).value) || null;
+    const dv   = parseFloat((document.getElementById('cond-dist-'  + b.id) || {value:''}).value) || null;
+    const du   = (document.getElementById('cond-dunit-' + b.id) || {value:'mi'}).value || 'mi';
+    const load = parseFloat((document.getElementById('cond-load-'  + b.id) || {value:''}).value) || null;
+    const dm   = dv ? Math.round(dv * (COND_DIST_CONV[du] || 1)) : null;
+    return { modality: mod, duration: dur, distanceMeters: dm, load: load };
+  }).filter(function(b) { return b.modality; });
+}
+
+function getCondSessionValues() {
+  return {
+    effortLevel: (document.getElementById('cond-effort')  || {value:null}).value  || null,
+    rpe:    parseFloat((document.getElementById('cond-rpe')    || {value:''}).value) || null,
+    avgHR:  parseInt( (document.getElementById('cond-avg-hr') || {value:''}).value) || null,
+    maxHR:  parseInt( (document.getElementById('cond-max-hr') || {value:''}).value) || null,
+    rounds: parseInt( (document.getElementById('cond-rounds') || {value:''}).value) || null,
+    notes:  ((document.getElementById('cond-notes') || {value:''}).value || '').trim() || null,
+  };
+}
+
+function buildCondRows(csId, sv) {
+  return getCondBlockValues().map(function(b) {
+    return {
+      athlete_id:           S.athlete.id,
+      completed_session_id: csId,
+      conditioning_date:    today(),
+      week_of:              (S.cycle && S.cycle.start_date) || today(),
+      conditioning_system:  (S.cycle && S.cycle.conditioning_system) || null,
+      conditioning_phase:   (S.cycle && S.cycle.conditioning_phase)  || null,
+      modality:             b.modality,
+      workout_type:         sv.effortLevel,
+      is_planned:           !!S.plannedConditioning,
+      duration_minutes:     b.duration,
+      distance_meters:      b.distanceMeters,
+      load_lbs:             b.load,
+      intervals_completed:  sv.effortLevel === 'Intervals' ? sv.rounds : null,
+      max_heart_rate:       sv.effortLevel === 'Intervals' ? sv.maxHR  : null,
+      notes:                sv.notes,
+    };
+  });
+}
+
 function renderConditioningSessionBody() {
   const body = document.getElementById('session-body');
   const pc   = S.plannedConditioning;
-  let html   = '';
 
-  if (S.activeSession.session_notes) {
-    html += `<div class="info-card">📋 ${S.activeSession.session_notes}</div>`;
-  }
-
-  if (pc) {
-    const hrRange = (pc.target_hr_low && pc.target_hr_high)
-      ? `${pc.target_hr_low}–${pc.target_hr_high} bpm` : null;
-    html += `
-      <div class="cond-plan">
-        <div class="cond-plan-label">Planned</div>
-        <div class="cond-plan-val">${pc.modality || '—'}  ·  ${pc.workout_type || '—'}</div>
-        <div class="cond-plan-sub">
-          ${pc.target_duration_min ? `${pc.target_duration_min} min` : ''}
-          ${hrRange ? ` · HR ${hrRange}` : ''}
-        </div>
-        ${pc.coach_notes
-          ? `<div class="cond-plan-sub" style="color:var(--accent);margin-top:6px">${pc.coach_notes}</div>`
-          : ''}
-      </div>`;
-  }
-
-  // If already logged, show logged data
-  if (S.activeCompletedSession?.status === 'completed') {
-    html += `<div class="info-card" style="border-color:var(--success);color:var(--success)">✓ This session has been logged.</div>`;
-    body.innerHTML = html;
+  if (S.activeCompletedSession && S.activeCompletedSession.status === 'completed') {
+    body.innerHTML = (S.activeSession && S.activeSession.session_notes
+      ? '<div class="info-card">📋 ' + S.activeSession.session_notes + '</div>' : '')
+      + '<div class="info-card" style="border-color:var(--success);color:var(--success)">✓ This session has been logged.</div>';
     return;
   }
 
-  html += `
-    <div class="form-section-label">Actual</div>
-    <div class="form-grid">
-      <div class="form-field">
-        <label>Modality</label>
-        <input type="text" id="cond-modality"
-          placeholder="${pc?.modality || 'Echo Bike…'}"
-          value="${pc?.modality || ''}">
-      </div>
-      ${!pc?.workout_type ? `
-      <div class="form-field">
-        <label>Type</label>
-        <select id="cond-type">
-          <option value="Steady State">Steady State</option>
-          <option value="Long Steady State">Long Steady State</option>
-          <option value="Intervals">Intervals</option>
-          <option value="Tempo">Tempo</option>
-          <option value="Other">Other</option>
-        </select>
-      </div>` : ''}
-      <div class="form-field">
-        <label>Duration (min)</label>
-        <input type="number" inputmode="decimal" id="cond-duration"
-          placeholder="${pc?.target_duration_min || '—'}">
-      </div>
-      <div class="form-field">
-        <label>Avg HR (bpm)</label>
-        <input type="number" inputmode="numeric" id="cond-avg-hr" placeholder="—">
-      </div>
-      <div class="form-field">
-        <label>Max HR (bpm)</label>
-        <input type="number" inputmode="numeric" id="cond-max-hr" placeholder="—">
-      </div>
-      <div class="form-field">
-        <label>HR Zone</label>
-        <input type="text" id="cond-zone" placeholder="Zone 2 / AeT…">
-      </div>
-      <div class="form-field">
-        <label>RPE</label>
-        <input type="number" step="0.5" min="1" max="10"
-          inputmode="decimal" id="cond-rpe" placeholder="—">
-      </div>
-      <div class="form-field wide">
-        <label>Notes</label>
-        <textarea id="cond-notes" placeholder="How it felt, any issues…"></textarea>
-      </div>
-    </div>`;
+  S.condBlocks = [{ id: 1, modality: (pc && pc.modality) || '', duration: '', distance: '', distUnit: 'mi', load: '' }];
+  S.condBlockCounter = 1;
 
+  let html = '';
+  if (S.activeSession && S.activeSession.session_notes)
+    html += '<div class="info-card">📋 ' + S.activeSession.session_notes + '</div>';
+  html += renderCondSessionFields(pc) + renderCondBlocksHtml();
   body.innerHTML = html;
+}
+
+function openStandaloneConditioning() {
+  S.plannedConditioning = null;
+  S.condBlocks = [{ id: 1, modality: '', duration: '', distance: '', distUnit: 'mi', load: '' }];
+  S.condBlockCounter = 1;
+  document.getElementById('cond-sub').textContent = 'Standalone session';
+  document.getElementById('cond-body').innerHTML  = renderCondSessionFields(null) + renderCondBlocksHtml();
+  const btn = document.getElementById('cond-submit-btn');
+  btn.disabled = false; btn.textContent = 'Log Conditioning';
+  showScreen('conditioning');
 }
 
 async function submitConditioningSession() {
   const btn = document.getElementById('submit-btn');
-  btn.disabled = true;
-  btn.textContent = 'Saving…';
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  const sv     = getCondSessionValues();
+  const blocks = getCondBlockValues();
+  if (!blocks.length) {
+    toast('Add at least one modality block.');
+    btn.disabled = false; btn.textContent = 'Log Conditioning';
+    return;
+  }
 
   try {
     if (isOffline) {
-      const pc2 = S.plannedConditioning;
-      const wt2 = pc2?.workout_type || document.getElementById('cond-type')?.value || null;
       const tid = crypto.randomUUID();
       await idbQueueWrite({ op: 'conditioning_session', payload: {
         session: { athlete_id: S.athlete.id, planned_session_id: S.activeSession.id,
-          session_date: today(), week_of: S.cycle.start_date,
-          session_type: 'Conditioning Only', status: 'completed' },
-        conditioning: { athlete_id: S.athlete.id, conditioning_date: today(),
-          week_of: S.cycle.start_date, conditioning_system: S.cycle.conditioning_system,
-          conditioning_phase: S.cycle.conditioning_phase,
-          modality: document.getElementById('cond-modality')?.value.trim() || pc2?.modality || null,
-          workout_type: wt2, adaptation_category: wt2?.includes('Steady') ? 'Aerobic Endurance' : null,
-          is_planned: !!pc2,
-          duration_minutes: parseFloat(document.getElementById('cond-duration')?.value) || null,
-          avg_heart_rate:   parseInt(document.getElementById('cond-avg-hr')?.value)     || null,
-          max_heart_rate:   parseInt(document.getElementById('cond-max-hr')?.value)     || null,
-          heart_rate_zone:  document.getElementById('cond-zone')?.value.trim()          || null,
-          rpe:   parseFloat(document.getElementById('cond-rpe')?.value)   || null,
-          notes: document.getElementById('cond-notes')?.value.trim()      || null },
+          session_date: today(), week_of: (S.cycle && S.cycle.start_date) || today(),
+          session_type: 'Conditioning Only', status: 'completed',
+          overall_rpe: sv.rpe, effort_level: sv.effortLevel, avg_heart_rate: sv.avgHR },
+        blocks: blocks, rounds: sv.rounds, maxHR: sv.maxHR, notes: sv.notes,
+        isPlanned: !!S.plannedConditioning,
       }});
       S.completed[S.activeSession.id] = { id: tid, status: 'completed', _isTemp: true };
       showSuccess('Conditioning Logged', 'Saved offline — will sync when connected.');
       return;
     }
+
     const { data: cs, error: csErr } = await db.from('completed_sessions').insert({
-      athlete_id:         S.athlete.id,
-      planned_session_id: S.activeSession.id,
-      session_date:       today(),
-      week_of:            S.cycle.start_date,
-      session_type:       'Conditioning Only',
-      status:             'completed',
+      athlete_id: S.athlete.id, planned_session_id: S.activeSession.id,
+      session_date: today(), week_of: (S.cycle && S.cycle.start_date) || today(),
+      session_type: 'Conditioning Only', status: 'completed',
+      overall_rpe: sv.rpe, effort_level: sv.effortLevel, avg_heart_rate: sv.avgHR,
     }).select().single();
     if (csErr) throw csErr;
 
-    const pc          = S.plannedConditioning;
-    const workoutType = pc?.workout_type
-      || document.getElementById('cond-type')?.value
-      || null;
-
-    await db.from('completed_conditioning').insert({
-      athlete_id:           S.athlete.id,
-      completed_session_id: cs.id,
-      conditioning_date:    today(),
-      week_of:              S.cycle.start_date,
-      conditioning_system:  S.cycle.conditioning_system,
-      conditioning_phase:   S.cycle.conditioning_phase,
-      modality:             document.getElementById('cond-modality')?.value.trim() || pc?.modality || null,
-      workout_type:         workoutType,
-      adaptation_category:  workoutType?.includes('Steady') ? 'Aerobic Endurance' : null,
-      is_planned:           !!pc,
-      duration_minutes:     parseFloat(document.getElementById('cond-duration')?.value)  || null,
-      avg_heart_rate:       parseInt(document.getElementById('cond-avg-hr')?.value)       || null,
-      max_heart_rate:       parseInt(document.getElementById('cond-max-hr')?.value)       || null,
-      heart_rate_zone:      document.getElementById('cond-zone')?.value.trim()            || null,
-      rpe:                  parseFloat(document.getElementById('cond-rpe')?.value)        || null,
-      notes:                document.getElementById('cond-notes')?.value.trim()           || null,
-    });
+    const { error: condErr } = await db.from('completed_conditioning').insert(buildCondRows(cs.id, sv));
+    if (condErr) throw condErr;
 
     S.completed[S.activeSession.id] = cs;
     showSuccess('Conditioning Logged', 'Session saved. Good work.');
   } catch (err) {
     console.error(err);
     toast('Error saving. Try again.', 4000);
-    btn.disabled = false;
-    btn.textContent = 'Log Conditioning';
+    btn.disabled = false; btn.textContent = 'Log Conditioning';
   }
-}
-
-// ── Standalone conditioning (from week overview) ────────────────────────────────────────────
-function openStandaloneConditioning() {
-  S.plannedConditioning = null;
-  document.getElementById('cond-sub').textContent = 'Standalone session';
-  document.getElementById('cond-body').innerHTML = `
-    <div class="form-section-label">Session Details</div>
-    <div class="form-grid">
-      <div class="form-field">
-        <label>Modality</label>
-        <input type="text" id="cond-modality" placeholder="Echo Bike, Run, Rower…">
-      </div>
-      <div class="form-field">
-        <label>Type</label>
-        <select id="cond-type">
-          <option value="Steady State">Steady State</option>
-          <option value="Long Steady State">Long Steady State</option>
-          <option value="Intervals">Intervals</option>
-          <option value="Tempo">Tempo</option>
-          <option value="Other">Other</option>
-        </select>
-      </div>
-      <div class="form-field">
-        <label>Duration (min)</label>
-        <input type="number" inputmode="decimal" id="cond-duration" placeholder="—">
-      </div>
-      <div class="form-field">
-        <label>Avg HR (bpm)</label>
-        <input type="number" inputmode="numeric" id="cond-avg-hr" placeholder="—">
-      </div>
-      <div class="form-field">
-        <label>Max HR (bpm)</label>
-        <input type="number" inputmode="numeric" id="cond-max-hr" placeholder="—">
-      </div>
-      <div class="form-field">
-        <label>HR Zone</label>
-        <input type="text" id="cond-zone" placeholder="Zone 2 / AeT…">
-      </div>
-      <div class="form-field">
-        <label>RPE</label>
-        <input type="number" step="0.5" min="1" max="10" inputmode="decimal"
-          id="cond-rpe" placeholder="—">
-      </div>
-      <div class="form-field wide">
-        <label>Notes</label>
-        <textarea id="cond-notes" placeholder="How it felt, distance, any issues…"></textarea>
-      </div>
-    </div>`;
-
-  const submitBtn = document.getElementById('cond-submit-btn');
-  submitBtn.disabled    = false;
-  submitBtn.textContent = 'Log Conditioning';
-  showScreen('conditioning');
 }
 
 async function submitConditioning() {
   const btn = document.getElementById('cond-submit-btn');
-  btn.disabled = true;
-  btn.textContent = 'Saving…';
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  const sv     = getCondSessionValues();
+  const blocks = getCondBlockValues();
+  if (!blocks.length) {
+    toast('Add at least one modality block.');
+    btn.disabled = false; btn.textContent = 'Log Conditioning';
+    return;
+  }
 
   try {
-    const pc          = S.plannedConditioning;
-    const workoutType = pc?.workout_type
-      || document.getElementById('cond-type')?.value
-      || null;
-    const condPayload = {
-      athlete_id:           S.athlete.id,
-      completed_session_id: null,
-      conditioning_date:    today(),
-      week_of:              S.cycle?.start_date || today(),
-      conditioning_system:  S.cycle?.conditioning_system || null,
-      conditioning_phase:   S.cycle?.conditioning_phase  || null,
-      modality:             document.getElementById('cond-modality').value.trim() || pc?.modality || null,
-      workout_type:         workoutType,
-      adaptation_category:  workoutType?.includes('Steady') ? 'Aerobic Endurance' : null,
-      is_planned:           false,
-      duration_minutes:     parseFloat(document.getElementById('cond-duration').value)  || null,
-      avg_heart_rate:       parseInt(document.getElementById('cond-avg-hr').value)       || null,
-      max_heart_rate:       parseInt(document.getElementById('cond-max-hr').value)       || null,
-      heart_rate_zone:      document.getElementById('cond-zone').value.trim()            || null,
-      rpe:                  parseFloat(document.getElementById('cond-rpe').value)        || null,
-      notes:                document.getElementById('cond-notes').value.trim()           || null,
-    };
     if (isOffline) {
-      await idbQueueWrite({ op: 'conditioning_standalone', payload: condPayload });
+      await idbQueueWrite({ op: 'conditioning_standalone', payload: {
+        athlete_id: S.athlete.id, conditioning_date: today(),
+        week_of: (S.cycle && S.cycle.start_date) || today(), is_planned: false,
+        effort_level: sv.effortLevel, avg_heart_rate: sv.avgHR, overall_rpe: sv.rpe,
+        blocks: blocks, rounds: sv.rounds, maxHR: sv.maxHR, notes: sv.notes,
+      }});
       showSuccess('Conditioning Logged', 'Saved offline — will sync when connected.');
       return;
     }
-    await db.from('completed_conditioning').insert(condPayload);
+
+    const { data: cs, error: csErr } = await db.from('completed_sessions').insert({
+      athlete_id: S.athlete.id, planned_session_id: null,
+      session_date: today(), week_of: (S.cycle && S.cycle.start_date) || today(),
+      session_type: 'Conditioning Only', status: 'completed',
+      overall_rpe: sv.rpe, effort_level: sv.effortLevel, avg_heart_rate: sv.avgHR,
+    }).select().single();
+    if (csErr) throw csErr;
+
+    const { error: condErr } = await db.from('completed_conditioning').insert(buildCondRows(cs.id, sv));
+    if (condErr) throw condErr;
+
     showSuccess('Conditioning Logged', 'Session saved. Good work.');
   } catch (err) {
     console.error(err);
     toast('Error saving conditioning. Try again.', 4000);
-    btn.disabled = false;
-    btn.textContent = 'Log Conditioning';
+    btn.disabled = false; btn.textContent = 'Log Conditioning';
   }
 }
 
 function skipConditioning() {
   showSuccess('Done', 'No conditioning logged.');
 }
+
 
 function showSuccess(title, sub) {
   document.getElementById('success-title').textContent = title;
@@ -3652,13 +3683,39 @@ async function syncQueue() {
         case 'conditioning_session': {
           const { data: cs2, error: cse } = await db.from('completed_sessions').insert(p.session).select().single();
           if (cse) throw cse;
-          const { error: cce } = await db.from('completed_conditioning').insert({ ...p.conditioning, completed_session_id: cs2.id });
-          if (cce) throw cce;
+          const condRows2 = (p.blocks || []).filter(b => b.modality).map(b => ({
+            athlete_id: p.session.athlete_id, completed_session_id: cs2.id,
+            conditioning_date: p.session.session_date, week_of: p.session.week_of,
+            modality: b.modality, workout_type: p.session.effort_level || null,
+            is_planned: !!p.isPlanned, duration_minutes: b.duration || null,
+            distance_meters: b.distanceMeters || null, load_lbs: b.load || null,
+            intervals_completed: p.session.effort_level === 'Intervals' ? (p.rounds || null) : null,
+            max_heart_rate: p.session.effort_level === 'Intervals' ? (p.maxHR || null) : null,
+            notes: p.notes || null,
+          }));
+          if (condRows2.length) { const { error: cce } = await db.from('completed_conditioning').insert(condRows2); if (cce) throw cce; }
           break;
         }
         case 'conditioning_standalone': {
-          const { error: e5 } = await db.from('completed_conditioning').insert(p);
-          if (e5) throw e5;
+          const { data: cs3, error: cse3 } = await db.from('completed_sessions').insert({
+            athlete_id: p.athlete_id, planned_session_id: null,
+            session_date: p.conditioning_date, week_of: p.week_of,
+            session_type: 'Conditioning Only', status: 'completed',
+            overall_rpe: p.overall_rpe || null, effort_level: p.effort_level || null,
+            avg_heart_rate: p.avg_heart_rate || null,
+          }).select().single();
+          if (cse3) throw cse3;
+          const condRows3 = (p.blocks || []).filter(b => b.modality).map(b => ({
+            athlete_id: p.athlete_id, completed_session_id: cs3.id,
+            conditioning_date: p.conditioning_date, week_of: p.week_of,
+            modality: b.modality, workout_type: p.effort_level || null,
+            is_planned: false, duration_minutes: b.duration || null,
+            distance_meters: b.distanceMeters || null, load_lbs: b.load || null,
+            intervals_completed: p.effort_level === 'Intervals' ? (p.rounds || null) : null,
+            max_heart_rate: p.effort_level === 'Intervals' ? (p.maxHR || null) : null,
+            notes: p.notes || null,
+          }));
+          if (condRows3.length) { const { error: e5 } = await db.from('completed_conditioning').insert(condRows3); if (e5) throw e5; }
           break;
         }
         case 'readiness': {
