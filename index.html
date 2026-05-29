@@ -320,10 +320,6 @@
       text-transform: uppercase; color: var(--muted); margin: 20px 0 10px;
       padding-bottom: 6px; border-bottom: 1px solid var(--border); }
     .hist-week-header:first-child { margin-top: 0; }
-    .hist-sess-card { background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 14px; margin-bottom: 10px; }
-    .hist-sess-header { display: flex; align-items: flex-start;
-      justify-content: space-between; margin-bottom: 10px; }
     .hist-sess-day  { font-size: 11px; font-weight: 600; color: var(--muted);
       text-transform: uppercase; letter-spacing: .5px; margin-bottom: 3px; }
     .hist-sess-type { font-size: 15px; font-weight: 700; }
@@ -338,9 +334,65 @@
     .hist-ex-name { font-size: 13px; font-weight: 600; color: var(--accent);
       cursor: pointer; flex-shrink: 0; max-width: 44%; }
     .hist-ex-sets { font-size: 12px; color: var(--muted); flex: 1; line-height: 1.6; }
-    .hist-cond-row { display: flex; align-items: center; gap: 6px; padding: 8px 10px;
-      background: var(--surface2); border-radius: 8px; margin-top: 8px;
+    .hist-cond-row { display: flex; align-items: center; gap: 6px; padding: 7px 10px;
+      background: var(--surface2); border-radius: 8px; margin-top: 6px;
       font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+    .hist-cond-row + .hist-cond-row { margin-top: 4px; }
+
+    /* History accordion controls */
+    .hist-controls { display: flex; gap: 10px; margin-bottom: 12px; }
+    .hist-ctrl-btn { flex: 1; padding: 9px 6px; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 8px;
+      font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer; }
+    .hist-ctrl-btn:active { border-color: var(--accent); color: var(--accent); }
+
+    /* Sticky day-chip index */
+    .hist-day-index { position: sticky; top: 0; z-index: 10;
+      background: var(--bg); display: flex; gap: 8px;
+      overflow-x: auto; padding: 0 0 10px; margin-bottom: 4px;
+      -webkit-overflow-scrolling: touch; }
+    .hist-day-index::-webkit-scrollbar { display: none; }
+    .hist-day-chip { background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 20px; padding: 6px 14px; font-size: 11px; font-weight: 600;
+      color: var(--muted); white-space: nowrap; cursor: pointer; flex-shrink: 0; }
+    .hist-day-chip:active, .hist-day-chip.active { background: var(--accent);
+      border-color: var(--accent); color: #fff; }
+
+    /* Day group */
+    .hist-day-group { margin-bottom: 20px; scroll-margin-top: 48px; }
+    .hist-day-header { font-size: 11px; font-weight: 700; letter-spacing: 1px;
+      text-transform: uppercase; color: var(--muted); padding: 8px 0 6px;
+      border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+
+    /* Collapsible session cards */
+    .hist-sess-card { background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); margin-bottom: 10px; overflow: hidden; }
+    .hist-sess-header { display: flex; align-items: flex-start;
+      justify-content: space-between; padding: 14px 14px 10px; cursor: pointer; }
+    .hist-sess-header:active { background: var(--surface2); }
+    .hist-toggle-icon { font-size: 14px; color: var(--muted); flex-shrink: 0;
+      padding-top: 2px; transition: transform 0.2s; }
+    .hist-sess-card:not(.collapsed) .hist-toggle-icon { transform: rotate(180deg); }
+    .hist-sess-body { padding: 0 14px 14px; }
+    .hist-sess-card.collapsed .hist-sess-body { display: none; }
+
+    /* Conditioning logged summary (in session body) */
+    .cond-logged-summary { background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px; }
+    .cond-logged-header { display: flex; align-items: center;
+      justify-content: space-between; margin-bottom: 12px;
+      font-size: 14px; font-weight: 700; color: var(--success); }
+    .cond-edit-btn { font-size: 12px; padding: 6px 16px; background: none;
+      border: 1px solid var(--accent); border-radius: 8px;
+      color: var(--accent); cursor: pointer; font-weight: 600; }
+    .cond-edit-btn:active { background: var(--accent); color: #fff; }
+    .cond-logged-block { padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .cond-logged-block:last-child { border-bottom: none; padding-bottom: 0; }
+    .cond-logged-modality { font-size: 14px; font-weight: 700; margin-bottom: 3px; }
+    .cond-logged-details { font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .cond-logged-notes { font-size: 11px; color: var(--muted); font-style: italic; margin-top: 4px; }
+    .cond-editing-banner { border-color: var(--accent) !important; color: var(--accent) !important;
+      font-size: 12px !important; }
 
     /* Ad-hoc session card */
     .card.adhoc-card { border-style: dashed; border-color: var(--border); }
@@ -760,7 +812,7 @@
     <button class="back-btn" onclick="showScreen('week')">‹</button>
     <div>
       <div class="header-title">History</div>
-      <div class="header-sub">Last 2 weeks</div>
+      <div class="header-sub">Last 30 days</div>
     </div>
     <div style="width:40px"></div>
   </div>
@@ -1908,7 +1960,7 @@ async function loadHistory() {
   const body = document.getElementById('hist-screen-body');
   try {
     const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 14);
+    cutoff.setDate(cutoff.getDate() - 30);
     const cutoffStr = cutoff.toISOString().slice(0, 10);
 
     // 1. Completed sessions in range
@@ -1920,7 +1972,7 @@ async function loadHistory() {
       .order('session_date', { ascending: false });
 
     if (!sessions || sessions.length === 0) {
-      body.innerHTML = '<div class="hist-empty">No sessions logged in the last 2 weeks.</div>';
+      body.innerHTML = '<div class="hist-empty">No sessions logged in the last 30 days.</div>';
       return;
     }
 
@@ -1935,11 +1987,12 @@ async function loadHistory() {
       .order('created_at', { ascending: true })
       .order('set_number',  { ascending: true });
 
-    // 3. Conditioning logs
+    // 3. Conditioning logs — multiple rows per session
     const { data: conds } = await db
       .from('completed_conditioning')
       .select('*')
-      .in('completed_session_id', sessionIds);
+      .in('completed_session_id', sessionIds)
+      .order('created_at', { ascending: true });
 
     // 4. Readiness logs for the same date range
     const { data: readiness } = await db
@@ -1955,32 +2008,42 @@ async function loadHistory() {
       setsBySession[s.completed_session_id].push(s);
     });
 
-    const condBySession = {};
-    (conds || []).forEach(c => { condBySession[c.completed_session_id] = c; });
+    // Array of cond rows per session (supports multi-modality)
+    const condsBySession = {};
+    (conds || []).forEach(c => {
+      if (!condsBySession[c.completed_session_id]) condsBySession[c.completed_session_id] = [];
+      condsBySession[c.completed_session_id].push(c);
+    });
 
     const readinessByDate = {};
     (readiness || []).forEach(r => { readinessByDate[r.log_date] = r; });
 
-    // Group sessions by week_of
-    const weekMap = {};
+    // Group sessions by date (YYYY-MM-DD)
+    const dateMap = {};
     sessions.forEach(s => {
-      const wk = s.week_of || s.session_date;
-      if (!weekMap[wk]) weekMap[wk] = [];
-      weekMap[wk].push(s);
+      const d = s.session_date;
+      if (!dateMap[d]) dateMap[d] = [];
+      dateMap[d].push(s);
     });
 
-    let html = '';
-    const weekKeys = Object.keys(weekMap).sort((a, b) => b.localeCompare(a));
+    const dateKeys = Object.keys(dateMap).sort((a, b) => b.localeCompare(a));
 
-    weekKeys.forEach(wk => {
-      const wkDate  = new Date(wk + 'T00:00:00');
-      const wkLabel = wkDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      html += `<div class="hist-week-header">Week of ${wkLabel}</div>`;
+    // Build sticky day chips
+    const chipsHtml = dateKeys.map(d => {
+      const dt = new Date(d + 'T00:00:00');
+      const label = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return `<span class="hist-day-chip" onclick="histJumpToDay('${d}')">${label}</span>`;
+    }).join('');
 
-      weekMap[wk].forEach(sess => {
-        const sessDate = new Date(sess.session_date + 'T00:00:00');
-        const dayLabel = sessDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
-        const rpeHtml  = sess.overall_rpe
+    // Build session cards per day
+    let daysHtml = '';
+    dateKeys.forEach(d => {
+      const dt = new Date(d + 'T00:00:00');
+      const dayHeading = dt.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+
+      let sessCardsHtml = '';
+      dateMap[d].forEach(sess => {
+        const rpeHtml = sess.overall_rpe
           ? `<span class="hist-sess-rpe">RPE ${sess.overall_rpe}</span>` : '';
 
         // Readiness strip
@@ -1989,7 +2052,7 @@ async function loadHistory() {
         if (r) {
           const chips = [
             r.energy      != null ? `Energy <span>${r.energy}</span>`     : null,
-            r.sleep_hours != null ? `Sleep <span>${r.sleep_hours}</span>`     : null,
+            r.sleep_hours != null ? `Sleep <span>${r.sleep_hours}</span>` : null,
             r.soreness    != null ? `Soreness <span>${r.soreness}</span>` : null,
           ].filter(Boolean);
           if (chips.length) readinessHtml = `
@@ -1998,7 +2061,7 @@ async function loadHistory() {
             </div>`;
         }
 
-        // Exercise rows — group sets by exercise, preserve performance order
+        // Exercise rows
         const sessSets = setsBySession[sess.id] || [];
         const exMap = {};
         sessSets.forEach(s => {
@@ -2013,7 +2076,6 @@ async function loadHistory() {
           exMap[s.exercise_id].sets.push(s);
         });
 
-        // Sort: planned item_order first, then by first created_at for ad-hoc/added
         const sortedEx = Object.values(exMap).sort((a, b) => {
           if (a.itemOrder != null && b.itemOrder != null) return a.itemOrder - b.itemOrder;
           if (a.itemOrder != null) return -1;
@@ -2024,7 +2086,6 @@ async function loadHistory() {
         let exHtml = '';
         let lastSupersetGroup = null;
         sortedEx.forEach(ex => {
-          // Identify top set by e1RM then load
           let topIdx = 0, topVal = 0;
           ex.sets.forEach((s, i) => {
             const v = epley(s.actual_load, s.actual_reps) || s.actual_load || 0;
@@ -2042,7 +2103,6 @@ async function loadHistory() {
 
           const safeExName = ex.name.replace(/'/g, "\\'");
 
-          // Superset label — only show when group changes
           if (ex.supersetGroup && ex.supersetGroup !== lastSupersetGroup) {
             exHtml += `<div class="ex-group" style="margin-top:6px">SUPERSET ${ex.supersetGroup.toUpperCase()}</div>`;
           }
@@ -2055,48 +2115,106 @@ async function loadHistory() {
             </div>`;
         });
 
-        // Conditioning row
-        const cond = condBySession[sess.id];
+        // Conditioning rows — show all blocks
+        const sessCondsArr = condsBySession[sess.id] || [];
         let condHtml = '';
-        if (cond) {
-          const parts = [
-            cond.modality,
-            cond.workout_type,
-            cond.duration_minutes ? `${cond.duration_minutes} min` : null,
-            cond.avg_heart_rate   ? `${cond.avg_heart_rate} bpm avg` : null,
-            cond.rpe              ? `RPE ${cond.rpe}` : null,
-          ].filter(Boolean);
-          condHtml = `<div class="hist-cond-row">🚴 ${parts.join(' · ')}</div>`;
-        }
+        sessCondsArr.forEach(cond => {
+          let parts;
+          if (cond.modality === 'Circuit Training') {
+            parts = [
+              'Circuit',
+              cond.notes ? cond.notes : null,
+              cond.intervals_completed ? `${cond.intervals_completed} rounds` : null,
+              cond.duration_minutes    ? `${cond.duration_minutes} min`        : null,
+            ].filter(Boolean);
+          } else {
+            parts = [
+              cond.modality,
+              cond.workout_type && cond.workout_type !== cond.modality ? cond.workout_type : null,
+              cond.duration_minutes  ? `${cond.duration_minutes} min`   : null,
+              cond.avg_heart_rate    ? `${cond.avg_heart_rate} bpm avg` : null,
+              cond.rpe               ? `RPE ${cond.rpe}`                : null,
+            ].filter(Boolean);
+          }
+          condHtml += `<div class="hist-cond-row">🚴 ${parts.join(' · ')}</div>`;
+        });
 
         const notesHtml = sess.session_notes
           ? `<div style="font-size:12px;color:var(--muted);font-style:italic;margin-top:8px">${sess.session_notes}</div>` : '';
 
-        const emptyHtml = (!exHtml && !cond)
+        const emptyHtml = (!exHtml && !sessCondsArr.length)
           ? `<div style="font-size:13px;color:var(--muted)">No exercises logged</div>` : '';
 
-        html += `
-          <div class="hist-sess-card">
-            <div class="hist-sess-header">
+        sessCardsHtml += `
+          <div class="hist-sess-card collapsed" id="hist-card-${sess.id}">
+            <div class="hist-sess-header" onclick="histToggle('${sess.id}')">
               <div>
-                <div class="hist-sess-day">${dayLabel}</div>
                 <div class="hist-sess-type">${sess.session_type || 'Session'}</div>
               </div>
-              ${rpeHtml}
+              <div style="display:flex;align-items:center;gap:8px">
+                ${rpeHtml}
+                <span class="hist-toggle-icon" style="color:var(--muted);font-size:18px">⌄</span>
+              </div>
             </div>
-            ${readinessHtml}
-            ${exHtml}${emptyHtml}
-            ${condHtml}
-            ${notesHtml}
+            <div class="hist-sess-body">
+              ${readinessHtml}
+              ${exHtml}${emptyHtml}
+              ${condHtml}
+              ${notesHtml}
+            </div>
           </div>`;
       });
+
+      daysHtml += `
+        <div class="hist-day-group" id="hist-day-${d}">
+          <div class="hist-week-header">${dayHeading}</div>
+          ${sessCardsHtml}
+        </div>`;
     });
+
+    const html = `
+      <div class="hist-controls">
+        <button class="hist-ctrl-btn" onclick="histExpandAll()">Expand All</button>
+        <button class="hist-ctrl-btn" onclick="histCollapseAll()">Collapse All</button>
+      </div>
+      <div class="hist-day-index">
+        ${chipsHtml}
+      </div>
+      ${daysHtml}`;
 
     body.innerHTML = html;
   } catch (err) {
     console.error(err);
     body.innerHTML = '<div class="hist-empty" style="color:var(--danger)">Error loading history.</div>';
   }
+}
+
+function histToggle(sessId) {
+  const card = document.getElementById('hist-card-' + sessId);
+  if (card) card.classList.toggle('collapsed');
+}
+
+function histExpandAll() {
+  document.querySelectorAll('.hist-sess-card.collapsed').forEach(c => c.classList.remove('collapsed'));
+}
+
+function histCollapseAll() {
+  document.querySelectorAll('.hist-sess-card:not(.collapsed)').forEach(c => c.classList.add('collapsed'));
+}
+
+function histJumpToDay(date) {
+  const group = document.getElementById('hist-day-' + date);
+  if (!group) return;
+  // Expand all cards in this day group
+  group.querySelectorAll('.hist-sess-card.collapsed').forEach(c => c.classList.remove('collapsed'));
+  // Scroll into view (CSS scroll-margin-top handles sticky chip offset)
+  group.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Highlight active chip briefly
+  document.querySelectorAll('.hist-day-chip').forEach(chip => chip.classList.remove('active'));
+  const chips = document.querySelectorAll('.hist-day-chip');
+  chips.forEach(chip => {
+    if (chip.getAttribute('onclick') === `histJumpToDay('${date}')`) chip.classList.add('active');
+  });
 }
 
 // ── Re-edit saved exercise ────────────────────────────────────────────────────
@@ -3293,18 +3411,58 @@ function buildCondRows(csId, sv) {
   });
 }
 
-function renderConditioningSessionBody() {
+async function renderConditioningSessionBody() {
   const body = document.getElementById('session-body');
   const pc   = S.plannedConditioning;
 
   if (S.activeCompletedSession && S.activeCompletedSession.status === 'completed') {
     body.innerHTML = (S.activeSession && S.activeSession.session_notes
       ? '<div class="info-card">📋 ' + S.activeSession.session_notes + '</div>' : '')
-      + '<div class="info-card" style="border-color:var(--success);color:var(--success)">✓ This session has been logged.</div>';
+      + '<div class="spinner">Loading…</div>';
+    try {
+      const { data: rows } = await db.from('completed_conditioning')
+        .select('*').eq('completed_session_id', S.activeCompletedSession.id)
+        .order('created_at');
+      const noteHtml = S.activeSession && S.activeSession.session_notes
+        ? '<div class="info-card">📋 ' + S.activeSession.session_notes + '</div>' : '';
+      let summary = '<div class="cond-logged-summary">'
+        + '<div class="cond-logged-header"><span>✓ Conditioning Logged</span>'
+        + '<button class="cond-edit-btn" onclick="editConditioningSession()">Edit</button></div>';
+      if (rows && rows.length) {
+        rows.forEach(function(c) {
+          const dist = c.distance_meters
+            ? (c.distance_meters / 1609.34).toFixed(2) + ' mi' : null;
+          const parts = [
+            c.workout_type && c.workout_type !== 'Circuit' ? c.workout_type : null,
+            c.duration_minutes  ? c.duration_minutes + ' min'  : null,
+            dist,
+            c.load_lbs          ? c.load_lbs + ' lb'           : null,
+            c.rpe               ? 'RPE ' + c.rpe               : null,
+            c.intervals_completed ? c.intervals_completed + ' rounds' : null,
+            c.avg_heart_rate    ? c.avg_heart_rate + ' bpm avg': null,
+          ].filter(Boolean).join(' · ');
+          summary += '<div class="cond-logged-block">'
+            + '<div class="cond-logged-modality">' + (c.modality || 'Unknown') + '</div>'
+            + (parts ? '<div class="cond-logged-details">' + parts + '</div>' : '')
+            + (c.notes ? '<div class="cond-logged-notes">' + c.notes + '</div>' : '')
+            + '</div>';
+        });
+      } else {
+        summary += '<div class="cond-logged-details" style="color:var(--muted)">No details available.</div>';
+      }
+      summary += '</div>';
+      body.innerHTML = noteHtml + summary;
+    } catch (_) {
+      body.innerHTML = (S.activeSession && S.activeSession.session_notes
+        ? '<div class="info-card">📋 ' + S.activeSession.session_notes + '</div>' : '')
+        + '<div class="info-card" style="border-color:var(--success);color:var(--success)">✓ This session has been logged.</div>'
+        + '<div style="margin-top:10px"><button class="btn secondary" onclick="editConditioningSession()">Edit Log</button></div>';
+    }
     return;
   }
 
-  S.condBlocks = [{ id: 1, modality: (pc && pc.modality) || '', duration: '', distance: '', distUnit: 'mi', load: '' }];
+  S._editingConditioning = false;
+  S.condBlocks = [{ id: 1, modality: (pc && pc.modality) || '', duration: '', distance: '', distUnit: 'mi', load: '', circuitDesc: '', circuitRounds: '' }];
   S.condBlockCounter = 1;
 
   let html = '';
@@ -3312,6 +3470,62 @@ function renderConditioningSessionBody() {
     html += '<div class="info-card">📋 ' + S.activeSession.session_notes + '</div>';
   html += renderCondSessionFields(pc) + renderCondBlocksHtml();
   body.innerHTML = html;
+}
+
+async function editConditioningSession() {
+  if (!S.activeCompletedSession) return;
+  const body = document.getElementById('session-body');
+  body.innerHTML = '<div class="spinner">Loading…</div>';
+  try {
+    const { data: rows } = await db.from('completed_conditioning')
+      .select('*').eq('completed_session_id', S.activeCompletedSession.id)
+      .order('created_at');
+    if (rows && rows.length) {
+      S.condBlocks = rows.map(function(r, i) {
+        return {
+          id:            i + 1,
+          modality:      r.modality || '',
+          duration:      r.duration_minutes != null ? String(r.duration_minutes) : '',
+          distance:      r.distance_meters  != null ? String((r.distance_meters / 1609.34).toFixed(2)) : '',
+          distUnit:      'mi',
+          load:          r.load_lbs != null ? String(r.load_lbs) : '',
+          circuitDesc:   r.modality === 'Circuit Training' ? (r.notes || '') : '',
+          circuitRounds: r.intervals_completed != null ? String(r.intervals_completed) : '',
+        };
+      });
+      S.condBlockCounter = rows.length;
+    } else {
+      S.condBlocks = [{ id: 1, modality: '', duration: '', distance: '', distUnit: 'mi', load: '', circuitDesc: '', circuitRounds: '' }];
+      S.condBlockCounter = 1;
+    }
+    S._editingConditioning = true;
+    const noteHtml = S.activeSession && S.activeSession.session_notes
+      ? '<div class="info-card">📋 ' + S.activeSession.session_notes + '</div>' : '';
+    const editBanner = '<div class="info-card cond-editing-banner">✏️ Editing — save to overwrite previous log.</div>';
+    body.innerHTML = noteHtml + editBanner + renderCondSessionFields(S.plannedConditioning) + renderCondBlocksHtml();
+    // Pre-fill session-level fields from first row
+    const first = rows && rows[0];
+    if (first) {
+      const effort = document.getElementById('cond-effort');
+      if (effort && first.workout_type && first.workout_type !== 'Circuit') effort.value = first.workout_type;
+      const rpeEl = document.getElementById('cond-rpe');
+      const hrEl  = document.getElementById('cond-avg-hr');
+      if (rpeEl && first.rpe)           rpeEl.value = first.rpe;
+      if (hrEl  && first.avg_heart_rate) hrEl.value = first.avg_heart_rate;
+      // Non-circuit session notes
+      const nonCircNotes = (rows || []).filter(r => r.modality !== 'Circuit Training')
+        .map(r => r.notes).filter(Boolean)[0];
+      const notesEl = document.getElementById('cond-notes');
+      if (notesEl && nonCircNotes) notesEl.value = nonCircNotes;
+    }
+    // Update finish button label
+    const btn = document.getElementById('submit-btn');
+    if (btn) { btn.disabled = false; btn.textContent = 'Update Conditioning'; }
+  } catch (err) {
+    console.error(err);
+    toast('Error loading conditioning data.', 3000);
+    renderConditioningSessionBody();
+  }
 }
 
 function openStandaloneConditioning() {
@@ -3333,10 +3547,35 @@ async function submitConditioningSession() {
   const blocks = getCondBlockValues();
   if (!blocks.length) {
     toast('Add at least one modality block.');
-    btn.disabled = false; btn.textContent = 'Log Conditioning';
+    btn.disabled = false; btn.textContent = S._editingConditioning ? 'Update Conditioning' : 'Log Conditioning';
     return;
   }
 
+  // ── Edit/update path ─────────────────────────────────────────────────────
+  if (S._editingConditioning && S.activeCompletedSession && !S.activeCompletedSession._isTemp) {
+    try {
+      const csId = S.activeCompletedSession.id;
+      const { error: delErr } = await db.from('completed_conditioning')
+        .delete().eq('completed_session_id', csId);
+      if (delErr) throw delErr;
+      const { error: insErr } = await db.from('completed_conditioning')
+        .insert(buildCondRows(csId, sv));
+      if (insErr) throw insErr;
+      // Also update overall_rpe on completed_session
+      await db.from('completed_sessions').update({ overall_rpe: sv.rpe })
+        .eq('id', csId);
+      S._editingConditioning = false;
+      toast('Conditioning updated. ✓', 2500);
+      renderConditioningSessionBody();
+    } catch (err) {
+      console.error(err);
+      toast('Error updating. Try again.', 4000);
+      btn.disabled = false; btn.textContent = 'Update Conditioning';
+    }
+    return;
+  }
+
+  // ── New log path ─────────────────────────────────────────────────────────
   try {
     if (isOffline) {
       const tid = crypto.randomUUID();
@@ -3365,7 +3604,9 @@ async function submitConditioningSession() {
     if (condErr) throw condErr;
 
     S.completed[S.activeSession.id] = cs;
-    showSuccess('Conditioning Logged', 'Session saved. Good work.');
+    S.activeCompletedSession        = cs;
+    toast('Conditioning logged. ✓', 2000);
+    renderConditioningSessionBody();
   } catch (err) {
     console.error(err);
     toast('Error saving. Try again.', 4000);
@@ -4392,7 +4633,7 @@ function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
       const col = effortColors[ei.label] || '#94a3b8';
       effortHtml += '<div style="display:flex;align-items:center;gap:8px;font-size:13px;">'
         + '<span style="width:72px;color:var(--text-secondary)">' + ei.label + '</span>'
-        + '<div style="flex:1;background:var(--surface2);border-radius:4px;height:14px;overflow:hidden;">'
+        + '<div style="flex:1;background:var(--surface-2);border-radius:4px;height:14px;overflow:hidden;">'
         + '<div style="width:' + pct + '%;background:' + col + ';height:100%;border-radius:4px;"></div></div>'
         + '<span style="width:38px;text-align:right;color:var(--text-secondary)">' + pct + '%</span>'
         + '</div>';
