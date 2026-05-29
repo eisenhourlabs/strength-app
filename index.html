@@ -3017,7 +3017,23 @@ function updateCondBlockFields(id) {
   if (b) b.modality = mod;
 }
 
+function syncCondBlocksFromDOM() {
+  S.condBlocks.forEach(function(b) {
+    const modEl  = document.getElementById('cond-mod-'   + b.id);
+    const durEl  = document.getElementById('cond-dur-'   + b.id);
+    const distEl = document.getElementById('cond-dist-'  + b.id);
+    const dunitEl= document.getElementById('cond-dunit-' + b.id);
+    const loadEl = document.getElementById('cond-load-'  + b.id);
+    if (modEl)   b.modality  = modEl.value;
+    if (durEl)   b.duration  = durEl.value;
+    if (distEl)  b.distance  = distEl.value;
+    if (dunitEl) b.distUnit  = dunitEl.value;
+    if (loadEl)  b.load      = loadEl.value;
+  });
+}
+
 function addCondBlock() {
+  syncCondBlocksFromDOM();
   S.condBlockCounter++;
   S.condBlocks.push({ id: S.condBlockCounter, modality: '', duration: '', distance: '', distUnit: 'mi', load: '' });
   const list = document.getElementById('cond-blocks-list');
@@ -3026,6 +3042,7 @@ function addCondBlock() {
 
 function removeCondBlock(id) {
   if (S.condBlocks.length <= 1) return;
+  syncCondBlocksFromDOM();
   S.condBlocks = S.condBlocks.filter(function(b) { return b.id !== id; });
   const list = document.getElementById('cond-blocks-list');
   if (list) list.innerHTML = S.condBlocks.map(function(b, i) { return renderCondBlock(b, i, S.condBlocks.length); }).join('');
@@ -4092,20 +4109,100 @@ function renderTrendsReadiness(readiness, weekKeys, weekLabels) {
 // ── Conditioning ──────────────────────────────────────────────────
 function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
   if (!conditioning.length) return '<div class="trends-section"><div class="trends-section-title">Conditioning</div><div style="color:var(--muted);font-size:13px;padding:8px 0">No conditioning data yet.</div></div>';
+
+  // ── Minutes per week (12-week bar) ────────────────────────────────────────
   const byWk = {};
   weekKeys.forEach(function(k) { byWk[k] = 0; });
-  conditioning.forEach(function(c) {
-    const dateStr = c.conditioning_date || (c.created_at ? c.created_at.slice(0,10) : null);
+  conditioning.forEach(function(row) {
+    const dateStr = row.conditioning_date || (row.created_at ? row.created_at.slice(0,10) : null);
     if (!dateStr) return;
     const wk = getWeekMonday(dateStr);
-    if (byWk[wk] !== undefined && c.duration_minutes) byWk[wk] += c.duration_minutes;
+    if (byWk[wk] !== undefined && row.duration_minutes) byWk[wk] += row.duration_minutes;
   });
-  const values = weekKeys.map(function(k) { return Math.round(byWk[k]); });
-  const chart  = trendsBarChart(values, weekLabels, { height: 110, color: '#06b6d4' });
-  const modalMap = {};
-  conditioning.forEach(function(c) { const m = c.modality || 'Unknown'; modalMap[m] = (modalMap[m] || 0) + 1; });
-  const modalItems = Object.entries(modalMap).map(function(e) { return { label: e[0], value: e[1] }; }).sort(function(a,b) { return b.value - a.value; });
-  return '<div class="trends-section"><div class="trends-section-title">Conditioning</div><div class="trends-chart-box"><div class="trends-chart-title">Minutes per Week</div>' + chart + '</div><div class="trends-chart-box"><div class="trends-chart-title">Sessions by Modality (' + conditioning.length + ' total)</div>' + trendsHorizChart(modalItems, '#06b6d4') + '</div></div>';
+  const wkValues = weekKeys.map(function(k) { return Math.round(byWk[k]); });
+  const minChart = trendsBarChart(wkValues, weekLabels, { height: 110, color: '#06b6d4' });
+
+  // ── Last-30-day window ────────────────────────────────────────────────────
+  const now30 = new Date(); now30.setDate(now30.getDate() - 30);
+  const cutoff30 = now30.toISOString().slice(0,10);
+  const recent = conditioning.filter(function(row) {
+    const d = row.conditioning_date || (row.created_at ? row.created_at.slice(0,10) : null);
+    return d && d >= cutoff30;
+  });
+
+  // ── Time by modality (30 days) ────────────────────────────────────────────
+  const timeByMod = {};
+  recent.forEach(function(row) {
+    if (!row.modality) return;
+    timeByMod[row.modality] = (timeByMod[row.modality] || 0) + (row.duration_minutes || 0);
+  });
+  const timeItems = Object.entries(timeByMod)
+    .map(function(e) { return { label: e[0], value: Math.round(e[1]) }; })
+    .sort(function(a,b) { return b.value - a.value; });
+
+  // ── Distance by modality (30 days, metres -> miles) ───────────────────────
+  const DIST_MODS = ['Run','Ruck','Walk','Rower','SkiErg','Cycling','Echo Bike','Swimming'];
+  const distByMod = {};
+  recent.forEach(function(row) {
+    if (!row.modality || !row.distance_meters) return;
+    if (!DIST_MODS.includes(row.modality)) return;
+    distByMod[row.modality] = (distByMod[row.modality] || 0) + row.distance_meters;
+  });
+  const distItems = Object.entries(distByMod)
+    .map(function(e) { return { label: e[0], value: parseFloat((e[1] / 1609.34).toFixed(1)) }; })
+    .sort(function(a,b) { return b.value - a.value; });
+
+  // ── Effort distribution (30 days) ─────────────────────────────────────────
+  // effort_level lives on completed_sessions; conditioning rows may not carry it directly.
+  // We use whatever is on the row (joined via the view, if present).
+  const EFFORT_ORDER = ['Easy','Moderate','Hard','Intervals'];
+  const effortMap = {};
+  recent.forEach(function(row) {
+    const e = row.effort_level || null;
+    if (!e) return;
+    effortMap[e] = (effortMap[e] || 0) + 1;
+  });
+  const effortItems = EFFORT_ORDER
+    .filter(function(e) { return effortMap[e]; })
+    .map(function(e) { return { label: e, value: effortMap[e] }; });
+  const effortColors = { Easy: '#22c55e', Moderate: '#f59e0b', Hard: '#ef4444', Intervals: '#8b5cf6' };
+
+  // ── Build HTML ─────────────────────────────────────────────────────────────
+  var html = '<div class="trends-section"><div class="trends-section-title">Conditioning</div>';
+
+  // Row 1: Minutes/Week
+  html += '<div class="trends-chart-box"><div class="trends-chart-title">Minutes per Week</div>' + minChart + '</div>';
+
+  // Row 2: Time by modality
+  if (timeItems.length) {
+    html += '<div class="trends-chart-box"><div class="trends-chart-title">Time by Modality — last 30 days (min)</div>' + trendsHorizChart(timeItems, '#06b6d4') + '</div>';
+  }
+
+  // Row 3: Distance by modality (only if any data)
+  if (distItems.length) {
+    html += '<div class="trends-chart-box"><div class="trends-chart-title">Distance by Modality — last 30 days (mi)</div>' + trendsHorizChart(distItems, '#0ea5e9') + '</div>';
+  }
+
+  // Row 4: Effort distribution (only if effort data present)
+  if (effortItems.length) {
+    const effortTotal = effortItems.reduce(function(s,x) { return s + x.value; }, 0);
+    var effortHtml = '<div style="display:flex;flex-direction:column;gap:6px;">';
+    effortItems.forEach(function(ei) {
+      const pct = Math.round(ei.value / effortTotal * 100);
+      const col = effortColors[ei.label] || '#94a3b8';
+      effortHtml += '<div style="display:flex;align-items:center;gap:8px;font-size:13px;">'
+        + '<span style="width:72px;color:var(--text-secondary)">' + ei.label + '</span>'
+        + '<div style="flex:1;background:var(--surface-2);border-radius:4px;height:14px;overflow:hidden;">'
+        + '<div style="width:' + pct + '%;background:' + col + ';height:100%;border-radius:4px;"></div></div>'
+        + '<span style="width:38px;text-align:right;color:var(--text-secondary)">' + pct + '%</span>'
+        + '</div>';
+    });
+    effortHtml += '</div>';
+    html += '<div class="trends-chart-box"><div class="trends-chart-title">Effort Distribution — last 30 days</div>' + effortHtml + '</div>';
+  }
+
+  html += '</div>';
+  return html;
 }
 
 // ── Pain / Watch Items ────────────────────────────────────────────
