@@ -3424,9 +3424,27 @@ function renderCondBlock(b, idx, total) {
     .join('');
   const showLoad    = COND_LOAD_MODS.includes(b.modality);
   const isCircuit   = b.modality === 'Circuit Training';
+  const isIntervals = !isCircuit && b.workoutType === 'Intervals';
   const removeBtn   = total > 1
     ? '<button class="sess-del-btn" onclick="removeCondBlock(' + b.id + ')" style="margin-left:auto" title="Remove">&#x2715;</button>'
     : '';
+
+  // Workout type selector (hidden for circuit — auto Circuit)
+  const wtOpts = ['Steady State','Intervals','Tempo'].map(function(t) {
+    return '<option value="' + t + '"' + (b.workoutType === t ? ' selected' : '') + '>' + t + '</option>';
+  }).join('');
+  const wtField = isCircuit ? '' :
+    '<div class="form-field"><label>Type</label>'
+    + '<select id="cond-wt-' + b.id + '" onchange="updateCondBlockFields(' + b.id + ')">'
+    + '<option value="">Select…</option>' + wtOpts + '</select></div>';
+
+  // Interval-specific fields per block
+  const intFields = '<div class="form-field" id="cond-int-rounds-row-' + b.id + '" style="' + (isIntervals ? '' : 'display:none') + '">'
+    + '<label>Rounds completed</label>'
+    + '<input type="number" inputmode="numeric" id="cond-int-rounds-' + b.id + '" placeholder="—" value="' + (b.intRounds || '') + '"></div>'
+    + '<div class="form-field" id="cond-int-maxhr-row-' + b.id + '" style="' + (isIntervals ? '' : 'display:none') + '">'
+    + '<label>Max HR (bpm)</label>'
+    + '<input type="number" inputmode="numeric" id="cond-int-maxhr-' + b.id + '" placeholder="—" value="' + (b.intMaxHR || '') + '"></div>';
 
   // Standard modality fields (hidden for circuit)
   const stdFields = '<div class="form-field' + (isCircuit ? ' cond-std-fields" style="display:none' : ' cond-std-fields') + '">'
@@ -3462,7 +3480,9 @@ function renderCondBlock(b, idx, total) {
     + '<div class="form-grid">'
     + '<div class="form-field wide"><label>Modality</label>'
     + '<select id="cond-mod-' + b.id + '" onchange="updateCondBlockFields(' + b.id + ')">' + modOpts + '</select></div>'
+    + wtField
     + stdFields
+    + intFields
     + circuitFields
     + '</div></div>';
 }
@@ -3479,17 +3499,8 @@ function renderCondSessionFields(pc) {
       + '</div>';
   }
   return planHtml
-    + '<div class="form-section-label" style="margin-top:4px">Session</div>'
+    + '<div class="form-section-label" style="margin-top:12px">Overall Feel</div>'
     + '<div class="form-grid">'
-    + '<div class="form-field wide"><label>Effort Level</label>'
-    + '<select id="cond-effort" onchange="updateCondIntervalFields()">'
-    + '<option value="Easy">Easy</option><option value="Moderate">Moderate</option>'
-    + '<option value="Hard">Hard</option><option value="Intervals">Intervals</option>'
-    + '</select></div>'
-    + '<div class="form-field" id="cond-rounds-row" style="display:none"><label>Rounds completed</label>'
-    + '<input type="number" inputmode="numeric" id="cond-rounds" placeholder="—"></div>'
-    + '<div class="form-field" id="cond-maxhr-row" style="display:none"><label>Max HR (bpm)</label>'
-    + '<input type="number" inputmode="numeric" id="cond-max-hr" placeholder="—"></div>'
     + '<div class="form-field"><label>Avg HR (bpm)</label>'
     + '<input type="number" inputmode="numeric" id="cond-avg-hr" placeholder="—"></div>'
     + '<div class="form-field"><label>RPE (1–10)</label>'
@@ -3504,21 +3515,21 @@ function renderCondBlocksHtml() {
     + '<div id="cond-blocks-list">'
     + S.condBlocks.map(function(b, i) { return renderCondBlock(b, i, S.condBlocks.length); }).join('')
     + '</div>'
-    + '<button class="btn secondary" onclick="addCondBlock()" style="margin-top:6px;font-size:13px">➕ Add Modality</button>';
+    + '<button class="btn secondary" onclick="addCondBlock()" style="margin-top:6px;font-size:13px">➕ Add Modality</button>'
+    + '<div style="height:4px"></div>';
 }
 
-function updateCondIntervalFields() {
-  const isInt = document.getElementById('cond-effort') && document.getElementById('cond-effort').value === 'Intervals';
-  ['cond-rounds-row','cond-maxhr-row'].forEach(function(id) {
-    const el = document.getElementById(id);
-    if (el) el.style.display = isInt ? '' : 'none';
-  });
+function renderCondFormHtml(pc) {
+  return renderCondBlocksHtml() + renderCondSessionFields(pc);
 }
 
 function updateCondBlockFields(id) {
   const modEl = document.getElementById('cond-mod-' + id);
+  const wtEl  = document.getElementById('cond-wt-'  + id);
   const mod   = modEl ? modEl.value : '';
-  const isCircuit = mod === 'Circuit Training';
+  const wt    = wtEl  ? wtEl.value  : '';
+  const isCircuit   = mod === 'Circuit Training';
+  const isIntervals = !isCircuit && wt === 'Intervals';
   // Toggle standard vs circuit field sets
   const block = document.getElementById('cond-block-' + id);
   if (block) {
@@ -3531,21 +3542,30 @@ function updateCondBlockFields(id) {
     // Load row visibility within standard fields
     const loadRow = document.getElementById('cond-load-row-' + id);
     if (loadRow) loadRow.style.display = (!isCircuit && COND_LOAD_MODS.includes(mod)) ? '' : 'none';
+    // Interval-specific rows per block
+    ['cond-int-rounds-row-' + id, 'cond-int-maxhr-row-' + id].forEach(function(rid) {
+      const el = document.getElementById(rid);
+      if (el) el.style.display = isIntervals ? '' : 'none';
+    });
   }
   const b = S.condBlocks.find(function(x) { return x.id === id; });
-  if (b) b.modality = mod;
+  if (b) { b.modality = mod; b.workoutType = wt; }
 }
 
 function syncCondBlocksFromDOM() {
   S.condBlocks.forEach(function(b) {
     const modEl        = document.getElementById('cond-mod-'            + b.id);
+    const wtEl         = document.getElementById('cond-wt-'             + b.id);
     const durEl        = document.getElementById('cond-dur-'            + b.id);
     const distEl       = document.getElementById('cond-dist-'           + b.id);
     const dunitEl      = document.getElementById('cond-dunit-'          + b.id);
     const loadEl       = document.getElementById('cond-load-'           + b.id);
     const circDescEl   = document.getElementById('cond-circuit-desc-'   + b.id);
     const circRoundsEl = document.getElementById('cond-circuit-rounds-' + b.id);
+    const intRoundsEl  = document.getElementById('cond-int-rounds-'     + b.id);
+    const intMaxHREl   = document.getElementById('cond-int-maxhr-'      + b.id);
     if (modEl)        b.modality     = modEl.value;
+    if (wtEl)         b.workoutType  = wtEl.value;
     const circDurEl = document.getElementById('cond-circuit-dur-' + b.id);
     const activeDur = (b.modality === 'Circuit Training' ? circDurEl : durEl);
     if (activeDur)    b.duration     = activeDur.value;
@@ -3555,13 +3575,15 @@ function syncCondBlocksFromDOM() {
     if (loadEl)       b.load         = loadEl.value;
     if (circDescEl)   b.circuitDesc   = circDescEl.value;
     if (circRoundsEl) b.circuitRounds = circRoundsEl.value;
+    if (intRoundsEl)  b.intRounds     = intRoundsEl.value;
+    if (intMaxHREl)   b.intMaxHR      = intMaxHREl.value;
   });
 }
 
 function addCondBlock() {
   syncCondBlocksFromDOM();
   S.condBlockCounter++;
-  S.condBlocks.push({ id: S.condBlockCounter, modality: '', duration: '', distance: '', distUnit: 'mi', load: '' });
+  S.condBlocks.push({ id: S.condBlockCounter, modality: '', workoutType: '', duration: '', distance: '', distUnit: 'mi', load: '', circuitDesc: '', circuitRounds: '', intRounds: '', intMaxHR: '' });
   const list = document.getElementById('cond-blocks-list');
   if (list) list.innerHTML = S.condBlocks.map(function(b, i) { return renderCondBlock(b, i, S.condBlocks.length); }).join('');
 }
@@ -3577,35 +3599,41 @@ function removeCondBlock(id) {
 function getCondBlockValues() {
   return S.condBlocks.map(function(b) {
     const mod          = (document.getElementById('cond-mod-'            + b.id) || {value:''}).value.trim();
-    const durId        = mod === 'Circuit Training' ? 'cond-circuit-dur-' : 'cond-dur-';
+    const wt           = (document.getElementById('cond-wt-'             + b.id) || {value:''}).value.trim() || b.workoutType || null;
+    const isCircuit    = mod === 'Circuit Training';
+    const isIntervals  = !isCircuit && wt === 'Intervals';
+    const durId        = isCircuit ? 'cond-circuit-dur-' : 'cond-dur-';
     const dur          = parseFloat((document.getElementById(durId + b.id) || {value:''}).value) || null;
     const dv           = parseFloat((document.getElementById('cond-dist-'  + b.id) || {value:''}).value) || null;
     const du           = (document.getElementById('cond-dunit-' + b.id) || {value:'mi'}).value || 'mi';
     const load         = parseFloat((document.getElementById('cond-load-'  + b.id) || {value:''}).value) || null;
     const dm           = dv ? Math.round(dv * (COND_DIST_CONV[du] || 1)) : null;
-    const circuitDesc  = mod === 'Circuit Training'
+    const circuitDesc  = isCircuit
       ? ((document.getElementById('cond-circuit-desc-'   + b.id) || {value:''}).value.trim() || null) : null;
-    const circuitRounds = mod === 'Circuit Training'
+    const circuitRounds = isCircuit
       ? (parseInt((document.getElementById('cond-circuit-rounds-' + b.id) || {value:''}).value) || null) : null;
-    return { modality: mod, duration: dur, distanceMeters: dm, load: load, circuitDesc, circuitRounds };
+    const intRounds    = isIntervals
+      ? (parseInt((document.getElementById('cond-int-rounds-' + b.id) || {value:''}).value) || null) : null;
+    const intMaxHR     = isIntervals
+      ? (parseInt((document.getElementById('cond-int-maxhr-' + b.id) || {value:''}).value) || null) : null;
+    return { modality: mod, workoutType: isCircuit ? 'Circuit' : (wt || null), duration: dur,
+      distanceMeters: dm, load: load, circuitDesc, circuitRounds, intRounds, intMaxHR };
   }).filter(function(b) { return b.modality; });
 }
 
 function getCondSessionValues() {
   return {
-    effortLevel: (document.getElementById('cond-effort')  || {value:null}).value  || null,
-    rpe:    parseFloat((document.getElementById('cond-rpe')    || {value:''}).value) || null,
-    avgHR:  parseInt( (document.getElementById('cond-avg-hr') || {value:''}).value) || null,
-    maxHR:  parseInt( (document.getElementById('cond-max-hr') || {value:''}).value) || null,
-    rounds: parseInt( (document.getElementById('cond-rounds') || {value:''}).value) || null,
-    notes:  ((document.getElementById('cond-notes') || {value:''}).value || '').trim() || null,
+    rpe:   parseFloat((document.getElementById('cond-rpe')    || {value:''}).value) || null,
+    avgHR: parseInt(  (document.getElementById('cond-avg-hr') || {value:''}).value) || null,
+    notes: ((document.getElementById('cond-notes') || {value:''}).value || '').trim() || null,
   };
 }
 
 function buildCondRows(csId, sv) {
   return getCondBlockValues().map(function(b) {
-    const isCircuit = b.modality === 'Circuit Training';
-    // For circuit: merge description into notes; rounds into intervals_completed
+    const isCircuit   = b.modality === 'Circuit Training';
+    const isIntervals = b.workoutType === 'Intervals';
+    // For circuit: merge description into notes
     const notesVal = isCircuit
       ? [b.circuitDesc, sv.notes].filter(Boolean).join(' | ') || null
       : sv.notes;
@@ -3617,13 +3645,15 @@ function buildCondRows(csId, sv) {
       conditioning_system:  (S.cycle && S.cycle.conditioning_system) || null,
       conditioning_phase:   (S.cycle && S.cycle.conditioning_phase)  || null,
       modality:             b.modality,
-      workout_type:         isCircuit ? 'Circuit' : sv.effortLevel,
+      workout_type:         b.workoutType || null,
       is_planned:           !!S.plannedConditioning,
       duration_minutes:     b.duration,
       distance_meters:      isCircuit ? null : b.distanceMeters,
       load_lbs:             isCircuit ? null : b.load,
-      intervals_completed:  isCircuit ? b.circuitRounds : (sv.effortLevel === 'Intervals' ? sv.rounds : null),
-      max_heart_rate:       sv.effortLevel === 'Intervals' ? sv.maxHR : null,
+      intervals_completed:  isCircuit ? b.circuitRounds : (isIntervals ? b.intRounds : null),
+      max_heart_rate:       isIntervals ? b.intMaxHR : null,
+      overall_rpe:          sv.rpe,
+      avg_heart_rate:       sv.avgHR,
       notes:                notesVal,
     };
   });
@@ -3651,11 +3681,11 @@ async function renderConditioningSessionBody() {
           const dist = c.distance_meters
             ? (c.distance_meters / 1609.34).toFixed(2) + ' mi' : null;
           const parts = [
-            c.workout_type && c.workout_type !== 'Circuit' ? c.workout_type : null,
+            c.workout_type      ? c.workout_type                : null,
             c.duration_minutes  ? c.duration_minutes + ' min'  : null,
             dist,
             c.load_lbs          ? c.load_lbs + ' lb'           : null,
-            c.rpe               ? 'RPE ' + c.rpe               : null,
+            c.overall_rpe       ? 'RPE ' + c.overall_rpe       : null,
             c.intervals_completed ? c.intervals_completed + ' rounds' : null,
             c.avg_heart_rate    ? c.avg_heart_rate + ' bpm avg': null,
           ].filter(Boolean).join(' · ');
@@ -3680,13 +3710,13 @@ async function renderConditioningSessionBody() {
   }
 
   S._editingConditioning = false;
-  S.condBlocks = [{ id: 1, modality: (pc && pc.modality) || '', duration: '', distance: '', distUnit: 'mi', load: '', circuitDesc: '', circuitRounds: '' }];
+  S.condBlocks = [{ id: 1, modality: (pc && pc.modality) || '', workoutType: '', duration: '', distance: '', distUnit: 'mi', load: '', circuitDesc: '', circuitRounds: '', intRounds: '', intMaxHR: '' }];
   S.condBlockCounter = 1;
 
   let html = '';
   if (S.activeSession && S.activeSession.session_notes)
     html += '<div class="info-card">📋 ' + S.activeSession.session_notes + '</div>';
-  html += renderCondSessionFields(pc) + renderCondBlocksHtml();
+  html += renderCondFormHtml(pc);
   body.innerHTML = html;
 }
 
@@ -3700,15 +3730,20 @@ async function editConditioningSession() {
       .order('created_at');
     if (rows && rows.length) {
       S.condBlocks = rows.map(function(r, i) {
+        const isCircuit   = r.modality === 'Circuit Training';
+        const isIntervals = r.workout_type === 'Intervals';
         return {
           id:            i + 1,
           modality:      r.modality || '',
+          workoutType:   r.workout_type || '',
           duration:      r.duration_minutes != null ? String(r.duration_minutes) : '',
           distance:      r.distance_meters  != null ? String((r.distance_meters / 1609.34).toFixed(2)) : '',
           distUnit:      'mi',
           load:          r.load_lbs != null ? String(r.load_lbs) : '',
-          circuitDesc:   r.modality === 'Circuit Training' ? (r.notes || '') : '',
-          circuitRounds: r.intervals_completed != null ? String(r.intervals_completed) : '',
+          circuitDesc:   isCircuit ? (r.notes || '') : '',
+          circuitRounds: isCircuit && r.intervals_completed != null ? String(r.intervals_completed) : '',
+          intRounds:     isIntervals && r.intervals_completed != null ? String(r.intervals_completed) : '',
+          intMaxHR:      isIntervals && r.max_heart_rate     != null ? String(r.max_heart_rate) : '',
         };
       });
       S.condBlockCounter = rows.length;
@@ -3720,19 +3755,17 @@ async function editConditioningSession() {
     const noteHtml = S.activeSession && S.activeSession.session_notes
       ? '<div class="info-card">📋 ' + S.activeSession.session_notes + '</div>' : '';
     const editBanner = '<div class="info-card cond-editing-banner">✏️ Editing — save to overwrite previous log.</div>';
-    body.innerHTML = noteHtml + editBanner + renderCondSessionFields(S.plannedConditioning) + renderCondBlocksHtml();
+    body.innerHTML = noteHtml + editBanner + renderCondFormHtml(S.plannedConditioning);
     // Pre-fill session-level fields from first row
     const first = rows && rows[0];
     if (first) {
-      const effort = document.getElementById('cond-effort');
-      if (effort && first.workout_type && first.workout_type !== 'Circuit') effort.value = first.workout_type;
       const rpeEl = document.getElementById('cond-rpe');
       const hrEl  = document.getElementById('cond-avg-hr');
-      if (rpeEl && first.rpe)           rpeEl.value = first.rpe;
-      if (hrEl  && first.avg_heart_rate) hrEl.value = first.avg_heart_rate;
+      if (rpeEl && first.overall_rpe)    rpeEl.value = first.overall_rpe;
+      if (hrEl  && first.avg_heart_rate) hrEl.value  = first.avg_heart_rate;
       // Non-circuit session notes
-      const nonCircNotes = (rows || []).filter(r => r.modality !== 'Circuit Training')
-        .map(r => r.notes).filter(Boolean)[0];
+      const nonCircNotes = (rows || []).filter(function(r) { return r.modality !== 'Circuit Training'; })
+        .map(function(r) { return r.notes; }).filter(Boolean)[0];
       const notesEl = document.getElementById('cond-notes');
       if (notesEl && nonCircNotes) notesEl.value = nonCircNotes;
     }
@@ -3748,10 +3781,10 @@ async function editConditioningSession() {
 
 function openStandaloneConditioning() {
   S.plannedConditioning = null;
-  S.condBlocks = [{ id: 1, modality: '', duration: '', distance: '', distUnit: 'mi', load: '' }];
+  S.condBlocks = [{ id: 1, modality: '', workoutType: '', duration: '', distance: '', distUnit: 'mi', load: '', circuitDesc: '', circuitRounds: '', intRounds: '', intMaxHR: '' }];
   S.condBlockCounter = 1;
   document.getElementById('cond-sub').textContent = 'Standalone session';
-  document.getElementById('cond-body').innerHTML  = renderCondSessionFields(null) + renderCondBlocksHtml();
+  document.getElementById('cond-body').innerHTML  = renderCondFormHtml(null);
   const btn = document.getElementById('cond-submit-btn');
   btn.disabled = false; btn.textContent = 'Log Conditioning';
   showScreen('conditioning');
@@ -3801,8 +3834,8 @@ async function submitConditioningSession() {
         session: { athlete_id: S.athlete.id, planned_session_id: S.activeSession.id,
           session_date: today(), week_of: (S.cycle && S.cycle.start_date) || today(),
           session_type: 'Conditioning Only', status: 'completed',
-          overall_rpe: sv.rpe, effort_level: sv.effortLevel, avg_heart_rate: sv.avgHR },
-        blocks: blocks, rounds: sv.rounds, maxHR: sv.maxHR, notes: sv.notes,
+          overall_rpe: sv.rpe, avg_heart_rate: sv.avgHR },
+        blocks: blocks, notes: sv.notes,
         isPlanned: !!S.plannedConditioning,
       }});
       S.completed[S.activeSession.id] = { id: tid, status: 'completed', _isTemp: true };
@@ -3814,7 +3847,7 @@ async function submitConditioningSession() {
       athlete_id: S.athlete.id, planned_session_id: S.activeSession.id,
       session_date: today(), week_of: (S.cycle && S.cycle.start_date) || today(),
       session_type: 'Conditioning Only', status: 'completed',
-      overall_rpe: sv.rpe, effort_level: sv.effortLevel, avg_heart_rate: sv.avgHR,
+      overall_rpe: sv.rpe, avg_heart_rate: sv.avgHR,
     }).select().single();
     if (csErr) throw csErr;
 
@@ -3849,8 +3882,8 @@ async function submitConditioning() {
       await idbQueueWrite({ op: 'conditioning_standalone', payload: {
         athlete_id: S.athlete.id, conditioning_date: today(),
         week_of: (S.cycle && S.cycle.start_date) || today(), is_planned: false,
-        effort_level: sv.effortLevel, avg_heart_rate: sv.avgHR, overall_rpe: sv.rpe,
-        blocks: blocks, rounds: sv.rounds, maxHR: sv.maxHR, notes: sv.notes,
+        avg_heart_rate: sv.avgHR, overall_rpe: sv.rpe,
+        blocks: blocks, notes: sv.notes,
       }});
       showSuccess('Conditioning Logged', 'Saved offline — will sync when connected.');
       return;
@@ -3860,7 +3893,7 @@ async function submitConditioning() {
       athlete_id: S.athlete.id, planned_session_id: null,
       session_date: today(), week_of: (S.cycle && S.cycle.start_date) || today(),
       session_type: 'Conditioning Only', status: 'completed',
-      overall_rpe: sv.rpe, effort_level: sv.effortLevel, avg_heart_rate: sv.avgHR,
+      overall_rpe: sv.rpe, avg_heart_rate: sv.avgHR,
     }).select().single();
     if (csErr) throw csErr;
 
@@ -4933,7 +4966,6 @@ function renderTrendsPain(painItems) {
       toast('Offline — loading from cache…', 2000);
       await loadProgram();
     } else {
-      toast('Offline — open the app while connected first to enable offline use.', 5000);
       toast('Offline — open the app while connected first to enable offline use.', 5000);
       showScreen('login');
     }
