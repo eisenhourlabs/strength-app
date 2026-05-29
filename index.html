@@ -148,11 +148,32 @@
     .notes-input:focus { outline: none; border-color: var(--border); }
 
     /* Measure type selector */
-    .measure-row { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
-    .measure-label { font-size: 10px; color: var(--muted); flex-shrink: 0; }
-    .measure-btn { font-size: 10px; padding: 3px 9px; border-radius: 6px; border: 1px solid var(--border);
-      background: none; color: var(--muted); cursor: pointer; }
-    .measure-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+    /* Pain flag on exercise cards */
+    .pain-flag-btn { background: none; border: none; font-size: 16px; cursor: pointer;
+      opacity: .35; transition: opacity .15s; padding: 0 4px; line-height: 1; }
+    .pain-flag-btn.flagged { opacity: 1; filter: drop-shadow(0 0 3px #ff2712); }
+    /* Pain prompt modal */
+    .pain-prompt-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.7);
+      z-index: 200; display: flex; align-items: flex-end; justify-content: center; }
+    .pain-prompt-box { background: var(--surface); border-radius: 16px 16px 0 0;
+      padding: 24px 20px 32px; width: 100%; max-width: 480px; }
+    .pain-prompt-title { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+    .pain-prompt-sub { font-size: 13px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
+    .pain-prompt-btns { display: flex; gap: 10px; }
+    .pain-prompt-btns button { flex: 1; padding: 12px; border-radius: 10px;
+      font-size: 14px; font-weight: 600; cursor: pointer; }
+    .pain-prompt-yes { background: var(--accent); border: none; color: #fff; }
+    .pain-prompt-no  { background: none; border: 1px solid var(--border); color: var(--fg); }
+    .measure-chip-wrap { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+    .measure-chip-label { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+    .measure-chip { font-size: 11px; padding: 3px 8px 3px 10px; border-radius: 20px;
+      border: 1px solid var(--border); background: var(--surface2); color: var(--muted);
+      cursor: pointer; appearance: none; -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 6px center;
+      padding-right: 20px; }
+    .measure-chip.non-reps { border-color: var(--accent); color: var(--accent); background-color: var(--surface2);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236e399e'/%3E%3C/svg%3E"); }
 
     /* Circuit training textarea */
     .circuit-desc { width: 100%; background: var(--surface2); border: 1px solid var(--border);
@@ -411,6 +432,26 @@
       border-radius: var(--radius); padding: 12px 16px; margin-bottom: 16px;
       font-size: 13px; color: var(--accent); line-height: 1.5; }
     .week-meta { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
+    /* Inline readiness card */
+    .sess-ready-card { background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px 14px; margin-bottom: 16px; }
+    .sess-ready-title { font-size: 11px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .05em; margin-bottom: 10px; }
+    .sess-ready-rows { display: flex; flex-direction: column; gap: 8px; }
+    .sess-ready-row { display: flex; align-items: center; gap: 8px; }
+    .sess-ready-label { font-size: 12px; color: var(--fg); width: 80px; flex-shrink: 0; }
+    .sess-ready-pips { display: flex; gap: 5px; }
+    .sess-ready-pip { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border);
+      background: var(--surface2); color: var(--muted); font-size: 12px; font-weight: 600;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .sess-ready-pip.selected { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .sess-ready-sleep { width: 70px; padding: 6px 8px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--surface2); color: var(--fg);
+      font-size: 13px; text-align: center; }
+    .sess-ready-saved { font-size: 11px; color: var(--success); margin-top: 8px; display: none; }
+    .sess-ready-btn { margin-top: 10px; padding: 7px 16px; border-radius: 8px;
+      border: 1px solid var(--accent); background: none; color: var(--accent);
+      font-size: 12px; font-weight: 600; cursor: pointer; }
 
     /* ── Tests feature ──────────────────────────────────── */
     .test-ex-select-btn { width:100%; background:var(--surface2);
@@ -967,7 +1008,7 @@ async function doLogout() {
     activeSession:null, plannedExercises:[], plannedConditioning:null,
     activeCompletedSession:null, savedExercises:{},
     exState:{}, addedExercises:[], addedCounter:0, condBlocks:[], condBlockCounter:0,
-    exerciseLib:[], sheetMode:null, swapExKey:null };
+    exerciseLib:[], sheetMode:null, swapExKey:null, painFlags:{} };
   showScreen('login');
 }
 
@@ -1381,9 +1422,91 @@ async function openSession(sessionId) {
 }
 
 // ── Render session body ───────────────────────────────────────────────────────
+// ── Inline readiness widget ───────────────────────────────────────────────────
+function buildInlineReadinessCard() {
+  const fields = [
+    { id: 'energy',     label: 'Energy' },
+    { id: 'soreness',   label: 'Soreness' },
+    { id: 'stress',     label: 'Stress' },
+    { id: 'motivation', label: 'Motivation' },
+  ];
+  const rowsHtml = fields.map(f => `
+    <div class="sess-ready-row">
+      <span class="sess-ready-label">${f.label}</span>
+      <div class="sess-ready-pips" id="srp-${f.id}">
+        ${[1,2,3,4,5].map(n => `<button class="sess-ready-pip" onclick="sessReadyPip('${f.id}',${n})">${n}</button>`).join('')}
+      </div>
+    </div>`).join('');
+  return `
+    <div class="sess-ready-card" id="sess-ready-card">
+      <div class="sess-ready-title">How are you feeling today?</div>
+      <div class="sess-ready-rows">
+        ${rowsHtml}
+        <div class="sess-ready-row">
+          <span class="sess-ready-label">Sleep (hrs)</span>
+          <input class="sess-ready-sleep" type="number" step="0.5" inputmode="decimal"
+            id="sr-sleep" placeholder="—">
+        </div>
+      </div>
+      <button class="sess-ready-btn" onclick="submitInlineReadiness()">Save Readiness</button>
+      <div class="sess-ready-saved" id="sr-saved">✓ Readiness saved</div>
+    </div>`;
+}
+
+function sessReadyPip(field, val) {
+  S._readiness = S._readiness || {};
+  S._readiness[field] = val;
+  const wrap = document.getElementById(`srp-${field}`);
+  if (!wrap) return;
+  wrap.querySelectorAll('.sess-ready-pip').forEach((btn, i) => {
+    btn.classList.toggle('selected', i + 1 === val);
+  });
+}
+
+async function submitInlineReadiness() {
+  const r = S._readiness || {};
+  const sleep = parseFloat(document.getElementById('sr-sleep')?.value) || null;
+  if (!r.energy && !r.soreness && !r.stress && !r.motivation && !sleep) {
+    toast('Tap at least one value to save readiness.'); return;
+  }
+  const payload = {
+    athlete_id:  S.athlete.id,
+    log_date:    today(),
+    energy:      r.energy     || null,
+    soreness:    r.soreness   || null,
+    stress:      r.stress     || null,
+    motivation:  r.motivation || null,
+    sleep_hours: sleep,
+  };
+  try {
+    if (isOffline) {
+      await idbQueueWrite({ op: 'readiness', payload });
+    } else {
+      await db.from('readiness_logs').upsert(payload, { onConflict: 'athlete_id,log_date' });
+    }
+    // Collapse the card to a compact saved state
+    const card = document.getElementById('sess-ready-card');
+    if (card) {
+      const chips = Object.entries(r).map(([k,v]) =>
+        `<span class="hist-ready-chip">${k.charAt(0).toUpperCase()+k.slice(1)} <span>${v}</span></span>`
+      ).join('');
+      const sleepChip = sleep ? `<span class="hist-ready-chip">Sleep <span>${sleep}</span></span>` : '';
+      card.innerHTML = `<div class="sess-ready-title" style="margin-bottom:6px">Readiness ✓</div>
+        <div class="hist-ready-strip" style="flex-wrap:wrap">${chips}${sleepChip}</div>`;
+    }
+    S._readiness = {};
+  } catch(err) {
+    console.error(err);
+    toast('Error saving readiness.', 3000);
+  }
+}
+
 function renderSessionBody() {
   const body = document.getElementById('session-body');
   let html   = '';
+
+  // Inline readiness widget (always shown at top of session)
+  html += buildInlineReadinessCard();
 
   if (S.activeSession.session_notes) {
     html += `<div class="info-card">📋 ${S.activeSession.session_notes}</div>`;
@@ -1433,11 +1556,12 @@ function renderSessionBody() {
       const setRowsHtml = buildSetRows(`p-${pe.id}`, st.setCount, st.skipped);
       const safeExName  = exName.replace(/'/g, "\\'");
       const measureRowHtml = st.skipped ? '' : `
-          <div class="measure-row">
-            <span class="measure-label">Measure:</span>
-            <button class="measure-btn${pmt==='reps'?' active':''}" data-type="reps" onclick="changeMeasureType('p-${pe.id}','reps')">Reps</button>
-            <button class="measure-btn${pmt==='time'?' active':''}" data-type="time" onclick="changeMeasureType('p-${pe.id}','time')">Time (sec)</button>
-            <button class="measure-btn${pmt==='dist'?' active':''}" data-type="dist" onclick="changeMeasureType('p-${pe.id}','dist')">Distance (yds)</button>
+          <div class="measure-chip-wrap">
+            <select class="measure-chip${pmt!=='reps'?' non-reps':''}" onchange="changeMeasureType('p-${pe.id}',this.value)" id="mchip-p-${pe.id}">
+              <option value="reps"${pmt==='reps'?' selected':''}>Reps</option>
+              <option value="time"${pmt==='time'?' selected':''}>Time (sec)</option>
+              <option value="dist"${pmt==='dist'?' selected':''}>Distance (yds)</option>
+            </select>
           </div>`;
 
       html += `
@@ -1463,6 +1587,8 @@ function renderSessionBody() {
               onclick="toggleSkip('${pe.id}')">
               ${st.skipped ? 'Skipped ✓' : 'Skip'}
             </button>
+            <button class="pain-flag-btn" id="pflag-p-${pe.id}" title="Flag pain on this exercise"
+              onclick="togglePainFlag('p-${pe.id}','${exName.replace(/'/g,"\\'")}')">⚠</button>
             <button class="save-ex-btn" id="save-p-${pe.id}"
               onclick="saveExercise('${pe.id}')">Save</button>
           </div>
@@ -1486,17 +1612,20 @@ function renderSessionBody() {
           <span class="ex-swap" onclick="openAddedSwap('${ae.localId}')">⇄ swap</span>
         </div>
         ${ae.swappedFrom ? `<div class="ex-swap-note">↕ swapped from ${ae.swappedFrom}</div>` : ''}
-        <div class="measure-row">
-          <span class="measure-label">Measure:</span>
-          <button class="measure-btn${mt==='reps'?' active':''}" data-type="reps" onclick="changeMeasureType('${key}','reps')">Reps</button>
-          <button class="measure-btn${mt==='time'?' active':''}" data-type="time" onclick="changeMeasureType('${key}','time')">Time (sec)</button>
-          <button class="measure-btn${mt==='dist'?' active':''}" data-type="dist" onclick="changeMeasureType('${key}','dist')">Distance (yds)</button>
+        <div class="measure-chip-wrap">
+          <select class="measure-chip${mt!=='reps'?' non-reps':''}" onchange="changeMeasureType('${key}',this.value)" id="mchip-${key}">
+            <option value="reps"${mt==='reps'?' selected':''}>Reps</option>
+            <option value="time"${mt==='time'?' selected':''}>Time (sec)</option>
+            <option value="dist"${mt==='dist'?' selected':''}>Distance (yds)</option>
+          </select>
         </div>
         <div class="sets-wrap" id="sets-${key}">${buildSetRows(key, ae.setCount, false)}</div>
         <button class="add-set-btn" onclick="addSet('${key}','${ae.localId}',true)">＋ Add Set</button>
         <textarea class="notes-input" id="notes-${key}" placeholder="Notes…"></textarea>
         <div class="ex-footer">
           <button class="remove-btn" onclick="removeAdded('${ae.localId}')">Remove</button>
+          <button class="pain-flag-btn" id="pflag-${key}" title="Flag pain on this exercise"
+            onclick="togglePainFlag('${key}','${ae.exName.replace(/'/g,"\\'")}')">⚠</button>
           <button class="save-ex-btn" id="save-${key}"
             onclick="saveAddedExercise('${ae.localId}')">Save</button>
         </div>
@@ -1547,9 +1676,13 @@ function buildSavedExCard(key, exName, exId, sets, supersetGroup) {
   } else {
     setsHtml = `<div class="sets-wrap" style="margin-bottom:4px">` +
       sets.map(s => {
-        const load = s.actual_load != null ? s.actual_load : '—';
-        const reps = s.actual_reps != null ? s.actual_reps : '—';
-        const rpe  = s.actual_rpe  != null ? s.actual_rpe  : '—';
+        const mt        = s.measure_type || 'reps';
+        const load      = s.actual_load  != null ? s.actual_load  : '—';
+        const repsVal   = mt === 'reps'
+          ? (s.actual_reps  != null ? s.actual_reps  : '—')
+          : (s.actual_value != null ? s.actual_value : '—');
+        const repsLabel = mt === 'time' ? 'sec' : mt === 'dist' ? 'yds' : 'reps';
+        const rpe       = s.actual_rpe  != null ? s.actual_rpe  : '—';
         return `
           <div class="set-row-saved">
             <span class="set-num">S${s.set_number}</span>
@@ -1559,8 +1692,8 @@ function buildSavedExCard(key, exName, exId, sets, supersetGroup) {
                 <span class="set-val-num">${load}</span>
               </div>
               <div class="set-val">
-                <span class="set-val-label">reps</span>
-                <span class="set-val-num">${reps}</span>
+                <span class="set-val-label">${repsLabel}</span>
+                <span class="set-val-num">${repsVal}</span>
               </div>
               <div class="set-val">
                 <span class="set-val-label">RPE</span>
@@ -1603,9 +1736,7 @@ async function saveExercise(peId) {
   const exId  = st.swappedTo ? st.swappedTo.id : pe.exercise.id;
   const mt    = st.measureType || 'reps';
   const rawNotes = (document.getElementById(`notes-${key}`)?.value || '').trim();
-  const notes = mt !== 'reps'
-    ? `[${mt === 'time' ? 'time:sec' : 'distance:yds'}]${rawNotes ? ' ' + rawNotes : ''}`
-    : (rawNotes || null);
+  const notes = rawNotes || null;
   const rows  = [];
 
   if (st.skipped) {
@@ -1616,16 +1747,18 @@ async function saveExercise(peId) {
       original_exercise_id: st.swappedTo ? pe.exercise.id : null,
       is_skipped:           true,
       set_number:           1,
+      measure_type:         mt,
       notes,
     });
   } else {
     const setCount = document.getElementById(`sets-${key}`)?.querySelectorAll('.set-row').length || 1;
     let hasData = false;
     for (let i = 0; i < setCount; i++) {
-      const load = parseFloat(document.getElementById(`load-${key}-${i}`)?.value) || null;
-      const reps = parseInt(document.getElementById(`reps-${key}-${i}`)?.value)   || null;
-      const rpe  = parseFloat(document.getElementById(`rpe-${key}-${i}`)?.value)  || null;
-      if (load || reps || rpe) hasData = true;
+      const load     = parseFloat(document.getElementById(`load-${key}-${i}`)?.value) || null;
+      const repsRaw  = parseFloat(document.getElementById(`reps-${key}-${i}`)?.value) || null;
+      const rpe      = parseFloat(document.getElementById(`rpe-${key}-${i}`)?.value)  || null;
+      if (load || repsRaw || rpe) hasData = true;
+      const isReps = mt === 'reps';
       rows.push({
         planned_exercise_id:  peId,
         exercise_id:          exId,
@@ -1633,8 +1766,10 @@ async function saveExercise(peId) {
         original_exercise_id: st.swappedTo ? pe.exercise.id : null,
         is_skipped:           false,
         set_number:           i + 1,
+        measure_type:         mt,
         actual_load:          load,
-        actual_reps:          reps,
+        actual_reps:          isReps ? (repsRaw != null ? Math.round(repsRaw) : null) : null,
+        actual_value:         !isReps ? repsRaw : null,
         actual_rpe:           rpe,
         notes:                i === 0 ? notes : null,
       });
@@ -1728,9 +1863,7 @@ async function saveAddedExercise(localId) {
 
   const amt       = ae.measureType || 'reps';
   const rawNotes2 = (document.getElementById(`notes-${key}`)?.value || '').trim();
-  const notes     = amt !== 'reps'
-    ? `[${amt === 'time' ? 'time:sec' : 'distance:yds'}]${rawNotes2 ? ' ' + rawNotes2 : ''}`
-    : (rawNotes2 || null);
+  const notes     = rawNotes2 || null;
   const setsWrap  = document.getElementById(`sets-${key}`);
   const setRows   = setsWrap ? Array.from(setsWrap.querySelectorAll('.set-row')) : [];
   const setCount  = setRows.length || 1;
@@ -1739,25 +1872,28 @@ async function saveAddedExercise(localId) {
 
   for (let i = 0; i < setCount; i++) {
     // Support both named inputs and positional fallback
-    const loadEl = document.getElementById(`load-${key}-${i}`) ||
-                   (setRows[i] ? setRows[i].querySelector('input[id^="load-"]') : null);
-    const repsEl = document.getElementById(`reps-${key}-${i}`) ||
-                   (setRows[i] ? setRows[i].querySelector('input[id^="reps-"]') : null);
-    const rpeEl  = document.getElementById(`rpe-${key}-${i}`) ||
-                   (setRows[i] ? setRows[i].querySelector('input[id^="rpe-"]')  : null);
-    const load   = parseFloat(loadEl?.value) || null;
-    const reps   = parseInt(repsEl?.value)   || null;
-    const rpe    = parseFloat(rpeEl?.value)  || null;
-    if (load || reps || rpe) hasData = true;
+    const loadEl  = document.getElementById(`load-${key}-${i}`) ||
+                    (setRows[i] ? setRows[i].querySelector('input[id^="load-"]') : null);
+    const repsEl  = document.getElementById(`reps-${key}-${i}`) ||
+                    (setRows[i] ? setRows[i].querySelector('input[id^="reps-"]') : null);
+    const rpeEl   = document.getElementById(`rpe-${key}-${i}`) ||
+                    (setRows[i] ? setRows[i].querySelector('input[id^="rpe-"]')  : null);
+    const load    = parseFloat(loadEl?.value) || null;
+    const repsRaw = parseFloat(repsEl?.value) || null;
+    const rpe     = parseFloat(rpeEl?.value)  || null;
+    if (load || repsRaw || rpe) hasData = true;
+    const isReps  = amt === 'reps';
     rows.push({
-      exercise_id: ae.exId,
-      is_added:    true,
-      is_skipped:  false,
-      set_number:  i + 1,
-      actual_load: load,
-      actual_reps: reps,
-      actual_rpe:  rpe,
-      notes:       i === 0 ? notes : null,
+      exercise_id:  ae.exId,
+      is_added:     true,
+      is_skipped:   false,
+      set_number:   i + 1,
+      measure_type: amt,
+      actual_load:  load,
+      actual_reps:  isReps ? (repsRaw != null ? Math.round(repsRaw) : null) : null,
+      actual_value: !isReps ? repsRaw : null,
+      actual_rpe:   rpe,
+      notes:        i === 0 ? notes : null,
     });
   }
 
@@ -2051,9 +2187,11 @@ async function loadHistory() {
         const r = readinessByDate[sess.session_date];
         if (r) {
           const chips = [
-            r.energy      != null ? `Energy <span>${r.energy}</span>`     : null,
-            r.sleep_hours != null ? `Sleep <span>${r.sleep_hours}</span>` : null,
-            r.soreness    != null ? `Soreness <span>${r.soreness}</span>` : null,
+            r.energy      != null ? `Energy <span>${r.energy}</span>`         : null,
+            r.soreness    != null ? `Soreness <span>${r.soreness}</span>`     : null,
+            r.stress      != null ? `Stress <span>${r.stress}</span>`         : null,
+            r.motivation  != null ? `Motivation <span>${r.motivation}</span>` : null,
+            r.sleep_hours != null ? `Sleep <span>${r.sleep_hours}h</span>`    : null,
           ].filter(Boolean);
           if (chips.length) readinessHtml = `
             <div class="hist-ready-strip">
@@ -2088,14 +2226,19 @@ async function loadHistory() {
         sortedEx.forEach(ex => {
           let topIdx = 0, topVal = 0;
           ex.sets.forEach((s, i) => {
-            const v = epley(s.actual_load, s.actual_reps) || s.actual_load || 0;
+            const mt = s.measure_type || 'reps';
+            const v = (mt === 'reps' ? epley(s.actual_load, s.actual_reps) : null) || s.actual_load || 0;
             if (v > topVal) { topVal = v; topIdx = i; }
           });
 
           const setSpans = ex.sets.map((s, i) => {
-            const load = s.actual_load != null ? s.actual_load : '—';
-            const reps = s.actual_reps != null ? s.actual_reps : '—';
-            const txt  = `${load}×${reps}`;
+            const mt    = s.measure_type || 'reps';
+            const load  = s.actual_load  != null ? s.actual_load  : '—';
+            const val   = mt === 'reps'
+              ? (s.actual_reps  != null ? s.actual_reps  : '—')
+              : (s.actual_value != null ? s.actual_value : '—');
+            const unit  = mt === 'time' ? 's' : mt === 'dist' ? 'yds' : '';
+            const txt   = unit ? `${load}lb × ${val}${unit}` : `${load}×${val}`;
             return i === topIdx
               ? `<span style="color:var(--accent);font-weight:700">${txt}</span>`
               : txt;
@@ -2520,6 +2663,38 @@ async function startNewWeek() {
 }
 
 // ── Finish session (finalizes completed_sessions record) ──────────────────────
+// ── Exercise pain flag ────────────────────────────────────────────────────────
+function togglePainFlag(key, exName) {
+  S.painFlags = S.painFlags || {};
+  if (S.painFlags[key]) {
+    delete S.painFlags[key];
+  } else {
+    S.painFlags[key] = exName;
+  }
+  const btn = document.getElementById(`pflag-${key}`);
+  if (btn) btn.classList.toggle('flagged', !!S.painFlags[key]);
+}
+
+function showPainPrompt(onYes, onNo) {
+  const flaggedNames = Object.values(S.painFlags || {});
+  if (!flaggedNames.length) { onNo(); return; }
+  const nameList = flaggedNames.map(n => `<strong>${n}</strong>`).join(', ');
+  const overlay = document.createElement('div');
+  overlay.className = 'pain-prompt-overlay';
+  overlay.innerHTML = `
+    <div class="pain-prompt-box">
+      <div class="pain-prompt-title">Pain flagged</div>
+      <div class="pain-prompt-sub">You flagged discomfort on ${nameList}. Would you like to add more detail to your pain log?</div>
+      <div class="pain-prompt-btns">
+        <button class="pain-prompt-yes" id="ppYes">Yes, log it</button>
+        <button class="pain-prompt-no"  id="ppNo">Skip</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('ppYes').onclick = () => { overlay.remove(); onYes(); };
+  document.getElementById('ppNo').onclick  = () => { overlay.remove(); onNo();  };
+}
+
 async function finishSession() {
   const btn          = document.getElementById('submit-btn');
   const overallRpe   = parseFloat(document.getElementById('overall-rpe')?.value)    || null;
@@ -2576,7 +2751,11 @@ async function finishSession() {
       S.activeCompletedSession        = cs;
       S.completed[S.activeSession.id] = cs;
     }
-    showSuccess('Session Complete', 'All work saved. Great effort.');
+    showPainPrompt(
+      () => { openPainSheet(); showSuccess('Session Complete', 'All work saved. Great effort.'); },
+      () => { showSuccess('Session Complete', 'All work saved. Great effort.'); }
+    );
+    S.painFlags = {};
   } catch (err) {
     console.error(err);
     toast('Error finishing session. Try again.', 4000);
@@ -2868,13 +3047,9 @@ function changeMeasureType(key, type) {
     const ae = S.addedExercises.find(a => String(a.localId) === String(localId));
     if (ae) ae.measureType = type;
   }
-  // Update active button styling
-  const card = document.getElementById(`ex-card-${key}`);
-  if (card) {
-    card.querySelectorAll('.measure-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.getAttribute('data-type') === type);
-    });
-  }
+  // Update chip styling
+  const chip = document.getElementById(`mchip-${key}`);
+  if (chip) chip.classList.toggle('non-reps', type !== 'reps');
   // Rebuild set rows preserving current values
   const wrap = document.getElementById(`sets-${key}`);
   if (!wrap) return;
@@ -3672,25 +3847,21 @@ function showSuccess(title, sub) {
 function openReadiness() {
   document.getElementById('ready-date').textContent = today();
   document.getElementById('ready-body').innerHTML = `
-    <div class="form-section-label">Recovery & Readiness (1–10)</div>
+    <div class="form-section-label">Recovery & Readiness (1–5)</div>
     <div class="form-grid">
       <div class="form-field"><label>Energy</label>
-        <input type="number" min="1" max="10" inputmode="numeric" id="r-energy" placeholder="1–10"></div>
+        <input type="number" min="1" max="5" inputmode="numeric" id="r-energy" placeholder="1–5"></div>
       <div class="form-field"><label>Soreness</label>
-        <input type="number" min="1" max="10" inputmode="numeric" id="r-soreness" placeholder="1–10"></div>
+        <input type="number" min="1" max="5" inputmode="numeric" id="r-soreness" placeholder="1–5"></div>
       <div class="form-field"><label>Stress</label>
-        <input type="number" min="1" max="10" inputmode="numeric" id="r-stress" placeholder="1–10"></div>
+        <input type="number" min="1" max="5" inputmode="numeric" id="r-stress" placeholder="1–5"></div>
       <div class="form-field"><label>Motivation</label>
-        <input type="number" min="1" max="10" inputmode="numeric" id="r-motivation" placeholder="1–10"></div>
+        <input type="number" min="1" max="5" inputmode="numeric" id="r-motivation" placeholder="1–5"></div>
     </div>
-    <div class="form-section-label">Metrics</div>
+    <div class="form-section-label">Sleep</div>
     <div class="form-grid">
       <div class="form-field"><label>Sleep (hrs)</label>
         <input type="number" step="0.5" inputmode="decimal" id="r-sleep" placeholder="—"></div>
-      <div class="form-field"><label>Bodyweight (lb)</label>
-        <input type="number" step="0.1" inputmode="decimal" id="r-bw" placeholder="—"></div>
-      <div class="form-field wide"><label>Waist (inches)</label>
-        <input type="number" step="0.25" inputmode="decimal" id="r-waist" placeholder="—"></div>
     </div>
     <div class="form-section-label">Notes</div>
     <div class="form-grid">
@@ -3707,30 +3878,25 @@ async function submitReadiness() {
   const stress     = parseInt(document.getElementById('r-stress').value)     || null;
   const motivation = parseInt(document.getElementById('r-motivation').value) || null;
   const sleep      = parseFloat(document.getElementById('r-sleep').value)    || null;
-  const bw         = parseFloat(document.getElementById('r-bw').value)       || null;
-  const waist      = parseFloat(document.getElementById('r-waist').value)    || null;
   const notes      = document.getElementById('r-notes').value.trim()         || null;
 
   if (isOffline) {
     await idbQueueWrite({ op: 'readiness', payload: {
       athlete_id: S.athlete.id, log_date: today(),
-      energy, soreness, stress, motivation,
-      sleep_hours: sleep, bodyweight_lbs: bw, waist_inches: waist, notes,
+      energy, soreness, stress, motivation, sleep_hours: sleep, notes,
     }});
     toast('Readiness saved offline ✓');
     showScreen('week');
     return;
   }
   try {
-    await db.from('readiness_logs').insert({
-      athlete_id:     S.athlete.id,
-      log_date:       today(),
+    await db.from('readiness_logs').upsert({
+      athlete_id:  S.athlete.id,
+      log_date:    today(),
       energy, soreness, stress, motivation,
-      sleep_hours:    sleep,
-      bodyweight_lbs: bw,
-      waist_inches:   waist,
+      sleep_hours: sleep,
       notes,
-    });
+    }, { onConflict: 'athlete_id,log_date' });
     toast('Readiness logged ✓');
     showScreen('week');
   } catch (err) {
@@ -4407,46 +4573,84 @@ function renderTrendsSnapshot(sessions, readiness, sets, weekKeys) {
     volHtml = '<div class="snap-val">' + tonThis.toLocaleString() + '</div><div class="snap-label">lb·reps this week</div>';
   }
 
-  const latestReady = readiness.length ? readiness[readiness.length - 1] : null;
-  const readyScore  = latestReady && latestReady.readiness_score != null ? latestReady.readiness_score : null;
-  const readyHtml   = readyScore != null
-    ? '<div class="snap-val">' + readyScore + '</div><div class="snap-label">Readiness score</div><div class="snap-sub">' + latestReady.log_date + '</div>'
-    : '<div class="snap-val" style="color:var(--muted)">—</div><div class="snap-label">Readiness score</div>';
+  const latestReady  = readiness.length ? readiness[readiness.length - 1] : null;
+  const energySnap   = latestReady && latestReady.energy     != null ? latestReady.energy     : null;
+  const readyHtml    = energySnap != null
+    ? '<div class="snap-val">' + energySnap + '/5</div><div class="snap-label">Energy</div><div class="snap-sub">' + latestReady.log_date + '</div>'
+    : '<div class="snap-val" style="color:var(--muted)">—</div><div class="snap-label">Energy</div>';
 
-  const bwEntry = readiness.slice().reverse().find(function(r) { return r.bodyweight_lbs != null; });
-  const bwHtml  = bwEntry
-    ? '<div class="snap-val">' + bwEntry.bodyweight_lbs + '</div><div class="snap-label">Bodyweight (lb)</div><div class="snap-sub">' + bwEntry.log_date + '</div>'
-    : '<div class="snap-val" style="color:var(--muted)">—</div><div class="snap-label">Bodyweight (lb)</div>';
-
-  return '<div class="trends-section"><div class="trends-section-title">This Week</div><div class="snap-grid"><div class="snap-card"><div class="snap-val">' + thisWkSess + '</div><div class="snap-label">Sessions logged</div></div><div class="snap-card">' + volHtml + '</div><div class="snap-card">' + readyHtml + '</div><div class="snap-card">' + bwHtml + '</div></div></div>';
+  return '<div class="trends-section"><div class="trends-section-title">This Week</div><div class="snap-grid"><div class="snap-card"><div class="snap-val">' + thisWkSess + '</div><div class="snap-label">Sessions logged</div></div><div class="snap-card">' + volHtml + '</div><div class="snap-card">' + readyHtml + '</div></div></div>';
 }
 
 // ── Strength: PR board + per-exercise load trend ──────────────────
 function renderTrendsStrength(sets) {
-  const prMap = {};
+  // Count sessions per exercise for frequency sort
+  const freqMap = {};
+  const prMap   = {};
+  const allExMap = {}; // all exercises for the dropdown
+
   sets.forEach(function(s) {
-    if (!s.actual_load || !s.actual_reps || !s.exercise) return;
-    const e1rm = s.actual_reps === 1 ? s.actual_load : Math.round(s.actual_load * (1 + s.actual_reps / 30));
+    if (!s.exercise) return;
     const key  = s.exercise.id;
+    const name = s.exercise.name;
+    const mt   = s.measure_type || 'reps';
+
+    // Track all exercises (for dropdown)
+    if (!allExMap[key]) allExMap[key] = { id: key, name: name, sessIds: new Set() };
+    if (s._sd) allExMap[key].sessIds.add(getWeekMonday(s._sd));
+
+    // e1RM eligibility: must be reps-based, have load, reps 1-12
+    if (mt !== 'reps' || !s.actual_load || !s.actual_reps || s.actual_reps > 12) return;
+    const e1rm = s.actual_reps === 1 ? s.actual_load : Math.round(s.actual_load * (1 + s.actual_reps / 30));
+    if (!freqMap[key]) freqMap[key] = new Set();
+    if (s._sd) freqMap[key].add(getWeekMonday(s._sd));
     if (!prMap[key] || e1rm > prMap[key].e1rm) {
-      prMap[key] = { name: s.exercise.name, e1rm: e1rm, load: s.actual_load, reps: s.actual_reps, date: s._sd };
+      prMap[key] = { id: key, name: name, e1rm: e1rm, load: s.actual_load, reps: s.actual_reps, date: s._sd };
     }
   });
-  const prs = Object.values(prMap).sort(function(a, b) { return a.name.localeCompare(b.name); });
 
-  const prHtml = prs.length === 0
-    ? '<div style="color:var(--muted);font-size:13px;padding:8px 0">No strength data yet.</div>'
-    : prs.map(function(p) {
-        const dateStr = p.date ? new Date(p.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
-        return '<div class="pr-row"><div class="pr-name">' + p.name + '</div><div><span class="pr-val">' + p.e1rm + ' lb</span> <span class="pr-date">' + p.load + '×' + p.reps + ' · ' + dateStr + '</span></div></div>';
-      }).join('');
+  // Sort by frequency descending, cap at 8 for default view
+  const allPrs = Object.values(prMap).sort(function(a, b) {
+    return (freqMap[b.id]?.size || 0) - (freqMap[a.id]?.size || 0);
+  });
+  const shown  = allPrs.slice(0, 8);
+  const hidden = allPrs.slice(8);
 
-  const exOptions = prs.map(function(p) {
-    return '<option value="' + p.name.replace(/"/g, '&quot;') + '">' + p.name + '</option>';
-  }).join('');
+  function prRowHtml(p) {
+    const dateStr = p.date ? new Date(p.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+    return '<div class="pr-row"><div class="pr-name">' + p.name + '</div><div><span class="pr-val">' + p.e1rm + ' lb</span> <span class="pr-date">' + p.load + '×' + p.reps + ' · ' + dateStr + '</span></div></div>';
+  }
 
-  const trendSection = prs.length > 0
-    ? '<div class="trends-chart-title" style="margin-top:16px;margin-bottom:8px">Load Trend by Exercise (top set per week)</div><select class="ex-trend-select" id="ex-trend-select" onchange="renderExTrend(this.value)">' + exOptions + '</select><div class="trends-chart-box" style="margin-top:0" id="ex-trend-chart"></div>'
+  let prHtml;
+  if (shown.length === 0) {
+    prHtml = '<div style="color:var(--muted);font-size:13px;padding:8px 0">No strength data yet. Log sets with load + reps (1–12) to populate.</div>';
+  } else {
+    prHtml = shown.map(prRowHtml).join('');
+    if (hidden.length > 0) {
+      prHtml += '<div id="pr-extra" style="display:none">' + hidden.map(prRowHtml).join('') + '</div>';
+      prHtml += '<button onclick="document.getElementById(\'pr-extra\').style.display=\'block\';this.style.display=\'none\'" style="font-size:12px;color:var(--accent);background:none;border:none;cursor:pointer;padding:6px 0">Show ' + hidden.length + ' more ▾</button>';
+    }
+  }
+
+  // Build dropdown: Main Lifts group + All Exercises group
+  const mainLiftIds  = new Set(Object.keys(prMap));
+  const mainOptions  = Object.values(prMap)
+    .sort(function(a,b) { return (freqMap[b.id]?.size||0) - (freqMap[a.id]?.size||0); })
+    .map(function(p) { return '<option value="' + p.name.replace(/"/g,'&quot;') + '">' + p.name + '</option>'; }).join('');
+  const otherOptions = Object.values(allExMap)
+    .filter(function(e) { return !mainLiftIds.has(e.id); })
+    .sort(function(a,b) { return b.sessIds.size - a.sessIds.size; })
+    .map(function(e) { return '<option value="' + e.name.replace(/"/g,'&quot;') + '">' + e.name + '</option>'; }).join('');
+
+  const exSelectHtml = (mainOptions || otherOptions)
+    ? '<select class="ex-trend-select" id="ex-trend-select" onchange="renderExTrend(this.value)">'
+        + (mainOptions  ? '<optgroup label="Main Lifts (e1RM)">' + mainOptions  + '</optgroup>' : '')
+        + (otherOptions ? '<optgroup label="All Exercises">'      + otherOptions + '</optgroup>' : '')
+      + '</select>'
+    : '';
+
+  const trendSection = exSelectHtml
+    ? '<div class="trends-chart-title" style="margin-top:16px;margin-bottom:8px">Load Trend by Exercise (top set per week)</div>' + exSelectHtml + '<div class="trends-chart-box" style="margin-top:0" id="ex-trend-chart"></div>'
     : '';
 
   return '<div class="trends-section"><div class="trends-section-title">Strength — Est. 1RM Board</div>' + prHtml + trendSection + '</div>';
@@ -4531,23 +4735,27 @@ function renderTrendsReadiness(readiness, weekKeys, weekLabels) {
     const wk = getWeekMonday(r.log_date);
     if (!byWk[wk] || r.log_date > byWk[wk].log_date) byWk[wk] = r;
   });
-  const readyScores = weekKeys.map(function(k) { return byWk[k] && byWk[k].readiness_score != null ? parseFloat(byWk[k].readiness_score) : null; });
-  const bwVals      = weekKeys.map(function(k) { return byWk[k] && byWk[k].bodyweight_lbs != null ? parseFloat(byWk[k].bodyweight_lbs) : null; });
-  const waistVals   = weekKeys.map(function(k) { return byWk[k] && byWk[k].waist_inches   != null ? parseFloat(byWk[k].waist_inches)   : null; });
-  const sleepVals   = weekKeys.map(function(k) { return byWk[k] && byWk[k].sleep_hours    != null ? parseFloat(byWk[k].sleep_hours)    : null; });
+  const energyVals   = weekKeys.map(function(k) { return byWk[k] && byWk[k].energy     != null ? parseFloat(byWk[k].energy)     : null; });
+  const sorenessVals = weekKeys.map(function(k) { return byWk[k] && byWk[k].soreness   != null ? parseFloat(byWk[k].soreness)   : null; });
+  const stressVals   = weekKeys.map(function(k) { return byWk[k] && byWk[k].stress     != null ? parseFloat(byWk[k].stress)     : null; });
+  const motivVals    = weekKeys.map(function(k) { return byWk[k] && byWk[k].motivation != null ? parseFloat(byWk[k].motivation) : null; });
+  const sleepVals    = weekKeys.map(function(k) { return byWk[k] && byWk[k].sleep_hours!= null ? parseFloat(byWk[k].sleep_hours): null; });
 
-  const hasBW    = bwVals.some(function(v)    { return v != null; });
-  const hasWaist = waistVals.some(function(v) { return v != null; });
-  const hasSleep = sleepVals.some(function(v) { return v != null; });
+  const hasEnergy   = energyVals.some(function(v)   { return v != null; });
+  const hasSoreness = sorenessVals.some(function(v) { return v != null; });
+  const hasStress   = stressVals.some(function(v)   { return v != null; });
+  const hasMotiv    = motivVals.some(function(v)    { return v != null; });
+  const hasSleep    = sleepVals.some(function(v)    { return v != null; });
 
-  // Latest waist for snapshot
-  const latestWaist = readiness.slice().reverse().find(function(r) { return r.waist_inches != null; });
-  const waistSnap   = latestWaist ? '<div class="snap-grid" style="margin-bottom:12px"><div class="snap-card"><div class="snap-val">' + latestWaist.waist_inches + '"</div><div class="snap-label">Latest waist</div><div class="snap-sub">' + latestWaist.log_date + '</div></div></div>' : '';
-
-  return '<div class="trends-section"><div class="trends-section-title">Readiness &amp; Recovery</div>' + waistSnap + '<div class="trends-chart-box"><div class="trends-chart-title">Readiness Score (1–10)</div>' + trendsLineChart(readyScores, weekLabels, { decimals: 1 }) + '</div>' + (hasBW ? '<div class="trends-chart-box"><div class="trends-chart-title">Bodyweight (lb)</div>' + trendsLineChart(bwVals, weekLabels, { decimals: 1 }) + '</div>' : '') + (hasWaist ? '<div class="trends-chart-box"><div class="trends-chart-title">Waist (inches)</div>' + trendsLineChart(waistVals, weekLabels, { decimals: 2 }) + '</div>' : '') + (hasSleep ? '<div class="trends-chart-box"><div class="trends-chart-title">Sleep (hours)</div>' + trendsLineChart(sleepVals, weekLabels, { decimals: 1 }) + '</div>' : '') + '</div>';
+  return '<div class="trends-section"><div class="trends-section-title">Readiness &amp; Recovery</div>'
+    + (hasEnergy   ? '<div class="trends-chart-box"><div class="trends-chart-title">Energy (1–5)</div>'     + trendsLineChart(energyVals,   weekLabels, { decimals: 1 }) + '</div>' : '')
+    + (hasSoreness ? '<div class="trends-chart-box"><div class="trends-chart-title">Soreness (1–5)</div>'   + trendsLineChart(sorenessVals, weekLabels, { decimals: 1 }) + '</div>' : '')
+    + (hasStress   ? '<div class="trends-chart-box"><div class="trends-chart-title">Stress (1–5)</div>'     + trendsLineChart(stressVals,   weekLabels, { decimals: 1 }) + '</div>' : '')
+    + (hasMotiv    ? '<div class="trends-chart-box"><div class="trends-chart-title">Motivation (1–5)</div>' + trendsLineChart(motivVals,    weekLabels, { decimals: 1 }) + '</div>' : '')
+    + (hasSleep    ? '<div class="trends-chart-box"><div class="trends-chart-title">Sleep (hours)</div>'    + trendsLineChart(sleepVals,    weekLabels, { decimals: 1 }) + '</div>' : '')
+    + '</div>';
 }
 
-// ── Conditioning ──────────────────────────────────────────────────
 function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
   if (!conditioning.length) return '<div class="trends-section"><div class="trends-section-title">Conditioning</div><div style="color:var(--muted);font-size:13px;padding:8px 0">No conditioning data yet.</div></div>';
 
