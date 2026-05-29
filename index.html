@@ -2401,9 +2401,10 @@ async function reEditExercise(key) {
   const isPlanned = key.startsWith('p-');
   const id        = key.replace(/^[pa]-/, '');
 
-  // Capture previous values before wiping
-  const prevSets  = S.savedExercises[id] || [];
-  const prevNotes = prevSets[0]?.notes || '';
+  // Snapshot everything before wiping
+  const prevSets     = S.savedExercises[id] || [];
+  const prevNotes    = prevSets.find(s => s.notes)?.notes || '';
+  const prevMeasure  = prevSets[0]?.measure_type || 'reps';
 
   try {
     if (isPlanned) {
@@ -2414,9 +2415,10 @@ async function reEditExercise(key) {
       delete S.savedExercises[id];
       const pe = S.plannedExercises.find(p => p.id === id);
       if (pe) S.exState[id] = {
-        skipped:  false,
-        swappedTo: null,
-        setCount: prevSets.length || pe.target_sets || 3,
+        skipped:     false,
+        swappedTo:   null,
+        setCount:    prevSets.length || pe.target_sets || 3,
+        measureType: prevMeasure,
       };
     } else {
       const saved = S.savedExercises[id];
@@ -2426,24 +2428,26 @@ async function reEditExercise(key) {
           .eq('completed_session_id', S.activeCompletedSession.id)
           .eq('exercise_id', saved[0].exercise_id)
           .eq('is_added', true);
-        // Restore set count on the added exercise
-        const ae = S.addedExercises.find(a => String(a.localId) === String(id));
-        if (ae) ae.setCount = saved.length;
       }
       delete S.savedExercises[id];
+      // Restore set count + measure type on the added exercise record
+      const ae = S.addedExercises.find(a => String(a.localId) === String(id));
+      if (ae) { ae.setCount = prevSets.length || 1; ae.measureType = prevMeasure; }
     }
 
-    // Re-render session (shows editable card again)
-    renderSessionBody();
+    // Re-render session (now async — must await so DOM is ready before populating)
+    await renderSessionBody();
 
     // Pre-populate inputs with previous values
     prevSets.forEach((s, i) => {
       const loadEl = document.getElementById(`load-${key}-${i}`);
       const repsEl = document.getElementById(`reps-${key}-${i}`);
       const rpeEl  = document.getElementById(`rpe-${key}-${i}`);
-      if (loadEl && s.actual_load != null) loadEl.value = s.actual_load;
-      if (repsEl && s.actual_reps != null) repsEl.value = s.actual_reps;
-      if (rpeEl  && s.actual_rpe  != null) rpeEl.value  = s.actual_rpe;
+      if (loadEl && s.actual_load  != null) loadEl.value = s.actual_load;
+      // actual_value holds sec/yds for time/distance; actual_reps holds count for reps
+      const repVal = prevMeasure === 'reps' ? s.actual_reps : s.actual_value;
+      if (repsEl && repVal != null) repsEl.value = repVal;
+      if (rpeEl  && s.actual_rpe != null) rpeEl.value = s.actual_rpe;
     });
     const notesEl = document.getElementById(`notes-${key}`);
     if (notesEl && prevNotes) notesEl.value = prevNotes;
@@ -2451,7 +2455,7 @@ async function reEditExercise(key) {
     // Scroll re-opened card into view
     document.getElementById(`ex-card-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-    toast('Edit, then tap Save to update ✓');
+    toast('Edit, then tap Save to update.');
   } catch (err) {
     console.error(err);
     toast('Error re-opening exercise.', 4000);
@@ -4929,6 +4933,7 @@ function renderTrendsPain(painItems) {
       toast('Offline — loading from cache…', 2000);
       await loadProgram();
     } else {
+      toast('Offline — open the app while connected first to enable offline use.', 5000);
       toast('Offline — open the app while connected first to enable offline use.', 5000);
       showScreen('login');
     }
