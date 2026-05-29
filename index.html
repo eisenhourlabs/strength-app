@@ -147,6 +147,19 @@
       padding: 10px 12px; resize: none; height: 40px; }
     .notes-input:focus { outline: none; border-color: var(--border); }
 
+    /* Measure type selector */
+    .measure-row { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+    .measure-label { font-size: 10px; color: var(--muted); flex-shrink: 0; }
+    .measure-btn { font-size: 10px; padding: 3px 9px; border-radius: 6px; border: 1px solid var(--border);
+      background: none; color: var(--muted); cursor: pointer; }
+    .measure-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+
+    /* Circuit training textarea */
+    .circuit-desc { width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 13px;
+      padding: 10px 12px; resize: none; min-height: 80px; margin-bottom: 6px; }
+    .circuit-desc:focus { outline: none; border-color: var(--accent); }
+
     /* Exercise footer */
     .ex-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; gap: 8px; }
     .ex-footer-right { display: flex; gap: 8px; }
@@ -1097,11 +1110,11 @@ function reconstructAddedExercises(allRows) {
     const realRows = rows.filter(r => (r.set_number || 0) > 0);
     if (realRows.length > 0) {
       // Exercise has real saved data — render as a saved (read-only) card
-      S.addedExercises.push({ localId, exId, exName, setCount: realRows.length });
+      S.addedExercises.push({ localId, exId, exName, setCount: realRows.length, measureType: 'reps' });
       S.savedExercises[localId] = realRows;
     } else {
       // Only placeholder — exercise was added but not yet filled in
-      S.addedExercises.push({ localId, exId, exName, setCount: 1 });
+      S.addedExercises.push({ localId, exId, exName, setCount: 1, measureType: 'reps' });
       // Do NOT populate S.savedExercises[localId] → renders as empty editable tile
     }
   });
@@ -1214,7 +1227,7 @@ async function openSession(sessionId) {
     S.plannedExercises.forEach(pe => {
       if (!S.savedExercises[pe.id]) {
         const count = pe.target_sets && pe.target_sets > 0 ? pe.target_sets : 1;
-        S.exState[pe.id] = { skipped: false, swappedTo: null, setCount: count };
+        S.exState[pe.id] = { skipped: false, swappedTo: null, setCount: count, measureType: 'reps' };
       }
     });
     if (isCondOnly) { renderConditioningSessionBody(); } else { renderSessionBody(); await restoreDraft(sessionId); initExerciseSort(sessionId); }
@@ -1364,8 +1377,16 @@ function renderSessionBody() {
       let targetHtml = targetParts.join(' · ');
       if (pe.coach_notes) targetHtml += (targetHtml ? '<br>' : '') + `<em>${pe.coach_notes}</em>`;
 
+      const pmt         = st.measureType || 'reps';
       const setRowsHtml = buildSetRows(`p-${pe.id}`, st.setCount, st.skipped);
       const safeExName  = exName.replace(/'/g, "\\'");
+      const measureRowHtml = st.skipped ? '' : `
+          <div class="measure-row">
+            <span class="measure-label">Measure:</span>
+            <button class="measure-btn${pmt==='reps'?' active':''}" data-type="reps" onclick="changeMeasureType('p-${pe.id}','reps')">Reps</button>
+            <button class="measure-btn${pmt==='time'?' active':''}" data-type="time" onclick="changeMeasureType('p-${pe.id}','time')">Time (sec)</button>
+            <button class="measure-btn${pmt==='dist'?' active':''}" data-type="dist" onclick="changeMeasureType('p-${pe.id}','dist')">Distance (yds)</button>
+          </div>`;
 
       html += `
         <div class="ex-card ${st.skipped ? 'skipped' : ''}" id="ex-card-p-${pe.id}">
@@ -1376,6 +1397,7 @@ function renderSessionBody() {
             <span class="ex-swap" onclick="openSwap('${pe.id}')">⇄ swap</span>
           </div>
           ${swapNoteHtml}
+          ${measureRowHtml}
           ${targetHtml ? `<div class="ex-target">${targetHtml}</div>` : ''}
           <div class="sets-wrap" id="sets-p-${pe.id}">${setRowsHtml}</div>
           <button class="add-set-btn" id="addbtn-p-${pe.id}"
@@ -1403,12 +1425,20 @@ function renderSessionBody() {
     if (savedSets && savedSets.length > 0) {
       html += buildSavedExCard(key, ae.exName, ae.exId, savedSets, null);
     } else {
+      const mt = ae.measureType || 'reps';
       html += `
       <div class="ex-card added-card" id="ex-card-${key}">
         <div class="ex-header">
           <span class="drag-handle">⠿</span>
           <span class="ex-name">${ae.exName}</span>
-          <span style="font-size:11px;color:var(--accent)">+ ADDED</span>
+          <span class="ex-swap" onclick="openAddedSwap('${ae.localId}')">⇄ swap</span>
+        </div>
+        ${ae.swappedFrom ? `<div class="ex-swap-note">↕ swapped from ${ae.swappedFrom}</div>` : ''}
+        <div class="measure-row">
+          <span class="measure-label">Measure:</span>
+          <button class="measure-btn${mt==='reps'?' active':''}" data-type="reps" onclick="changeMeasureType('${key}','reps')">Reps</button>
+          <button class="measure-btn${mt==='time'?' active':''}" data-type="time" onclick="changeMeasureType('${key}','time')">Time (sec)</button>
+          <button class="measure-btn${mt==='dist'?' active':''}" data-type="dist" onclick="changeMeasureType('${key}','dist')">Distance (yds)</button>
         </div>
         <div class="sets-wrap" id="sets-${key}">${buildSetRows(key, ae.setCount, false)}</div>
         <button class="add-set-btn" onclick="addSet('${key}','${ae.localId}',true)">＋ Add Set</button>
@@ -1519,7 +1549,11 @@ async function saveExercise(peId) {
 
   const key   = `p-${peId}`;
   const exId  = st.swappedTo ? st.swappedTo.id : pe.exercise.id;
-  const notes = (document.getElementById(`notes-${key}`)?.value || '').trim() || null;
+  const mt    = st.measureType || 'reps';
+  const rawNotes = (document.getElementById(`notes-${key}`)?.value || '').trim();
+  const notes = mt !== 'reps'
+    ? `[${mt === 'time' ? 'time:sec' : 'distance:yds'}]${rawNotes ? ' ' + rawNotes : ''}`
+    : (rawNotes || null);
   const rows  = [];
 
   if (st.skipped) {
@@ -1640,7 +1674,11 @@ async function saveAddedExercise(localId) {
   const ae    = S.addedExercises.find(a => String(a.localId) === String(localId));
   if (!ae) { if (btn) { btn.disabled = false; btn.textContent = 'Save'; } return; }
 
-  const notes     = (document.getElementById(`notes-${key}`)?.value || '').trim() || null;
+  const amt       = ae.measureType || 'reps';
+  const rawNotes2 = (document.getElementById(`notes-${key}`)?.value || '').trim();
+  const notes     = amt !== 'reps'
+    ? `[${amt === 'time' ? 'time:sec' : 'distance:yds'}]${rawNotes2 ? ' ' + rawNotes2 : ''}`
+    : (rawNotes2 || null);
   const setsWrap  = document.getElementById(`sets-${key}`);
   const setRows   = setsWrap ? Array.from(setsWrap.querySelectorAll('.set-row')) : [];
   const setCount  = setRows.length || 1;
@@ -2662,28 +2700,81 @@ async function leaveSession() {
 }
 
 // ── Set row helpers ───────────────────────────────────────────────────────────
+function getMeasureType(key) {
+  if (key.startsWith('p-')) {
+    const peId = key.slice(2);
+    return (S.exState[peId] && S.exState[peId].measureType) || 'reps';
+  } else if (key.startsWith('a-')) {
+    const localId = key.slice(2);
+    const ae = S.addedExercises.find(a => String(a.localId) === String(localId));
+    return (ae && ae.measureType) || 'reps';
+  }
+  return 'reps';
+}
+
 function buildSetRows(key, count, disabled) {
+  const mt = getMeasureType(key);
   let html = '';
-  for (let i = 0; i < count; i++) html += buildOneSetRow(key, i, disabled);
+  for (let i = 0; i < count; i++) html += buildOneSetRow(key, i, disabled, mt);
   return html;
 }
 
-function buildOneSetRow(key, idx, disabled) {
-  const dis = disabled ? 'disabled' : '';
+function buildOneSetRow(key, idx, disabled, measureType) {
+  if (!measureType) measureType = getMeasureType(key);
+  const dis        = disabled ? 'disabled' : '';
+  const repsLabel  = measureType === 'time' ? 'sec' : measureType === 'dist' ? 'yds' : 'reps';
+  const repsImode  = measureType === 'time' ? 'numeric' : 'numeric';
   return `
     <div class="set-row" id="setrow-${key}-${idx}">
       <span class="set-num">S${idx+1}</span>
       <div class="set-fields">
         <div class="sf"><label>lb</label>
           <input type="number" inputmode="decimal" id="load-${key}-${idx}" placeholder="—" ${dis}></div>
-        <div class="sf"><label>reps</label>
-          <input type="number" inputmode="numeric" id="reps-${key}-${idx}" placeholder="—" ${dis}></div>
+        <div class="sf"><label>${repsLabel}</label>
+          <input type="number" inputmode="${repsImode}" id="reps-${key}-${idx}" placeholder="—" ${dis}></div>
         <div class="sf"><label>RPE</label>
           <input type="number" inputmode="decimal" step="0.5" min="1" max="10"
             id="rpe-${key}-${idx}" placeholder="—" ${dis}></div>
       </div>
       <button class="set-del" onclick="removeSet('${key}',${idx})" ${dis}>×</button>
     </div>`;
+}
+
+function changeMeasureType(key, type) {
+  // Update state
+  if (key.startsWith('p-')) {
+    const peId = key.slice(2);
+    if (S.exState[peId]) S.exState[peId].measureType = type;
+  } else if (key.startsWith('a-')) {
+    const localId = key.slice(2);
+    const ae = S.addedExercises.find(a => String(a.localId) === String(localId));
+    if (ae) ae.measureType = type;
+  }
+  // Update active button styling
+  const card = document.getElementById(`ex-card-${key}`);
+  if (card) {
+    card.querySelectorAll('.measure-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-type') === type);
+    });
+  }
+  // Rebuild set rows preserving current values
+  const wrap = document.getElementById(`sets-${key}`);
+  if (!wrap) return;
+  const rows = Array.from(wrap.querySelectorAll('.set-row'));
+  const saved = rows.map((_, i) => ({
+    load: document.getElementById(`load-${key}-${i}`)?.value || '',
+    reps: document.getElementById(`reps-${key}-${i}`)?.value || '',
+    rpe:  document.getElementById(`rpe-${key}-${i}`)?.value  || '',
+  }));
+  wrap.innerHTML = saved.map((_, i) => buildOneSetRow(key, i, false, type)).join('');
+  saved.forEach((s, i) => {
+    const lEl = document.getElementById(`load-${key}-${i}`);
+    const rEl = document.getElementById(`reps-${key}-${i}`);
+    const pEl = document.getElementById(`rpe-${key}-${i}`);
+    if (lEl) lEl.value = s.load;
+    if (rEl) rEl.value = s.reps;
+    if (pEl) pEl.value = s.rpe;
+  });
 }
 
 // ── Add / remove sets ─────────────────────────────────────────────────────────
@@ -2760,6 +2851,16 @@ function openSwap(peId) {
   const st        = S.exState[peId];
   const curExId   = st?.swappedTo?.id || pe?.exercise?.id;
   const curEx     = S.exerciseLib.find(e => e.id === curExId);
+  openExSheet(curEx?.movement_pattern || null);
+}
+
+function openAddedSwap(localId) {
+  S.sheetMode = 'swap-added';
+  S.swapExKey = localId;
+  document.getElementById('ex-sheet-title').textContent = 'Swap Exercise';
+  // Pre-filter to current exercise's movement pattern if possible
+  const ae    = S.addedExercises.find(a => String(a.localId) === String(localId));
+  const curEx = ae ? S.exerciseLib.find(e => e.id === ae.exId) : null;
   openExSheet(curEx?.movement_pattern || null);
 }
 
@@ -2907,18 +3008,24 @@ function selectExercise(exId, exName) {
     document.getElementById('test-log-sheet').classList.add('open');
   } else if (S.sheetMode === 'add') {
     const localId = ++S.addedCounter;
-    S.addedExercises.push({ localId, exId, exName, setCount: 1 });
+    S.addedExercises.push({ localId, exId, exName, setCount: 1, measureType: 'reps' });
     persistAddedExercisePlaceholder(localId, exId);   // fire-and-forget DB write
     const key        = `a-${localId}`;
-    const addBtn     = document.getElementById('session-add-ex-btn');
+    const exList     = document.getElementById('exercise-list');
     const newCardHtml = `
       <div class="ex-card added-card" id="ex-card-${key}">
         <div class="ex-header">
           <span class="drag-handle">⠿</span>
           <span class="ex-name">${exName}</span>
-          <span style="font-size:11px;color:var(--accent)">+ ADDED</span>
+          <span class="ex-swap" onclick="openAddedSwap('${localId}')">⇄ swap</span>
         </div>
-        <div class="sets-wrap" id="sets-${key}">${buildOneSetRow(key, 0, false)}</div>
+        <div class="measure-row">
+          <span class="measure-label">Measure:</span>
+          <button class="measure-btn active" data-type="reps" onclick="changeMeasureType('${key}','reps')">Reps</button>
+          <button class="measure-btn" data-type="time" onclick="changeMeasureType('${key}','time')">Time (sec)</button>
+          <button class="measure-btn" data-type="dist" onclick="changeMeasureType('${key}','dist')">Distance (yds)</button>
+        </div>
+        <div class="sets-wrap" id="sets-${key}">${buildOneSetRow(key, 0, false, 'reps')}</div>
         <button class="add-set-btn" onclick="addSet('${key}','${localId}',true)">＋ Add Set</button>
         <textarea class="notes-input" id="notes-${key}" placeholder="Notes…"></textarea>
         <div class="ex-footer">
@@ -2927,7 +3034,30 @@ function selectExercise(exId, exName) {
             onclick="saveAddedExercise('${localId}')">Save</button>
         </div>
       </div>`;
-    addBtn.insertAdjacentHTML('beforebegin', newCardHtml);
+    if (exList) exList.insertAdjacentHTML('beforeend', newCardHtml);
+  } else if (S.sheetMode === 'swap-added' && S.swapExKey != null) {
+    // Swap an added exercise
+    const localId = String(S.swapExKey);
+    const ae = S.addedExercises.find(a => String(a.localId) === localId);
+    if (ae) {
+      const oldName  = ae.exName;
+      ae.swappedFrom = oldName;
+      ae.exId        = exId;
+      ae.exName      = exName;
+      const key  = `a-${ae.localId}`;
+      const card = document.getElementById(`ex-card-${key}`);
+      if (card) {
+        card.querySelector('.ex-name').textContent = exName;
+        let swapNote = card.querySelector('.ex-swap-note');
+        if (!swapNote) {
+          card.querySelector('.ex-header').insertAdjacentHTML(
+            'afterend', `<div class="ex-swap-note">↕ swapped from ${oldName}</div>`);
+        } else {
+          swapNote.textContent = `↕ swapped from ${oldName}`;
+        }
+      }
+    }
+    S.swapExKey = null;
   }
 }
 
@@ -2948,7 +3078,7 @@ async function removeAdded(localId) {
 }
 
 // ── Conditioning-only session ─────────────────────────────────────────────────
-const COND_MODALITIES = ['Echo Bike','SkiErg','Rower','Run','Ruck','Walk','Cycling','Sled','Jump Rope','Versaclimber','Swimming','Other'];
+const COND_MODALITIES = ['Echo Bike','SkiErg','Rower','Run','Ruck','Walk','Cycling','Sled','Jump Rope','Versaclimber','Swimming','Circuit Training','Other'];
 const COND_LOAD_MODS  = ['Ruck','Sled'];
 const COND_DIST_CONV  = { mi: 1609.34, km: 1000, m: 1, ft: 0.3048 };
 
@@ -2956,18 +3086,18 @@ function renderCondBlock(b, idx, total) {
   const modOpts = ['<option value="">Select modality…</option>']
     .concat(COND_MODALITIES.map(function(m) { return '<option value="' + m + '"' + (b.modality === m ? ' selected' : '') + '>' + m + '</option>'; }))
     .join('');
-  const showLoad = COND_LOAD_MODS.includes(b.modality);
-  const removeBtn = total > 1
+  const showLoad    = COND_LOAD_MODS.includes(b.modality);
+  const isCircuit   = b.modality === 'Circuit Training';
+  const removeBtn   = total > 1
     ? '<button class="sess-del-btn" onclick="removeCondBlock(' + b.id + ')" style="margin-left:auto" title="Remove">&#x2715;</button>'
     : '';
-  return '<div class="cond-block" id="cond-block-' + b.id + '">'
-    + '<div class="cond-block-hdr"><span class="cond-block-num">Block ' + (idx + 1) + '</span>' + removeBtn + '</div>'
-    + '<div class="form-grid">'
-    + '<div class="form-field wide"><label>Modality</label>'
-    + '<select id="cond-mod-' + b.id + '" onchange="updateCondBlockFields(' + b.id + ')">' + modOpts + '</select></div>'
-    + '<div class="form-field"><label>Duration (min)</label>'
+
+  // Standard modality fields (hidden for circuit)
+  const stdFields = '<div class="form-field' + (isCircuit ? ' cond-std-fields" style="display:none' : ' cond-std-fields') + '">'
+    + '<label>Duration (min)</label>'
     + '<input type="number" inputmode="decimal" id="cond-dur-' + b.id + '" placeholder="—" value="' + (b.duration || '') + '"></div>'
-    + '<div class="form-field"><label>Distance</label>'
+    + '<div class="form-field cond-std-fields' + (isCircuit ? '" style="display:none' : '') + '">'
+    + '<label>Distance</label>'
     + '<div class="dist-row">'
     + '<input type="number" inputmode="decimal" id="cond-dist-' + b.id + '" placeholder="—" value="' + (b.distance || '') + '">'
     + '<select id="cond-dunit-' + b.id + '">'
@@ -2976,9 +3106,28 @@ function renderCondBlock(b, idx, total) {
     + '<option value="m"'  + (b.distUnit === 'm'  ? ' selected' : '') + '>m</option>'
     + '<option value="ft"' + (b.distUnit === 'ft' ? ' selected' : '') + '>ft</option>'
     + '</select></div></div>'
-    + '<div class="form-field" id="cond-load-row-' + b.id + '" style="' + (showLoad ? '' : 'display:none') + '">'
+    + '<div class="form-field cond-std-fields" id="cond-load-row-' + b.id + '" style="' + (showLoad && !isCircuit ? '' : 'display:none') + '">'
     + '<label>Load (lb)</label>'
-    + '<input type="number" inputmode="decimal" id="cond-load-' + b.id + '" placeholder="—" value="' + (b.load || '') + '"></div>'
+    + '<input type="number" inputmode="decimal" id="cond-load-' + b.id + '" placeholder="—" value="' + (b.load || '') + '"></div>';
+
+  // Circuit-specific fields
+  const circuitFields = '<div class="form-field wide cond-circuit-fields" style="' + (isCircuit ? '' : 'display:none') + '">'
+    + '<label>Describe the circuit (exercises, reps, format…)</label>'
+    + '<textarea class="circuit-desc" id="cond-circuit-desc-' + b.id + '" placeholder="e.g. AMRAP 20min: 10 pull-ups, 15 push-ups, 20 air squats…">' + (b.circuitDesc || '') + '</textarea></div>'
+    + '<div class="form-field cond-circuit-fields" style="' + (isCircuit ? '' : 'display:none') + '">'
+    + '<label>Rounds completed</label>'
+    + '<input type="number" inputmode="numeric" id="cond-circuit-rounds-' + b.id + '" placeholder="—" value="' + (b.circuitRounds || '') + '"></div>'
+    + '<div class="form-field cond-circuit-fields" style="' + (isCircuit ? '' : 'display:none') + '">'
+    + '<label>Total time (min)</label>'
+    + '<input type="number" inputmode="decimal" id="cond-circuit-dur-' + b.id + '" placeholder="—" value="' + (b.duration || '') + '"></div>';
+
+  return '<div class="cond-block" id="cond-block-' + b.id + '">'
+    + '<div class="cond-block-hdr"><span class="cond-block-num">Block ' + (idx + 1) + '</span>' + removeBtn + '</div>'
+    + '<div class="form-grid">'
+    + '<div class="form-field wide"><label>Modality</label>'
+    + '<select id="cond-mod-' + b.id + '" onchange="updateCondBlockFields(' + b.id + ')">' + modOpts + '</select></div>'
+    + stdFields
+    + circuitFields
     + '</div></div>';
 }
 
@@ -3033,24 +3182,43 @@ function updateCondIntervalFields() {
 function updateCondBlockFields(id) {
   const modEl = document.getElementById('cond-mod-' + id);
   const mod   = modEl ? modEl.value : '';
-  const loadRow = document.getElementById('cond-load-row-' + id);
-  if (loadRow) loadRow.style.display = COND_LOAD_MODS.includes(mod) ? '' : 'none';
+  const isCircuit = mod === 'Circuit Training';
+  // Toggle standard vs circuit field sets
+  const block = document.getElementById('cond-block-' + id);
+  if (block) {
+    block.querySelectorAll('.cond-std-fields').forEach(function(el) {
+      el.style.display = isCircuit ? 'none' : '';
+    });
+    block.querySelectorAll('.cond-circuit-fields').forEach(function(el) {
+      el.style.display = isCircuit ? '' : 'none';
+    });
+    // Load row visibility within standard fields
+    const loadRow = document.getElementById('cond-load-row-' + id);
+    if (loadRow) loadRow.style.display = (!isCircuit && COND_LOAD_MODS.includes(mod)) ? '' : 'none';
+  }
   const b = S.condBlocks.find(function(x) { return x.id === id; });
   if (b) b.modality = mod;
 }
 
 function syncCondBlocksFromDOM() {
   S.condBlocks.forEach(function(b) {
-    const modEl  = document.getElementById('cond-mod-'   + b.id);
-    const durEl  = document.getElementById('cond-dur-'   + b.id);
-    const distEl = document.getElementById('cond-dist-'  + b.id);
-    const dunitEl= document.getElementById('cond-dunit-' + b.id);
-    const loadEl = document.getElementById('cond-load-'  + b.id);
-    if (modEl)   b.modality  = modEl.value;
-    if (durEl)   b.duration  = durEl.value;
-    if (distEl)  b.distance  = distEl.value;
-    if (dunitEl) b.distUnit  = dunitEl.value;
-    if (loadEl)  b.load      = loadEl.value;
+    const modEl        = document.getElementById('cond-mod-'            + b.id);
+    const durEl        = document.getElementById('cond-dur-'            + b.id);
+    const distEl       = document.getElementById('cond-dist-'           + b.id);
+    const dunitEl      = document.getElementById('cond-dunit-'          + b.id);
+    const loadEl       = document.getElementById('cond-load-'           + b.id);
+    const circDescEl   = document.getElementById('cond-circuit-desc-'   + b.id);
+    const circRoundsEl = document.getElementById('cond-circuit-rounds-' + b.id);
+    if (modEl)        b.modality     = modEl.value;
+    const circDurEl = document.getElementById('cond-circuit-dur-' + b.id);
+    const activeDur = (b.modality === 'Circuit Training' ? circDurEl : durEl);
+    if (activeDur)    b.duration     = activeDur.value;
+    if (!activeDur && durEl) b.duration = durEl.value;
+    if (distEl)       b.distance     = distEl.value;
+    if (dunitEl)      b.distUnit     = dunitEl.value;
+    if (loadEl)       b.load         = loadEl.value;
+    if (circDescEl)   b.circuitDesc   = circDescEl.value;
+    if (circRoundsEl) b.circuitRounds = circRoundsEl.value;
   });
 }
 
@@ -3072,13 +3240,18 @@ function removeCondBlock(id) {
 
 function getCondBlockValues() {
   return S.condBlocks.map(function(b) {
-    const mod  = (document.getElementById('cond-mod-'   + b.id) || {value:''}).value.trim();
-    const dur  = parseFloat((document.getElementById('cond-dur-'   + b.id) || {value:''}).value) || null;
-    const dv   = parseFloat((document.getElementById('cond-dist-'  + b.id) || {value:''}).value) || null;
-    const du   = (document.getElementById('cond-dunit-' + b.id) || {value:'mi'}).value || 'mi';
-    const load = parseFloat((document.getElementById('cond-load-'  + b.id) || {value:''}).value) || null;
-    const dm   = dv ? Math.round(dv * (COND_DIST_CONV[du] || 1)) : null;
-    return { modality: mod, duration: dur, distanceMeters: dm, load: load };
+    const mod          = (document.getElementById('cond-mod-'            + b.id) || {value:''}).value.trim();
+    const durId        = mod === 'Circuit Training' ? 'cond-circuit-dur-' : 'cond-dur-';
+    const dur          = parseFloat((document.getElementById(durId + b.id) || {value:''}).value) || null;
+    const dv           = parseFloat((document.getElementById('cond-dist-'  + b.id) || {value:''}).value) || null;
+    const du           = (document.getElementById('cond-dunit-' + b.id) || {value:'mi'}).value || 'mi';
+    const load         = parseFloat((document.getElementById('cond-load-'  + b.id) || {value:''}).value) || null;
+    const dm           = dv ? Math.round(dv * (COND_DIST_CONV[du] || 1)) : null;
+    const circuitDesc  = mod === 'Circuit Training'
+      ? ((document.getElementById('cond-circuit-desc-'   + b.id) || {value:''}).value.trim() || null) : null;
+    const circuitRounds = mod === 'Circuit Training'
+      ? (parseInt((document.getElementById('cond-circuit-rounds-' + b.id) || {value:''}).value) || null) : null;
+    return { modality: mod, duration: dur, distanceMeters: dm, load: load, circuitDesc, circuitRounds };
   }).filter(function(b) { return b.modality; });
 }
 
@@ -3095,6 +3268,11 @@ function getCondSessionValues() {
 
 function buildCondRows(csId, sv) {
   return getCondBlockValues().map(function(b) {
+    const isCircuit = b.modality === 'Circuit Training';
+    // For circuit: merge description into notes; rounds into intervals_completed
+    const notesVal = isCircuit
+      ? [b.circuitDesc, sv.notes].filter(Boolean).join(' | ') || null
+      : sv.notes;
     return {
       athlete_id:           S.athlete.id,
       completed_session_id: csId,
@@ -3103,14 +3281,14 @@ function buildCondRows(csId, sv) {
       conditioning_system:  (S.cycle && S.cycle.conditioning_system) || null,
       conditioning_phase:   (S.cycle && S.cycle.conditioning_phase)  || null,
       modality:             b.modality,
-      workout_type:         sv.effortLevel,
+      workout_type:         isCircuit ? 'Circuit' : sv.effortLevel,
       is_planned:           !!S.plannedConditioning,
       duration_minutes:     b.duration,
-      distance_meters:      b.distanceMeters,
-      load_lbs:             b.load,
-      intervals_completed:  sv.effortLevel === 'Intervals' ? sv.rounds : null,
-      max_heart_rate:       sv.effortLevel === 'Intervals' ? sv.maxHR  : null,
-      notes:                sv.notes,
+      distance_meters:      isCircuit ? null : b.distanceMeters,
+      load_lbs:             isCircuit ? null : b.load,
+      intervals_completed:  isCircuit ? b.circuitRounds : (sv.effortLevel === 'Intervals' ? sv.rounds : null),
+      max_heart_rate:       sv.effortLevel === 'Intervals' ? sv.maxHR : null,
+      notes:                notesVal,
     };
   });
 }
