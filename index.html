@@ -45,7 +45,7 @@
       background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
     .header-title  { font-size: 18px; font-weight: 700; letter-spacing: .5px; }
     .header-sub    { font-size: 13px; color: var(--muted); margin-top: 2px; }
-    .back-btn      { background: none; border: none; color: var(--accent);
+    .back-btn      { background: none; border: none; color: var(--accent2);
       font-size: 22px; cursor: pointer; padding: 4px 8px 4px 0; }
 
     /* Scroll body */
@@ -82,11 +82,11 @@
     .ex-card.saved-card { border-color: var(--success); }
     .ex-header  { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 6px; }
     .ex-name    { font-size: 16px; font-weight: 700; cursor: pointer; color: var(--text); flex: 1; }
-    .ex-swap    { font-size: 11px; color: var(--accent); margin-left: 8px; flex-shrink: 0; cursor: pointer; padding-top: 2px; }
+    .ex-swap    { font-size: 11px; color: var(--accent2); margin-left: 8px; flex-shrink: 0; cursor: pointer; padding-top: 2px; }
     .ex-group   { font-size: 11px; font-weight: 600; color: var(--accent);
       margin-bottom: 6px; letter-spacing: .5px; }
     .ex-target  { font-size: 12px; color: var(--muted); margin-bottom: 10px; line-height: 1.5; }
-    .ex-swap-note { font-size: 11px; color: var(--accent); font-style: italic; margin-bottom: 8px; }
+    .ex-swap-note { font-size: 11px; color: var(--accent2); font-style: italic; margin-bottom: 8px; }
 
     /* Re-edit and delete buttons */
     .re-edit-btn { background: none; border: none; color: var(--muted);
@@ -149,9 +149,10 @@
 
     /* Measure type selector */
     /* Pain flag on exercise cards */
-    .pain-flag-btn { background: none; border: none; font-size: 16px; cursor: pointer;
-      opacity: .35; transition: opacity .15s; padding: 0 4px; line-height: 1; }
-    .pain-flag-btn.flagged { opacity: 1; filter: drop-shadow(0 0 3px #ff2712); }
+    .pain-flag-btn { background: none; border: 1px solid var(--border); border-radius: 6px;
+      font-size: 11px; cursor: pointer; color: var(--muted); padding: 3px 7px;
+      line-height: 1.4; display: flex; align-items: center; gap: 3px; transition: all .15s; }
+    .pain-flag-btn.flagged { border-color: #ff2712; color: #ff2712; background: rgba(255,39,18,.1); }
     /* Pain prompt modal */
     .pain-prompt-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.7);
       z-index: 200; display: flex; align-items: flex-end; justify-content: center; }
@@ -172,8 +173,8 @@
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
       background-repeat: no-repeat; background-position: right 6px center;
       padding-right: 20px; }
-    .measure-chip.non-reps { border-color: var(--accent); color: var(--accent); background-color: var(--surface2);
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236e399e'/%3E%3C/svg%3E"); }
+    .measure-chip.non-reps { border-color: var(--accent2); color: var(--accent2); background-color: var(--surface2);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23ff2712'/%3E%3C/svg%3E"); }
 
     /* Circuit training textarea */
     .circuit-desc { width: 100%; background: var(--surface2); border: 1px solid var(--border);
@@ -190,10 +191,10 @@
     .remove-btn { background: none; border: 1px solid var(--border);
       border-radius: 20px; color: var(--muted); font-size: 12px; padding: 5px 12px; cursor: pointer; }
     .remove-btn:active { color: var(--danger); border-color: var(--danger); }
-    .save-ex-btn { background: none; border: 1px solid var(--accent);
-      border-radius: 20px; color: var(--accent); font-size: 13px; font-weight: 700;
+    .save-ex-btn { background: none; border: 1px solid var(--accent2);
+      border-radius: 20px; color: var(--accent2); font-size: 13px; font-weight: 700;
       padding: 7px 18px; cursor: pointer; }
-    .save-ex-btn:active { background: var(--accent); color: #fff; }
+    .save-ex-btn:active { background: var(--accent2); color: #fff; }
     .save-ex-btn:disabled { border-color: var(--border); color: var(--muted); cursor: default; }
 
     /* Add exercise button */
@@ -404,9 +405,9 @@
       justify-content: space-between; margin-bottom: 12px;
       font-size: 14px; font-weight: 700; color: var(--success); }
     .cond-edit-btn { font-size: 12px; padding: 6px 16px; background: none;
-      border: 1px solid var(--accent); border-radius: 8px;
-      color: var(--accent); cursor: pointer; font-weight: 600; }
-    .cond-edit-btn:active { background: var(--accent); color: #fff; }
+      border: 1px solid var(--accent2); border-radius: 8px;
+      color: var(--accent2); cursor: pointer; font-weight: 600; }
+    .cond-edit-btn:active { background: var(--accent2); color: #fff; }
     .cond-logged-block { padding: 10px 0; border-bottom: 1px solid var(--border); }
     .cond-logged-block:last-child { border-bottom: none; padding-bottom: 0; }
     .cond-logged-modality { font-size: 14px; font-weight: 700; margin-bottom: 3px; }
@@ -450,7 +451,7 @@
       font-size: 13px; text-align: center; }
     .sess-ready-saved { font-size: 11px; color: var(--success); margin-top: 8px; display: none; }
     .sess-ready-btn { margin-top: 10px; padding: 7px 16px; border-radius: 8px;
-      border: 1px solid var(--accent); background: none; color: var(--accent);
+      border: 1px solid var(--accent2); background: none; color: var(--accent2);
       font-size: 12px; font-weight: 600; cursor: pointer; }
 
     /* ── Tests feature ──────────────────────────────────── */
@@ -1053,6 +1054,7 @@ async function renderWeek() {
     return `
       <div class="card tap" data-sid="${s.id}" onclick="openSession('${s.id}')">
         <div class="session-row">
+          <span class="drag-handle" onclick="event.stopPropagation()" style="margin-right:10px;flex-shrink:0">⠿</span>
           <div style="flex:1">
             <div class="card-label">${dayLabel}</div>
             <div class="card-title">${icon}${s.session_type || 'Session'}</div>
@@ -1060,7 +1062,6 @@ async function renderWeek() {
           </div>
           <div style="display:flex;align-items:center;gap:6px">
             <button class="sess-del-btn" onclick="event.stopPropagation();deleteSession('${s.id}')" title="Delete session">🗑</button>
-            <span class="drag-handle" onclick="event.stopPropagation()">⠿</span>
             <div class="arrow">›</div>
           </div>
         </div>
@@ -1423,7 +1424,27 @@ async function openSession(sessionId) {
 
 // ── Render session body ───────────────────────────────────────────────────────
 // ── Inline readiness widget ───────────────────────────────────────────────────
-function buildInlineReadinessCard() {
+function buildReadinessSavedHtml(r) {
+  const fields = [
+    { k: 'energy',     l: 'Energy'     },
+    { k: 'soreness',   l: 'Soreness'   },
+    { k: 'stress',     l: 'Stress'     },
+    { k: 'motivation', l: 'Motivation' },
+    { k: 'sleep_hours',l: 'Sleep'      },
+  ];
+  const chips = fields
+    .filter(f => r[f.k] != null)
+    .map(f => `<span class="hist-ready-chip">${f.l} <span>${r[f.k]}${f.k==='sleep_hours'?'h':''}</span></span>`)
+    .join('');
+  return `<div class="sess-ready-card" id="sess-ready-card" style="border-color:var(--success)">
+    <div class="sess-ready-title" style="color:var(--success);margin-bottom:6px">Readiness ✓
+      <button onclick="resetInlineReadiness()" style="float:right;font-size:10px;background:none;border:none;color:var(--muted);cursor:pointer">Edit</button>
+    </div>
+    <div class="hist-ready-strip" style="flex-wrap:wrap">${chips}</div>
+  </div>`;
+}
+
+function buildInlineReadinessForm() {
   const fields = [
     { id: 'energy',     label: 'Energy' },
     { id: 'soreness',   label: 'Soreness' },
@@ -1449,8 +1470,29 @@ function buildInlineReadinessCard() {
         </div>
       </div>
       <button class="sess-ready-btn" onclick="submitInlineReadiness()">Save Readiness</button>
-      <div class="sess-ready-saved" id="sr-saved">✓ Readiness saved</div>
     </div>`;
+}
+
+async function resolveInlineReadinessCard() {
+  // Expire cache if it's from a previous day
+  if (S._todayReadiness && S._todayReadiness.log_date !== today()) S._todayReadiness = null;
+  // Check if already logged today (in-memory cache first, then DB)
+  if (S._todayReadiness) return buildReadinessSavedHtml(S._todayReadiness);
+  if (!isOffline) {
+    try {
+      const { data } = await db.from('readiness_logs')
+        .select('*').eq('athlete_id', S.athlete.id).eq('log_date', today()).maybeSingle();
+      if (data) { S._todayReadiness = data; return buildReadinessSavedHtml(data); }
+    } catch {}
+  }
+  return buildInlineReadinessForm();
+}
+
+function resetInlineReadiness() {
+  S._todayReadiness = null;
+  S._readiness = {};
+  const card = document.getElementById('sess-ready-card');
+  if (card) card.outerHTML = buildInlineReadinessForm();
 }
 
 function sessReadyPip(field, val) {
@@ -1484,29 +1526,23 @@ async function submitInlineReadiness() {
     } else {
       await db.from('readiness_logs').upsert(payload, { onConflict: 'athlete_id,log_date' });
     }
-    // Collapse the card to a compact saved state
-    const card = document.getElementById('sess-ready-card');
-    if (card) {
-      const chips = Object.entries(r).map(([k,v]) =>
-        `<span class="hist-ready-chip">${k.charAt(0).toUpperCase()+k.slice(1)} <span>${v}</span></span>`
-      ).join('');
-      const sleepChip = sleep ? `<span class="hist-ready-chip">Sleep <span>${sleep}</span></span>` : '';
-      card.innerHTML = `<div class="sess-ready-title" style="margin-bottom:6px">Readiness ✓</div>
-        <div class="hist-ready-strip" style="flex-wrap:wrap">${chips}${sleepChip}</div>`;
-    }
+    // Cache and show saved state
+    S._todayReadiness = { ...payload, sleep_hours: sleep };
     S._readiness = {};
+    const card = document.getElementById('sess-ready-card');
+    if (card) card.outerHTML = buildReadinessSavedHtml(S._todayReadiness);
   } catch(err) {
     console.error(err);
     toast('Error saving readiness.', 3000);
   }
 }
 
-function renderSessionBody() {
+async function renderSessionBody() {
   const body = document.getElementById('session-body');
   let html   = '';
 
-  // Inline readiness widget (always shown at top of session)
-  html += buildInlineReadinessCard();
+  // Inline readiness widget — shows saved state if already logged today
+  html += await resolveInlineReadinessCard();
 
   if (S.activeSession.session_notes) {
     html += `<div class="info-card">📋 ${S.activeSession.session_notes}</div>`;
@@ -1587,8 +1623,8 @@ function renderSessionBody() {
               onclick="toggleSkip('${pe.id}')">
               ${st.skipped ? 'Skipped ✓' : 'Skip'}
             </button>
-            <button class="pain-flag-btn" id="pflag-p-${pe.id}" title="Flag pain on this exercise"
-              onclick="togglePainFlag('p-${pe.id}','${exName.replace(/'/g,"\\'")}')">⚠</button>
+            <button class="pain-flag-btn" id="pflag-p-${pe.id}"
+              onclick="togglePainFlag('p-${pe.id}','${exName.replace(/'/g,"\\'")}')">🩹 Pain</button>
             <button class="save-ex-btn" id="save-p-${pe.id}"
               onclick="saveExercise('${pe.id}')">Save</button>
           </div>
@@ -1624,8 +1660,8 @@ function renderSessionBody() {
         <textarea class="notes-input" id="notes-${key}" placeholder="Notes…"></textarea>
         <div class="ex-footer">
           <button class="remove-btn" onclick="removeAdded('${ae.localId}')">Remove</button>
-          <button class="pain-flag-btn" id="pflag-${key}" title="Flag pain on this exercise"
-            onclick="togglePainFlag('${key}','${ae.exName.replace(/'/g,"\\'")}')">⚠</button>
+          <button class="pain-flag-btn" id="pflag-${key}"
+            onclick="togglePainFlag('${key}','${ae.exName.replace(/'/g,"\\'")}')">🩹 Pain</button>
           <button class="save-ex-btn" id="save-${key}"
             onclick="saveAddedExercise('${ae.localId}')">Save</button>
         </div>
@@ -3312,17 +3348,20 @@ function selectExercise(exId, exName) {
           <span class="ex-name">${exName}</span>
           <span class="ex-swap" onclick="openAddedSwap('${localId}')">⇄ swap</span>
         </div>
-        <div class="measure-row">
-          <span class="measure-label">Measure:</span>
-          <button class="measure-btn active" data-type="reps" onclick="changeMeasureType('${key}','reps')">Reps</button>
-          <button class="measure-btn" data-type="time" onclick="changeMeasureType('${key}','time')">Time (sec)</button>
-          <button class="measure-btn" data-type="dist" onclick="changeMeasureType('${key}','dist')">Distance (yds)</button>
+        <div class="measure-chip-wrap">
+          <select class="measure-chip" onchange="changeMeasureType('${key}',this.value)" id="mchip-${key}">
+            <option value="reps" selected>Reps</option>
+            <option value="time">Time (sec)</option>
+            <option value="dist">Distance (yds)</option>
+          </select>
         </div>
         <div class="sets-wrap" id="sets-${key}">${buildOneSetRow(key, 0, false, 'reps')}</div>
         <button class="add-set-btn" onclick="addSet('${key}','${localId}',true)">＋ Add Set</button>
         <textarea class="notes-input" id="notes-${key}" placeholder="Notes…"></textarea>
         <div class="ex-footer">
           <button class="remove-btn" onclick="removeAdded('${localId}')">Remove</button>
+          <button class="pain-flag-btn" id="pflag-${key}"
+            onclick="togglePainFlag('${key}','${exName.replace(/'/g,"\\'")}')">🩹 Pain</button>
           <button class="save-ex-btn" id="save-${key}"
             onclick="saveAddedExercise('${localId}')">Save</button>
         </div>
