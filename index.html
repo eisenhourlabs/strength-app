@@ -1751,6 +1751,29 @@ async function renderSessionBody() {
     </div>`;
 
   body.innerHTML = html;
+
+  // Pre-fill planned load and reps into editable set rows.
+  // restoreDraft() runs after this and will overwrite with any values the
+  // athlete already entered, so planned values are only the initial default.
+  S.plannedExercises.forEach(pe => {
+    if (S.savedExercises[pe.id]) return;  // already saved — read-only card
+    const st = S.exState[pe.id];
+    if (!st || st.skipped) return;
+    const key      = `p-${pe.id}`;
+    const count    = st.setCount || 0;
+    const fillLoad = pe.target_load != null ? pe.target_load : null;
+    const fillReps = pe.reps_low   != null ? pe.reps_low    : null;
+    for (let i = 0; i < count; i++) {
+      if (fillLoad != null) {
+        const el = document.getElementById(`load-${key}-${i}`);
+        if (el) el.value = fillLoad;
+      }
+      if (fillReps != null && (st.measureType || 'reps') === 'reps') {
+        const el = document.getElementById(`reps-${key}-${i}`);
+        if (el) el.value = fillReps;
+      }
+    }
+  });
 }
 
 // ── Build saved (read-only) exercise card ─────────────────────────────────────
@@ -3167,7 +3190,7 @@ function changeMeasureType(key, type) {
 
 // ── Add / remove sets ─────────────────────────────────────────────────────────
 function addSet(key, entityId, isAdded) {
-  const wrap      = document.getElementById(`sets-${key}`);
+  const wrap        = document.getElementById(`sets-${key}`);
   const currentRows = wrap.querySelectorAll('.set-row').length;
   if (isAdded) {
     const ae = S.addedExercises.find(a => String(a.localId) === String(entityId));
@@ -3176,6 +3199,18 @@ function addSet(key, entityId, isAdded) {
     if (S.exState[entityId]) S.exState[entityId].setCount = currentRows + 1;
   }
   wrap.insertAdjacentHTML('beforeend', buildOneSetRow(key, currentRows, false));
+
+  // Copy load / reps / RPE from the previous row into the new one
+  if (currentRows > 0) {
+    const prevIdx = currentRows - 1;
+    const newIdx  = currentRows;
+    const prevLoad = document.getElementById(`load-${key}-${prevIdx}`)?.value;
+    const prevReps = document.getElementById(`reps-${key}-${prevIdx}`)?.value;
+    const prevRpe  = document.getElementById(`rpe-${key}-${prevIdx}`)?.value;
+    if (prevLoad) { const el = document.getElementById(`load-${key}-${newIdx}`); if (el) el.value = prevLoad; }
+    if (prevReps) { const el = document.getElementById(`reps-${key}-${newIdx}`); if (el) el.value = prevReps; }
+    if (prevRpe)  { const el = document.getElementById(`rpe-${key}-${newIdx}`);  if (el) el.value = prevRpe;  }
+  }
 }
 
 function removeSet(key, idx) {
