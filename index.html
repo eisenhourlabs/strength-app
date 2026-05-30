@@ -5143,11 +5143,9 @@ function buildVolumeBreakdown(sets, weekKeys, period) {
   }, 0) || 1;
 
   // ── Render ────────────────────────────────────────────────────────────────
-  const hasMp = mpRows.length > 0;
-  const hasMg = mgRows.length > 0;
-  const empty = '<div style="color:var(--muted);font-size:13px;padding:8px 0">No data for this period.</div>';
-
-  const hasMg = Object.keys(mgSplitMap).length > 0;
+  const hasMp  = mpRows.length > 0;
+  const hasMg  = Object.keys(mgSplitMap).length > 0;
+  const empty  = '<div style="color:var(--muted);font-size:13px;padding:8px 0">No data for this period.</div>';
 
   const mgLegend = '<div style="display:flex;gap:12px;margin-bottom:10px;font-size:10px;color:var(--muted)">'
     + '<div style="display:flex;align-items:center;gap:4px"><div style="width:8px;height:8px;border-radius:2px;background:#6e399e"></div>Primary (direct)</div>'
