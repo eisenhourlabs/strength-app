@@ -4927,6 +4927,103 @@ function renderTrendsVolume(sets, weekKeys, weekLabels) {
   return trendSection('volume', 'Volume &amp; Workload', body);
 }
 
+// ── Muscle group display groups ───────────────────────────────────────────────
+// Multi-muscle groups are expandable in the Trends chart.
+// Grip/Forearms, Calves, and Tibialis/Lower Leg are excluded from reporting.
+const MG_GROUPS = [
+  { id: 'chest',      label: 'Chest',       muscles: ['Chest'] },
+  { id: 'shoulders',  label: 'Shoulders',   muscles: ['Front Delts', 'Side Delts', 'Rear Delts', 'Rotator Cuff/Shoulder Support'] },
+  { id: 'back',       label: 'Back',        muscles: ['Lats', 'Upper Back', 'Traps'] },
+  { id: 'triceps',    label: 'Triceps',     muscles: ['Triceps'] },
+  { id: 'biceps',     label: 'Biceps',      muscles: ['Biceps'] },
+  { id: 'quads',      label: 'Quads',       muscles: ['Quads'] },
+  { id: 'hamstrings', label: 'Hamstrings',  muscles: ['Hamstrings'] },
+  { id: 'glutes',     label: 'Glutes',      muscles: ['Glutes'] },
+  { id: 'hips',       label: 'Hip Complex', muscles: ['Adductors', 'Hip Flexors', 'Lateral Hip'] },
+  { id: 'core',       label: 'Core',        muscles: ['Anterior Core', 'Obliques'] },
+  { id: 'lowback',    label: 'Low Back',    muscles: ['Low Back'] },
+];
+
+var _mgExpanded = {};  // group id → bool; default false (collapsed)
+
+// ── Muscle group chart helpers ────────────────────────────────────────────────
+function toggleMgGroup(id) {
+  _mgExpanded[id] = !_mgExpanded[id];
+  const detail  = document.getElementById('mg-detail-' + id);
+  const chevron = document.getElementById('mg-chev-' + id);
+  if (detail)  detail.style.display   = _mgExpanded[id] ? 'block' : 'none';
+  if (chevron) chevron.style.transform = _mgExpanded[id] ? 'rotate(90deg)' : '';
+}
+
+function buildMgBarHtml(primary, indirect, total, maxVal) {
+  const barPct = (total / maxVal * 100).toFixed(1);
+  let segs = '';
+  if (primary  > 0) segs += '<div style="width:' + (primary  / total * 100).toFixed(1) + '%;height:100%;background:#6e399e" title="Primary: '  + primary.toFixed(1)  + ' credited"></div>';
+  if (indirect > 0) segs += '<div style="width:' + (indirect / total * 100).toFixed(1) + '%;height:100%;background:#b08fd0" title="Indirect: ' + indirect.toFixed(1) + ' credited"></div>';
+  return '<div class="horiz-bar-track">'
+    + '<div style="width:' + barPct + '%;height:100%;display:flex;overflow:hidden;border-radius:4px">'
+    + segs + '</div></div>';
+}
+
+// Renders the expandable muscle group chart.
+// mgSplitMap: { muscle_group → { primary: n, indirect: n } }
+// maxVal: max group total (for bar width scaling)
+function renderMuscleGroupChart(mgSplitMap, maxVal) {
+  let html = '';
+  MG_GROUPS.forEach(function(g) {
+    let gPrimary = 0, gIndirect = 0;
+    const detailRows = [];
+    g.muscles.forEach(function(m) {
+      const v = mgSplitMap[m];
+      if (!v) return;
+      gPrimary  += v.primary;
+      gIndirect += v.indirect;
+      detailRows.push({ label: m, primary: v.primary, indirect: v.indirect, total: v.primary + v.indirect });
+    });
+    const gTotal = gPrimary + gIndirect;
+    if (gTotal === 0) return;
+
+    const gPrimaryR  = Math.round(gPrimary  * 10) / 10;
+    const gIndirectR = Math.round(gIndirect * 10) / 10;
+    const gTotalR    = Math.round(gTotal    * 10) / 10;
+    const displayTotal = Number.isInteger(gTotalR) ? gTotalR : gTotalR.toFixed(1);
+    const barHtml      = buildMgBarHtml(gPrimaryR, gIndirectR, gTotalR, maxVal);
+    const isExpandable = detailRows.length > 1;
+
+    if (isExpandable) {
+      const open = !!_mgExpanded[g.id];
+      html += '<div id="mg-g-' + g.id + '" onclick="toggleMgGroup(\'' + g.id + '\')" style="cursor:pointer;margin-bottom:8px">'
+        + '<div class="horiz-bar-meta">'
+        + '<span style="color:var(--fg)">' + g.label
+        + ' <span id="mg-chev-' + g.id + '" style="font-size:10px;color:var(--muted);display:inline-block;transition:transform .2s;transform:' + (open ? 'rotate(90deg)' : '') + '">›</span>'
+        + '</span>'
+        + '<span style="color:var(--muted)">' + displayTotal + ' credited</span>'
+        + '</div>' + barHtml + '</div>';
+
+      html += '<div id="mg-detail-' + g.id + '" style="display:' + (open ? 'block' : 'none') + ';margin-bottom:4px">';
+      detailRows.sort(function(a, b) { return b.total - a.total; }).forEach(function(d) {
+        const dp = Math.round(d.primary  * 10) / 10;
+        const di = Math.round(d.indirect * 10) / 10;
+        const dt = Math.round(d.total    * 10) / 10;
+        const dDisplay = Number.isInteger(dt) ? dt : dt.toFixed(1);
+        html += '<div style="padding-left:14px;margin-bottom:6px">'
+          + '<div class="horiz-bar-meta">'
+          + '<span style="color:var(--muted);font-size:11px">' + d.label + '</span>'
+          + '<span style="color:var(--muted);font-size:11px">' + dDisplay + ' credited</span>'
+          + '</div>' + buildMgBarHtml(dp, di, dt, maxVal) + '</div>';
+      });
+      html += '</div>';
+    } else {
+      html += '<div style="margin-bottom:8px">'
+        + '<div class="horiz-bar-meta">'
+        + '<span style="color:var(--fg)">' + g.label + '</span>'
+        + '<span style="color:var(--muted)">' + displayTotal + ' credited</span>'
+        + '</div>' + barHtml + '</div>';
+    }
+  });
+  return html || '<div style="color:var(--muted);font-size:12px;padding:6px 0">No data yet</div>';
+}
+
 // ── Adaptation color palette ──────────────────────────────────────────────────
 const ADAPT_COLORS = {
   'Power/Speed':        '#60a5fa',  // blue
@@ -5037,26 +5134,22 @@ function buildVolumeBreakdown(sets, weekKeys, period) {
     });
   });
 
-  const mgRows = Object.entries(mgSplitMap).map(function(entry) {
-    const mg       = entry[0];
-    const v        = entry[1];
-    const primary  = Math.round(v.primary  * 10) / 10;
-    const indirect = Math.round(v.indirect * 10) / 10;
-    const total    = Math.round((v.primary + v.indirect) * 10) / 10;
-    const segments = [];
-    if (primary  > 0) segments.push({ color: '#6e399e', value: primary,  title: 'Primary: '  + primary  + ' credited' });
-    if (indirect > 0) segments.push({ color: '#b08fd0', value: indirect, title: 'Indirect: ' + indirect + ' credited' });
-    return { label: mg, total: total, segments: segments };
-  }).sort(function(a, b) { return b.total - a.total; });
-
-  const maxMg = mgRows.length ? Math.max.apply(null, mgRows.map(function(r) { return r.total; })) : 1;
+  // maxMg based on group totals (so bar widths are relative to the largest group)
+  const maxMg = MG_GROUPS.reduce(function(mx, g) {
+    const gTotal = g.muscles.reduce(function(s, m) {
+      return s + (mgSplitMap[m] ? mgSplitMap[m].primary + mgSplitMap[m].indirect : 0);
+    }, 0);
+    return Math.max(mx, gTotal);
+  }, 0) || 1;
 
   // ── Render ────────────────────────────────────────────────────────────────
   const hasMp = mpRows.length > 0;
   const hasMg = mgRows.length > 0;
   const empty = '<div style="color:var(--muted);font-size:13px;padding:8px 0">No data for this period.</div>';
 
-  const mgLegend = '<div style="display:flex;gap:12px;margin-bottom:8px;font-size:10px;color:var(--muted)">'
+  const hasMg = Object.keys(mgSplitMap).length > 0;
+
+  const mgLegend = '<div style="display:flex;gap:12px;margin-bottom:10px;font-size:10px;color:var(--muted)">'
     + '<div style="display:flex;align-items:center;gap:4px"><div style="width:8px;height:8px;border-radius:2px;background:#6e399e"></div>Primary (direct)</div>'
     + '<div style="display:flex;align-items:center;gap:4px"><div style="width:8px;height:8px;border-radius:2px;background:#b08fd0"></div>Indirect</div>'
     + '</div>';
@@ -5070,7 +5163,7 @@ function buildVolumeBreakdown(sets, weekKeys, period) {
     + (hasMg ? '<div class="trends-chart-box">'
         + '<div class="trends-chart-title">Credited Sets by Muscle Group — ' + label + '</div>'
         + mgLegend
-        + renderStackedHorizChart(mgRows, maxMg, ' credited')
+        + renderMuscleGroupChart(mgSplitMap, maxMg)
         + '</div>' : '');
 }
 
