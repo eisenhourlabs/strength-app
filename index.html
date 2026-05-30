@@ -4626,14 +4626,16 @@ function trendsLineChart(points, labels, opts) {
   return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto">' + axes + yax + segs + dots + xlbls + '</svg>';
 }
 
-// Horizontal bar breakdown — items: [{label, value}]
-function trendsHorizChart(items, color) {
+// Horizontal bar breakdown — items: [{label, value}], optional suffix (default ' sets')
+function trendsHorizChart(items, color, suffix) {
   if (!items.length) return '<div style="color:var(--muted);font-size:12px;padding:6px 0">No data yet</div>';
-  color = color || 'var(--accent)';
+  color  = color  || 'var(--accent)';
+  suffix = suffix !== undefined ? suffix : ' sets';
   const maxV = Math.max.apply(null, items.map(function(x) { return x.value; }));
   return items.map(function(item) {
-    const pct = (item.value / maxV * 100).toFixed(1);
-    return '<div class="horiz-bar-row"><div class="horiz-bar-meta"><span style="color:var(--fg)">' + item.label + '</span><span style="color:var(--muted)">' + item.value + ' sets</span></div><div class="horiz-bar-track"><div class="horiz-bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div></div>';
+    const pct        = (item.value / maxV * 100).toFixed(1);
+    const displayVal = Number.isInteger(item.value) ? item.value : item.value.toFixed(1);
+    return '<div class="horiz-bar-row"><div class="horiz-bar-meta"><span style="color:var(--fg)">' + item.label + '</span><span style="color:var(--muted)">' + displayVal + suffix + '</span></div><div class="horiz-bar-track"><div class="horiz-bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div></div>';
   }).join('');
 }
 
@@ -4666,7 +4668,7 @@ async function loadTrends() {
       db.from('completed_conditioning').select('*').eq('athlete_id', S.athlete.id).gte('conditioning_date', cutoffStr).order('conditioning_date'),
       sessionIds.length
         ? db.from('completed_strength_sets')
-            .select('*, exercise:exercise_id(id,name,movement_pattern,exercise_type)')
+            .select('*, exercise:exercise_id(id,name,movement_pattern,exercise_type), planned_ex:planned_exercise_id(planned_adaptation,exercise_role)')
             .in('completed_session_id', sessionIds).eq('is_skipped', false).gt('set_number', 0).order('created_at')
         : Promise.resolve({ data: [] }),
     ]);
@@ -4676,6 +4678,18 @@ async function loadTrends() {
     const painItems    = painRes.data    || [];
     const conditioning = condRes.data    || [];
     const sets         = setsRes.data    || [];
+
+    // Fetch muscle map for all unique exercises in the sets
+    const uniqueExIds = Array.from(new Set(sets.map(function(s) { return s.exercise_id; }).filter(Boolean)));
+    const mmRes = uniqueExIds.length
+      ? await db.from('exercise_muscle_map').select('exercise_id,muscle_group,set_credit').in('exercise_id', uniqueExIds)
+      : { data: [] };
+    const muscleMap = {};
+    (mmRes.data || []).forEach(function(r) {
+      if (!muscleMap[r.exercise_id]) muscleMap[r.exercise_id] = [];
+      muscleMap[r.exercise_id].push({ muscle_group: r.muscle_group, set_credit: Number(r.set_credit) });
+    });
+    window._tMuscleMap = muscleMap;
 
     // Attach session_date to each set
     const sessDateMap = {};
@@ -4923,19 +4937,52 @@ function buildVolumeBreakdown(sets, weekKeys, period) {
     cutKeys = new Set(weekKeys.slice(-4));
   }
   const label = period === '1w' ? 'This Week' : period === '2w' ? 'Last Week' : 'Last 4 Weeks';
+
+  // Movement pattern
   const mpMap = {};
+  // Muscle group credited volume
+  const mgMap = {};
+  // Adaptation distribution
+  const acMap = {};
+
   sets.forEach(function(s) {
     if (!s._sd || !cutKeys.has(getWeekMonday(s._sd))) return;
+
+    // Movement pattern
     const mp = (s.exercise && s.exercise.movement_pattern) || 'Unknown';
     mpMap[mp] = (mpMap[mp] || 0) + 1;
+
+    // Muscle group — weighted by set_credit from exercise_muscle_map
+    const mmEntries = (window._tMuscleMap || {})[s.exercise_id] || [];
+    mmEntries.forEach(function(e) {
+      mgMap[e.muscle_group] = (mgMap[e.muscle_group] || 0) + e.set_credit;
+    });
+
+    // Adaptation — from planned_adaptation on the linked planned_exercise
+    const ac = (s.planned_ex && s.planned_ex.planned_adaptation) || 'Unclassified';
+    acMap[ac] = (acMap[ac] || 0) + 1;
   });
-  const sort = function(obj) { return Object.entries(obj).map(function(e) { return { label: e[0], value: e[1] }; }).sort(function(a,b) { return b.value - a.value; }); };
-  const empty = '<div style="color:var(--muted);font-size:13px;padding:8px 0">No data for this period.</div>';
+
+  const sortNum  = function(obj) {
+    return Object.entries(obj)
+      .map(function(e) { return { label: e[0], value: e[1] }; })
+      .sort(function(a, b) { return b.value - a.value; });
+  };
+  const sortRound = function(obj) {
+    return Object.entries(obj)
+      .map(function(e) { return { label: e[0], value: Math.round(e[1] * 10) / 10 }; })
+      .sort(function(a, b) { return b.value - a.value; });
+  };
+
+  const empty   = '<div style="color:var(--muted);font-size:13px;padding:8px 0">No data for this period.</div>';
   const hasSets = Object.keys(mpMap).length > 0;
-  // Muscle group and adaptation charts are Phase 3 — data lives in exercise_muscle_map
-  // and planned_adaptation; will be added once reporting views are built.
+  const hasMg   = Object.keys(mgMap).length > 0;
+  const hasAc   = Object.keys(acMap).length > 0;
+
   return (!hasSets ? empty : '')
-    + (hasSets ? '<div class="trends-chart-box"><div class="trends-chart-title">Sets by Movement Pattern — ' + label + '</div>' + trendsHorizChart(sort(mpMap), '#8b5cf6') + '</div>' : '');
+    + (hasSets ? '<div class="trends-chart-box"><div class="trends-chart-title">Sets by Movement Pattern — ' + label + '</div>' + trendsHorizChart(sortNum(mpMap), '#8b5cf6') + '</div>' : '')
+    + (hasMg   ? '<div class="trends-chart-box"><div class="trends-chart-title">Credited Sets by Muscle Group — ' + label + '</div>' + trendsHorizChart(sortRound(mgMap), 'var(--accent)', ' credited') + '</div>' : '')
+    + (hasAc   ? '<div class="trends-chart-box"><div class="trends-chart-title">Sets by Adaptation — ' + label + '</div>' + trendsHorizChart(sortNum(acMap), '#f59e0b') + '</div>' : '');
 }
 
 function refreshVolumeBreakdown() {
