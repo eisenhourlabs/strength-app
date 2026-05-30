@@ -550,6 +550,10 @@
       font-size: 12px; margin-bottom: 3px; }
     .horiz-bar-track { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
     .horiz-bar-fill  { height: 100%; border-radius: 4px; transition: width 0.3s; }
+    .adapt-legend    { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 10px; }
+    .adapt-legend-item { display: flex; align-items: center; gap: 4px;
+      font-size: 10px; color: var(--muted); white-space: nowrap; }
+    .adapt-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
     /* ── Conditioning blocks ─────────────────────────────────────── */
     .cond-block { background: var(--surface2); border: 1px solid var(--border);
@@ -4923,6 +4927,62 @@ function renderTrendsVolume(sets, weekKeys, weekLabels) {
   return trendSection('volume', 'Volume &amp; Workload', body);
 }
 
+// ── Adaptation color palette ──────────────────────────────────────────────────
+const ADAPT_COLORS = {
+  'Power/Speed':        '#60a5fa',  // blue
+  'Max Strength':       '#ef4444',  // red
+  'Strength':           '#f59e0b',  // amber
+  'Hypertrophy':        '#6e399e',  // purple (accent)
+  'Muscular Endurance': '#14b8a6',  // teal
+  'Rehab/Support':      '#6b7280',  // gray
+  'Unclassified':       '#374151',  // dark gray
+};
+const ADAPT_ORDER = [
+  'Power/Speed', 'Max Strength', 'Strength',
+  'Hypertrophy', 'Muscular Endurance', 'Rehab/Support', 'Unclassified',
+];
+
+// Stacked horizontal bar chart
+// rows: [{label, total, segments:[{color,value,title}], suffix?}]
+// maxVal: max total across all rows (controls bar width relative to track)
+// suffix: appended after the total value in the meta line
+function renderStackedHorizChart(rows, maxVal, suffix) {
+  suffix = suffix !== undefined ? suffix : ' sets';
+  if (!rows.length) return '<div style="color:var(--muted);font-size:12px;padding:6px 0">No data yet</div>';
+  return rows.map(function(row) {
+    const barPct     = (row.total / maxVal * 100).toFixed(1);
+    const displayVal = Number.isInteger(row.total) ? row.total : row.total.toFixed(1);
+    const segs = row.segments.filter(function(s) { return s.value > 0; }).map(function(seg) {
+      const segPct = (seg.value / row.total * 100).toFixed(1);
+      return '<div style="width:' + segPct + '%;height:100%;background:' + seg.color + '" title="' + seg.title + '"></div>';
+    }).join('');
+    return '<div class="horiz-bar-row">'
+      + '<div class="horiz-bar-meta">'
+      + '<span style="color:var(--fg)">' + row.label + '</span>'
+      + '<span style="color:var(--muted)">' + displayVal + suffix + '</span>'
+      + '</div>'
+      + '<div class="horiz-bar-track">'
+      + '<div style="width:' + barPct + '%;height:100%;display:flex;overflow:hidden;border-radius:4px">'
+      + segs
+      + '</div>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+// Legend for adaptation color key
+function buildAdaptLegend(adaptationsPresent) {
+  const items = ADAPT_ORDER.filter(function(a) { return adaptationsPresent.has(a); });
+  if (!items.length) return '';
+  return '<div class="adapt-legend">'
+    + items.map(function(a) {
+      return '<div class="adapt-legend-item">'
+        + '<div class="adapt-dot" style="background:' + ADAPT_COLORS[a] + '"></div>'
+        + a + '</div>';
+    }).join('')
+    + '</div>';
+}
+
 function buildVolumeBreakdown(sets, weekKeys, period) {
   var cutKeys;
   if (period === '1w') {
@@ -4938,51 +4998,80 @@ function buildVolumeBreakdown(sets, weekKeys, period) {
   }
   const label = period === '1w' ? 'This Week' : period === '2w' ? 'Last Week' : 'Last 4 Weeks';
 
-  // Movement pattern
-  const mpMap = {};
-  // Muscle group credited volume
-  const mgMap = {};
-  // Adaptation distribution
-  const acMap = {};
+  // ── Chart 1: Movement Pattern × Adaptation (stacked) ─────────────────────
+  const mpAdaptMap        = {};   // { movement_pattern → { adaptation → count } }
+  const adaptationsPresent = new Set();
 
   sets.forEach(function(s) {
     if (!s._sd || !cutKeys.has(getWeekMonday(s._sd))) return;
-
-    // Movement pattern
+    if (s.exercise && s.exercise.exercise_type === 'conditioning') return;
     const mp = (s.exercise && s.exercise.movement_pattern) || 'Unknown';
-    mpMap[mp] = (mpMap[mp] || 0) + 1;
-
-    // Muscle group — weighted by set_credit from exercise_muscle_map
-    const mmEntries = (window._tMuscleMap || {})[s.exercise_id] || [];
-    mmEntries.forEach(function(e) {
-      mgMap[e.muscle_group] = (mgMap[e.muscle_group] || 0) + e.set_credit;
-    });
-
-    // Adaptation — from planned_adaptation on the linked planned_exercise
     const ac = (s.planned_ex && s.planned_ex.planned_adaptation) || 'Unclassified';
-    acMap[ac] = (acMap[ac] || 0) + 1;
+    if (!mpAdaptMap[mp]) mpAdaptMap[mp] = {};
+    mpAdaptMap[mp][ac] = (mpAdaptMap[mp][ac] || 0) + 1;
+    adaptationsPresent.add(ac);
   });
 
-  const sortNum  = function(obj) {
-    return Object.entries(obj)
-      .map(function(e) { return { label: e[0], value: e[1] }; })
-      .sort(function(a, b) { return b.value - a.value; });
-  };
-  const sortRound = function(obj) {
-    return Object.entries(obj)
-      .map(function(e) { return { label: e[0], value: Math.round(e[1] * 10) / 10 }; })
-      .sort(function(a, b) { return b.value - a.value; });
-  };
+  const mpRows = Object.entries(mpAdaptMap).map(function(entry) {
+    const mp          = entry[0];
+    const adaptCounts = entry[1];
+    const total       = Object.values(adaptCounts).reduce(function(a, b) { return a + b; }, 0);
+    const segments    = ADAPT_ORDER.filter(function(a) { return adaptCounts[a]; }).map(function(a) {
+      return { color: ADAPT_COLORS[a], value: adaptCounts[a], title: a + ': ' + adaptCounts[a] + ' sets' };
+    });
+    return { label: mp, total: total, segments: segments };
+  }).sort(function(a, b) { return b.total - a.total; });
 
-  const empty   = '<div style="color:var(--muted);font-size:13px;padding:8px 0">No data for this period.</div>';
-  const hasSets = Object.keys(mpMap).length > 0;
-  const hasMg   = Object.keys(mgMap).length > 0;
-  const hasAc   = Object.keys(acMap).length > 0;
+  const maxMp = mpRows.length ? Math.max.apply(null, mpRows.map(function(r) { return r.total; })) : 1;
 
-  return (!hasSets ? empty : '')
-    + (hasSets ? '<div class="trends-chart-box"><div class="trends-chart-title">Sets by Movement Pattern — ' + label + '</div>' + trendsHorizChart(sortNum(mpMap), '#8b5cf6') + '</div>' : '')
-    + (hasMg   ? '<div class="trends-chart-box"><div class="trends-chart-title">Credited Sets by Muscle Group — ' + label + '</div>' + trendsHorizChart(sortRound(mgMap), 'var(--accent)', ' credited') + '</div>' : '')
-    + (hasAc   ? '<div class="trends-chart-box"><div class="trends-chart-title">Sets by Adaptation — ' + label + '</div>' + trendsHorizChart(sortNum(acMap), '#f59e0b') + '</div>' : '');
+  // ── Chart 2: Muscle Group — primary vs indirect credited sets ─────────────
+  const mgSplitMap = {};   // { muscle_group → { primary: n, indirect: n } }
+
+  sets.forEach(function(s) {
+    if (!s._sd || !cutKeys.has(getWeekMonday(s._sd))) return;
+    const mmEntries = (window._tMuscleMap || {})[s.exercise_id] || [];
+    mmEntries.forEach(function(e) {
+      if (!mgSplitMap[e.muscle_group]) mgSplitMap[e.muscle_group] = { primary: 0, indirect: 0 };
+      if (e.set_credit >= 1.0)      mgSplitMap[e.muscle_group].primary  += e.set_credit;
+      else if (e.set_credit > 0)    mgSplitMap[e.muscle_group].indirect += e.set_credit;
+    });
+  });
+
+  const mgRows = Object.entries(mgSplitMap).map(function(entry) {
+    const mg       = entry[0];
+    const v        = entry[1];
+    const primary  = Math.round(v.primary  * 10) / 10;
+    const indirect = Math.round(v.indirect * 10) / 10;
+    const total    = Math.round((v.primary + v.indirect) * 10) / 10;
+    const segments = [];
+    if (primary  > 0) segments.push({ color: '#6e399e', value: primary,  title: 'Primary: '  + primary  + ' credited' });
+    if (indirect > 0) segments.push({ color: '#b08fd0', value: indirect, title: 'Indirect: ' + indirect + ' credited' });
+    return { label: mg, total: total, segments: segments };
+  }).sort(function(a, b) { return b.total - a.total; });
+
+  const maxMg = mgRows.length ? Math.max.apply(null, mgRows.map(function(r) { return r.total; })) : 1;
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  const hasMp = mpRows.length > 0;
+  const hasMg = mgRows.length > 0;
+  const empty = '<div style="color:var(--muted);font-size:13px;padding:8px 0">No data for this period.</div>';
+
+  const mgLegend = '<div style="display:flex;gap:12px;margin-bottom:8px;font-size:10px;color:var(--muted)">'
+    + '<div style="display:flex;align-items:center;gap:4px"><div style="width:8px;height:8px;border-radius:2px;background:#6e399e"></div>Primary (direct)</div>'
+    + '<div style="display:flex;align-items:center;gap:4px"><div style="width:8px;height:8px;border-radius:2px;background:#b08fd0"></div>Indirect</div>'
+    + '</div>';
+
+  return (!hasMp && !hasMg ? empty : '')
+    + (hasMp ? '<div class="trends-chart-box">'
+        + '<div class="trends-chart-title">Movement Pattern by Adaptation — ' + label + '</div>'
+        + buildAdaptLegend(adaptationsPresent)
+        + renderStackedHorizChart(mpRows, maxMp)
+        + '</div>' : '')
+    + (hasMg ? '<div class="trends-chart-box">'
+        + '<div class="trends-chart-title">Credited Sets by Muscle Group — ' + label + '</div>'
+        + mgLegend
+        + renderStackedHorizChart(mgRows, maxMg, ' credited')
+        + '</div>' : '');
 }
 
 function refreshVolumeBreakdown() {
