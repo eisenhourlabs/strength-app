@@ -86,6 +86,10 @@
     .ex-group   { font-size: 11px; font-weight: 600; color: var(--accent);
       margin-bottom: 6px; letter-spacing: .5px; }
     .ex-target  { font-size: 12px; color: var(--muted); margin-bottom: 10px; line-height: 1.5; }
+    .ex-role    { font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
+      color: var(--muted); margin-bottom: 5px; opacity: .75; }
+    .ex-rest    { display: inline-block; font-size: 11px; font-weight: 600; color: var(--accent);
+      background: rgba(110,57,158,.15); border-radius: 10px; padding: 2px 8px; margin-top: 4px; }
     .ex-swap-note { font-size: 11px; color: var(--accent2); font-style: italic; margin-bottom: 8px; }
 
     /* Re-edit and delete buttons */
@@ -1003,7 +1007,7 @@ async function onLogin(user) {
     S.athlete = athlete;
 
     const { data: lib } = await db.from('exercise_library')
-      .select('id,name,movement_pattern,category,equipment').order('name');
+      .select('id,name,movement_pattern,exercise_type,equipment').order('name');
     S.exerciseLib = lib || [];
 
     try { await idbSet('athleteCache', { email: user.email, athlete, exerciseLib: S.exerciseLib }); } catch {}
@@ -1173,7 +1177,7 @@ async function loadProgram() {
     // Prefetch all session detail data so sessions work offline
     const [exAllRes, condAllRes] = await Promise.all([
       psIds.length ? db.from('planned_exercises')
-        .select('*, exercise:exercise_library(id,name,movement_pattern,category)')
+        .select('*, exercise:exercise_library(id,name,movement_pattern,equipment)')
         .in('session_id', psIds).order('item_order') : { data: [] },
       psIds.length ? db.from('planned_conditioning_blocks')
         .select('*').in('session_id', psIds) : { data: [] },
@@ -1354,7 +1358,7 @@ async function openSession(sessionId) {
   try {
     const [exRes, condRes] = await Promise.all([
       db.from('planned_exercises')
-        .select('*, exercise:exercise_library(id,name,movement_pattern,category)')
+        .select('*, exercise:exercise_library(id,name,movement_pattern,equipment)')
         .eq('session_id', sessionId)
         .order('item_order'),
       db.from('planned_conditioning_blocks')
@@ -1559,6 +1563,25 @@ async function submitInlineReadiness() {
   }
 }
 
+// ── Formatting helpers ────────────────────────────────────────────────────────
+function fmtRestRange(minS, maxS) {
+  if (minS == null || maxS == null) return null;
+  if (minS >= 60 && maxS >= 60) {
+    const lo = minS / 60, hi = maxS / 60;
+    return lo === hi ? `Rest ${lo} min` : `Rest ${lo}–${hi} min`;
+  }
+  return `Rest ${minS}–${maxS}s`;
+}
+
+const ROLE_LABELS = {
+  main:         'Main Lift',
+  supplemental: 'Supplemental',
+  accessory:    'Accessory',
+  primer:       'Primer',
+  remediation:  'Support / Rehab',
+  finisher:     'Finisher',
+};
+
 async function renderSessionBody() {
   const body = document.getElementById('session-body');
   let html   = '';
@@ -1590,8 +1613,14 @@ async function renderSessionBody() {
       const exName = st.swappedTo ? st.swappedTo.name : ex.name;
       const exId   = st.swappedTo ? st.swappedTo.id  : ex.id;
 
-      const groupHtml = pe.superset_group
-        ? `<div class="ex-group">SUPERSET ${pe.superset_group.toUpperCase()}</div>` : '';
+      // Role label (e.g. "Main Lift", "Supplemental")
+      const roleLabel   = pe.exercise_role ? ROLE_LABELS[pe.exercise_role] || pe.exercise_role : null;
+      const groupParts  = [];
+      if (pe.superset_group) groupParts.push(`SUPERSET ${pe.superset_group.toUpperCase()}`);
+      if (roleLabel)         groupParts.push(roleLabel.toUpperCase());
+      const groupHtml   = groupParts.length
+        ? `<div class="ex-role">${groupParts.join('  ·  ')}</div>` : '';
+
       const swapNoteHtml = st.swappedTo
         ? `<div class="ex-swap-note">↕ swapped from ${ex.name}</div>` : '';
 
@@ -1606,9 +1635,13 @@ async function renderSessionBody() {
         pe.rpe_high && pe.rpe_high !== pe.rpe_low
           ? `RPE ${pe.rpe_low}–${pe.rpe_high}` : `RPE ${pe.rpe_low}`);
       if (pe.tempo)        targetParts.push(`Tempo ${pe.tempo}`);
-      if (pe.rest_seconds) targetParts.push(`${pe.rest_seconds}s rest`);
       let targetHtml = targetParts.join(' · ');
-      if (pe.coach_notes) targetHtml += (targetHtml ? '<br>' : '') + `<em>${pe.coach_notes}</em>`;
+      if (pe.coach_notes)  targetHtml += (targetHtml ? '<br>' : '') + `<em>${pe.coach_notes}</em>`;
+
+      // Rest range — from min/max if available, fall back to single rest_seconds
+      const restRange = fmtRestRange(pe.rest_seconds_min, pe.rest_seconds_max)
+        || (pe.rest_seconds ? `Rest ${pe.rest_seconds}s` : null);
+      const restHtml = restRange ? `<br><span class="ex-rest">⏱ ${restRange}</span>` : '';
 
       const pmt         = st.measureType || 'reps';
       const setRowsHtml = buildSetRows(`p-${pe.id}`, st.setCount, st.skipped);
@@ -1632,7 +1665,7 @@ async function renderSessionBody() {
           </div>
           ${swapNoteHtml}
           ${measureRowHtml}
-          ${targetHtml ? `<div class="ex-target">${targetHtml}</div>` : ''}
+          ${(targetHtml || restHtml) ? `<div class="ex-target">${targetHtml}${restHtml}</div>` : ''}
           <div class="sets-wrap" id="sets-p-${pe.id}">${setRowsHtml}</div>
           <button class="add-set-btn" id="addbtn-p-${pe.id}"
             onclick="addSet('p-${pe.id}','${pe.id}',false)"
@@ -3264,19 +3297,15 @@ function setPatternFilter(pattern) {
   renderExList(getFilteredExercises());
 }
 
-const TEST_STRENGTH_CATEGORIES = new Set([
-  'Power-Speed', 'Upper Strength', 'Lower Strength'
-]);
-
 function getFilteredExercises() {
   const q = (document.getElementById('ex-search')?.value || '').toLowerCase().trim();
   const isTestMode = S.sheetMode === 'test-ex-select';
   return S.exerciseLib.filter(ex => {
     const matchesPat = !activePatternFilter || ex.movement_pattern === activePatternFilter;
     const matchesTxt = !q || ex.name.toLowerCase().includes(q);
-    // In test mode with no active search, restrict to strength-relevant categories
-    const matchesCat = !isTestMode || q || TEST_STRENGTH_CATEGORIES.has(ex.category);
-    return matchesPat && matchesTxt && matchesCat;
+    // In test mode with no active search, restrict to strength exercises only
+    const matchesType = !isTestMode || q || ex.exercise_type !== 'conditioning';
+    return matchesPat && matchesTxt && matchesType;
   });
 }
 
@@ -3289,7 +3318,7 @@ function renderExList(list) {
     <div class="sheet-item"
       onclick="selectExercise('${ex.id}','${ex.name.replace(/'/g,"\\'").replace(/"/g,"&quot;")}')">
       <div class="sheet-item-name">${ex.name}</div>
-      <div class="sheet-item-meta">${ex.movement_pattern||''} · ${ex.category||''}</div>
+      <div class="sheet-item-meta">${ex.movement_pattern||''}</div>
     </div>`).join('');
 }
 
@@ -4602,7 +4631,7 @@ async function loadTrends() {
       db.from('completed_conditioning').select('*').eq('athlete_id', S.athlete.id).gte('conditioning_date', cutoffStr).order('conditioning_date'),
       sessionIds.length
         ? db.from('completed_strength_sets')
-            .select('*, exercise:exercise_id(id,name,primary_muscle_group,movement_pattern,adaptation_category)')
+            .select('*, exercise:exercise_id(id,name,movement_pattern,exercise_type)')
             .in('completed_session_id', sessionIds).eq('is_skipped', false).gt('set_number', 0).order('created_at')
         : Promise.resolve({ data: [] }),
     ]);
@@ -4859,23 +4888,19 @@ function buildVolumeBreakdown(sets, weekKeys, period) {
     cutKeys = new Set(weekKeys.slice(-4));
   }
   const label = period === '1w' ? 'This Week' : period === '2w' ? 'Last Week' : 'Last 4 Weeks';
-  const mgMap = {}, mpMap = {}, acMap = {};
+  const mpMap = {};
   sets.forEach(function(s) {
     if (!s._sd || !cutKeys.has(getWeekMonday(s._sd))) return;
-    const mg = (s.exercise && s.exercise.primary_muscle_group) || 'Unknown';
-    const mp = (s.exercise && s.exercise.movement_pattern)     || 'Unknown';
-    const ac = (s.exercise && s.exercise.adaptation_category)  || 'Unknown';
-    mgMap[mg] = (mgMap[mg] || 0) + 1;
+    const mp = (s.exercise && s.exercise.movement_pattern) || 'Unknown';
     mpMap[mp] = (mpMap[mp] || 0) + 1;
-    acMap[ac] = (acMap[ac] || 0) + 1;
   });
   const sort = function(obj) { return Object.entries(obj).map(function(e) { return { label: e[0], value: e[1] }; }).sort(function(a,b) { return b.value - a.value; }); };
   const empty = '<div style="color:var(--muted);font-size:13px;padding:8px 0">No data for this period.</div>';
-  const hasSets = Object.keys(mgMap).length > 0;
+  const hasSets = Object.keys(mpMap).length > 0;
+  // Muscle group and adaptation charts are Phase 3 — data lives in exercise_muscle_map
+  // and planned_adaptation; will be added once reporting views are built.
   return (!hasSets ? empty : '')
-    + (hasSets ? '<div class="trends-chart-box"><div class="trends-chart-title">Sets by Muscle Group — ' + label + '</div>' + trendsHorizChart(sort(mgMap)) + '</div>' : '')
-    + (hasSets ? '<div class="trends-chart-box"><div class="trends-chart-title">Sets by Movement Pattern — ' + label + '</div>' + trendsHorizChart(sort(mpMap), '#8b5cf6') + '</div>' : '')
-    + (hasSets ? '<div class="trends-chart-box"><div class="trends-chart-title">Sets by Adaptation — ' + label + '</div>' + trendsHorizChart(sort(acMap), '#f59e0b') + '</div>' : '');
+    + (hasSets ? '<div class="trends-chart-box"><div class="trends-chart-title">Sets by Movement Pattern — ' + label + '</div>' + trendsHorizChart(sort(mpMap), '#8b5cf6') + '</div>' : '');
 }
 
 function refreshVolumeBreakdown() {
