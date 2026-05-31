@@ -5783,23 +5783,6 @@ async function submitCheckin() {
   }
 }
 
-function renderTrendsPain(painItems) {
-  if (!painItems.length) return '<div class="trends-section"><div class="trends-section-title">Watch Items</div><div style="color:var(--muted);font-size:13px;padding:8px 0">No active pain or injury flags. ✓</div></div>';
-  const scMap = { 'new': '#ef4444', 'worse': '#ef4444', 'same': '#f59e0b', 'improving': '#22c55e' };
-  const html  = painItems.map(function(p) {
-    const sc   = scMap[p.status] || '#94a3b8';
-    const meta = [
-      p.pain_score != null ? 'Pain: ' + p.pain_score + '/10' : null,
-      p.status     ? p.status.charAt(0).toUpperCase() + p.status.slice(1) : null,
-      p.log_date   ? new Date(p.log_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null,
-      p.modified_training ? 'Training modified' : null,
-    ].filter(Boolean).join(' · ');
-    const notesHtml = p.notes ? '<div class="pain-meta" style="margin-top:4px;font-style:italic">' + p.notes + '</div>' : '';
-    return '<div class="pain-flag" style="border-left-color:' + sc + '"><div class="pain-region">' + p.body_region + '</div><div class="pain-meta">' + meta + '</div>' + notesHtml + '</div>';
-  }).join('');
-  return '<div class="trends-section"><div class="trends-section-title">Watch Items</div>' + html + '</div>';
-}
-
 (async () => {
   // Probe connectivity FIRST — before any Supabase auth calls.
   // Supabase tries a token refresh if the JWT is expired, which hangs/fails offline
