@@ -145,6 +145,39 @@
       color: var(--muted); font-size: 13px; cursor: pointer; margin-bottom: 8px; }
     .add-set-btn:active { border-color: var(--accent); color: var(--accent); }
 
+    /* Set column header */
+    .set-col-header { display: flex; align-items: center; gap: 6px;
+      margin-bottom: 4px; padding: 0 2px; }
+    .set-col-num    { min-width: 28px; text-align: center; font-size: 11px;
+      font-weight: 700; color: var(--muted); letter-spacing: .6px; flex-shrink: 0; }
+    .set-col-fields { display: flex; gap: 6px; flex: 1; }
+    .set-col-field  { flex: 1; text-align: center; font-size: 11px;
+      font-weight: 700; color: var(--muted); letter-spacing: .6px; }
+    .set-col-check  { width: 30px; text-align: center; font-size: 11px;
+      font-weight: 700; color: var(--muted); letter-spacing: .3px; flex-shrink: 0; }
+    .set-col-del    { width: 32px; flex-shrink: 0; }
+
+    /* Set completion checkbox */
+    .set-check { background: none; border: 1.5px solid var(--border);
+      border-radius: 5px; width: 30px; height: 30px; cursor: pointer;
+      color: transparent; font-size: 14px; font-weight: 800;
+      flex-shrink: 0; padding: 0; display: flex; align-items: center; justify-content: center; }
+    .set-check:active { border-color: var(--success); }
+    .set-check.checked { background: var(--success); border-color: var(--success); color: #000; }
+
+    /* Checked set row highlight */
+    .set-row.set-checked { background: rgba(74,222,128,.1); border-radius: 6px; }
+
+    /* Rest countdown display */
+    .rest-timer-display { font-size: 14px; font-weight: 700; color: var(--accent);
+      padding: 4px 0 6px; display: none; }
+    .rest-timer-display.urgent { color: var(--accent2); }
+    .rest-timer-display.done   { color: var(--success); }
+
+    /* Session timer in header */
+    .session-timer-hdr { font-size: 14px; font-weight: 700; color: var(--muted);
+      min-width: 52px; text-align: right; letter-spacing: .3px; }
+
     /* Notes input */
     .notes-input { width: 100%; background: var(--surface2); border: 1px solid var(--border);
       border-radius: 8px; color: var(--text); font-size: 14px;
@@ -642,6 +675,7 @@
       <div class="header-title" id="session-title"></div>
       <div class="header-sub"  id="session-sub"></div>
     </div>
+    <div class="session-timer-hdr" id="session-timer">0:00</div>
   </div>
   <div class="body" id="session-body">
     <div class="spinner">Loading…</div>
@@ -956,6 +990,11 @@ let S = {
   exerciseLib: [],
   sheetMode:   null,
   swapExKey:   null,
+
+  // Set completion + timers
+  checkedSets:      {},   // { exerciseKey → { idx → bool } }
+  restTimers:       {},   // { exerciseKey → { remaining, targetSeconds, intervalId } }
+  sessionStartTime: null,
 };
 
 function today() { return new Date().toISOString().split('T')[0]; }
@@ -1245,12 +1284,20 @@ function reconstructAddedExercises(allRows) {
 }
 
 async function openSession(sessionId) {
+  // Stop any running rest timers from a previous session
+  Object.values(S.restTimers || {}).forEach(function(t) {
+    if (t && t.intervalId) clearInterval(t.intervalId);
+  });
+
   S.activeSession          = S.sessions.find(s => s.id === sessionId);
   S.exState                = {};
   S.addedExercises         = [];
   S.addedCounter           = 0;
   S.activeCompletedSession = null;
   S.savedExercises         = {};
+  S.checkedSets            = {};
+  S.restTimers             = {};
+  startSessionTimer();
 
   document.getElementById('session-title').textContent = S.activeSession.day_label;
   document.getElementById('session-sub').textContent   = S.activeSession.session_type || '';
@@ -1567,6 +1614,105 @@ async function submitInlineReadiness() {
   }
 }
 
+// ── Session timer ─────────────────────────────────────────────────────────────
+var _sessionTimerInterval = null;
+
+function startSessionTimer() {
+  S.sessionStartTime = Date.now();
+  stopSessionTimer();
+  _sessionTimerInterval = setInterval(updateSessionTimer, 1000);
+  updateSessionTimer();
+}
+
+function stopSessionTimer() {
+  if (_sessionTimerInterval) { clearInterval(_sessionTimerInterval); _sessionTimerInterval = null; }
+}
+
+function updateSessionTimer() {
+  const el = document.getElementById('session-timer');
+  if (!el || !S.sessionStartTime) return;
+  const elapsed = Math.floor((Date.now() - S.sessionStartTime) / 1000);
+  const h = Math.floor(elapsed / 3600);
+  const m = Math.floor((elapsed % 3600) / 60);
+  const s = elapsed % 60;
+  el.textContent = h > 0
+    ? h + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0')
+    : m + ':' + String(s).padStart(2,'0');
+}
+
+// ── Set completion checkbox ───────────────────────────────────────────────────
+function toggleSetCheck(key, idx) {
+  if (!S.checkedSets[key]) S.checkedSets[key] = {};
+  S.checkedSets[key][idx] = !S.checkedSets[key][idx];
+  const checked = !!S.checkedSets[key][idx];
+
+  const row = document.getElementById('setrow-' + key + '-' + idx);
+  const cb  = document.getElementById('cb-'     + key + '-' + idx);
+  if (row) row.classList.toggle('set-checked', checked);
+  if (cb)  { cb.classList.toggle('checked', checked); cb.textContent = checked ? '✓' : ''; }
+
+  if (checked) startRestTimer(key);
+}
+
+// ── Rest timer ────────────────────────────────────────────────────────────────
+function startRestTimer(key) {
+  // Determine target rest seconds from planned exercise data
+  let targetSeconds = 120; // fallback 2 min
+  if (key.startsWith('p-')) {
+    const pe = S.plannedExercises.find(function(e) { return e.id === key.slice(2); });
+    if (pe && pe.rest_seconds_min != null && pe.rest_seconds_max != null) {
+      targetSeconds = Math.round((pe.rest_seconds_min + pe.rest_seconds_max) / 2);
+    }
+  }
+
+  // Clear any existing timer for this exercise
+  if (S.restTimers[key] && S.restTimers[key].intervalId) {
+    clearInterval(S.restTimers[key].intervalId);
+  }
+
+  S.restTimers[key] = { remaining: targetSeconds, targetSeconds: targetSeconds, intervalId: null };
+  updateRestDisplay(key);
+
+  S.restTimers[key].intervalId = setInterval(function() {
+    const t = S.restTimers[key];
+    if (!t) return;
+    if (t.remaining <= 0) {
+      clearInterval(t.intervalId);
+      t.intervalId = null;
+      updateRestDisplay(key);
+      if (navigator.vibrate) navigator.vibrate([150, 80, 150]);
+      return;
+    }
+    t.remaining--;
+    updateRestDisplay(key);
+  }, 1000);
+}
+
+function updateRestDisplay(key) {
+  const el = document.getElementById('rest-timer-' + key);
+  if (!el) return;
+  const t = S.restTimers[key];
+  if (!t) { el.style.display = 'none'; return; }
+
+  el.style.display = 'block';
+  el.className     = 'rest-timer-display';
+
+  if (t.remaining <= 0) {
+    el.textContent = '✓  Rest complete — go!';
+    el.classList.add('done');
+  } else {
+    const m = Math.floor(t.remaining / 60);
+    const s = t.remaining % 60;
+    const timeStr = m + ':' + String(s).padStart(2, '0');
+    if (t.remaining <= 10) {
+      el.innerHTML  = '⏱  Rest: <strong>' + timeStr + '</strong>';
+      el.classList.add('urgent');
+    } else {
+      el.textContent = '⏱  Rest: ' + timeStr;
+    }
+  }
+}
+
 // ── Formatting helpers ────────────────────────────────────────────────────────
 function fmtRestRange(minS, maxS) {
   if (minS == null || maxS == null) return null;
@@ -1616,6 +1762,20 @@ async function renderSessionBody() {
       const ex     = pe.exercise;
       const exName = st.swappedTo ? st.swappedTo.name : ex.name;
       const exId   = st.swappedTo ? st.swappedTo.id  : ex.id;
+
+      // Column header reps label matches current measure type
+      const repsColLbl  = (st.measureType || 'reps') === 'time' ? 'SECS' : (st.measureType || 'reps') === 'dist' ? 'YDS' : 'REPS';
+      const colHdrHtml  = `
+        <div class="set-col-header" id="colhdr-p-${pe.id}">
+          <span class="set-col-num">SET</span>
+          <div class="set-col-fields">
+            <span class="set-col-field">LB</span>
+            <span class="set-col-field" id="col-reps-lbl-p-${pe.id}">${repsColLbl}</span>
+            <span class="set-col-field">RPE</span>
+          </div>
+          <span class="set-col-check">✓</span>
+          <span class="set-col-del"></span>
+        </div>`;
 
       // Role label (e.g. "Main Lift", "Supplemental")
       const roleLabel   = pe.exercise_role ? ROLE_LABELS[pe.exercise_role] || pe.exercise_role : null;
@@ -1670,6 +1830,8 @@ async function renderSessionBody() {
           ${swapNoteHtml}
           ${measureRowHtml}
           ${(targetHtml || restHtml) ? `<div class="ex-target">${targetHtml}${restHtml}</div>` : ''}
+          <div class="rest-timer-display" id="rest-timer-p-${pe.id}"></div>
+          ${colHdrHtml}
           <div class="sets-wrap" id="sets-p-${pe.id}">${setRowsHtml}</div>
           <button class="add-set-btn" id="addbtn-p-${pe.id}"
             onclick="addSet('p-${pe.id}','${pe.id}',false)"
@@ -1714,6 +1876,16 @@ async function renderSessionBody() {
             <option value="dist"${mt==='dist'?' selected':''}>Distance (yds)</option>
           </select>
         </div>
+        <div class="set-col-header">
+          <span class="set-col-num">SET</span>
+          <div class="set-col-fields">
+            <span class="set-col-field">LB</span>
+            <span class="set-col-field" id="col-reps-lbl-${key}">${mt === 'time' ? 'SECS' : mt === 'dist' ? 'YDS' : 'REPS'}</span>
+            <span class="set-col-field">RPE</span>
+          </div>
+          <span class="set-col-check">✓</span>
+          <span class="set-col-del"></span>
+        </div>
         <div class="sets-wrap" id="sets-${key}">${buildSetRows(key, ae.setCount, false)}</div>
         <button class="add-set-btn" onclick="addSet('${key}','${ae.localId}',true)">＋ Add Set</button>
         <textarea class="notes-input" id="notes-${key}" placeholder="Notes…"></textarea>
@@ -1755,6 +1927,18 @@ async function renderSessionBody() {
     </div>`;
 
   body.innerHTML = html;
+
+  // Restore checkbox states and rest timer displays after re-render
+  Object.entries(S.checkedSets || {}).forEach(function([exKey, sets]) {
+    Object.entries(sets).forEach(function([idx, checked]) {
+      if (!checked) return;
+      const row = document.getElementById('setrow-' + exKey + '-' + idx);
+      const cb  = document.getElementById('cb-' + exKey + '-' + idx);
+      if (row) row.classList.add('set-checked');
+      if (cb)  { cb.classList.add('checked'); cb.textContent = '✓'; }
+    });
+  });
+  Object.keys(S.restTimers || {}).forEach(function(key) { updateRestDisplay(key); });
 
   // Pre-fill planned load and reps into editable set rows.
   // restoreDraft() runs after this and will overwrite with any values the
@@ -3114,6 +3298,10 @@ function initExerciseSort(sessionId) {
 
 // Back button for session screen — capture draft before leaving
 async function leaveSession() {
+  stopSessionTimer();
+  Object.values(S.restTimers || {}).forEach(function(t) {
+    if (t && t.intervalId) clearInterval(t.intervalId);
+  });
   await captureDraft();
   loadProgram();
 }
@@ -3140,21 +3328,27 @@ function buildSetRows(key, count, disabled) {
 
 function buildOneSetRow(key, idx, disabled, measureType) {
   if (!measureType) measureType = getMeasureType(key);
-  const dis        = disabled ? 'disabled' : '';
-  const repsLabel  = measureType === 'time' ? 'sec' : measureType === 'dist' ? 'yds' : 'reps';
-  const repsImode  = measureType === 'time' ? 'numeric' : 'numeric';
+  const dis     = disabled ? 'disabled' : '';
+  const checked = !disabled && (S.checkedSets[key] || {})[idx];
+  const rowCls  = 'set-row' + (checked ? ' set-checked' : '');
+  const cbCls   = 'set-check' + (checked ? ' checked' : '');
   return `
-    <div class="set-row" id="setrow-${key}-${idx}">
-      <span class="set-num">S${idx+1}</span>
+    <div class="${rowCls}" id="setrow-${key}-${idx}">
+      <span class="set-num" style="font-size:13px;min-width:28px">${idx+1}</span>
       <div class="set-fields">
-        <div class="sf"><label>lb</label>
-          <input type="number" inputmode="decimal" id="load-${key}-${idx}" placeholder="—" ${dis}></div>
-        <div class="sf"><label>${repsLabel}</label>
-          <input type="number" inputmode="${repsImode}" id="reps-${key}-${idx}" placeholder="—" ${dis}></div>
-        <div class="sf"><label>RPE</label>
+        <div class="sf">
+          <input type="number" inputmode="decimal" id="load-${key}-${idx}" placeholder="—" ${dis}
+            style="font-size:17px;padding:10px 2px"></div>
+        <div class="sf">
+          <input type="number" inputmode="numeric" id="reps-${key}-${idx}" placeholder="—" ${dis}
+            style="font-size:17px;padding:10px 2px"></div>
+        <div class="sf">
           <input type="number" inputmode="decimal" step="0.5" min="1" max="10"
-            id="rpe-${key}-${idx}" placeholder="—" ${dis}></div>
+            id="rpe-${key}-${idx}" placeholder="—" ${dis}
+            style="font-size:17px;padding:10px 2px"></div>
       </div>
+      <button class="${cbCls}" id="cb-${key}-${idx}"
+        onclick="toggleSetCheck('${key}',${idx})" ${dis}>${checked ? '✓' : ''}</button>
       <button class="set-del" onclick="removeSet('${key}',${idx})" ${dis}>×</button>
     </div>`;
 }
@@ -3190,6 +3384,9 @@ function changeMeasureType(key, type) {
     if (rEl) rEl.value = s.reps;
     if (pEl) pEl.value = s.rpe;
   });
+  // Update column header reps label
+  const repsLbl = document.getElementById('col-reps-lbl-' + key);
+  if (repsLbl) repsLbl.textContent = type === 'time' ? 'SECS' : type === 'dist' ? 'YDS' : 'REPS';
 }
 
 // ── Add / remove sets ─────────────────────────────────────────────────────────
