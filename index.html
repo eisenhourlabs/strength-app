@@ -597,6 +597,52 @@
     .dist-row { display: flex; gap: 4px; align-items: center; }
     .dist-row input  { flex: 1; min-width: 0; }
     .dist-row select { width: 64px; flex-shrink: 0; }
+
+    /* ── Weekly Check-In ─────────────────────────────────────────── */
+    .checkin-sheet { position: fixed; bottom: 0; left: 0; right: 0;
+      background: var(--surface); border-radius: 20px 20px 0 0;
+      padding: 20px 16px calc(var(--safe-bot) + 20px); z-index: 101;
+      max-height: 92vh; display: flex; flex-direction: column;
+      transform: translateY(100%); transition: transform .25s ease; }
+    .checkin-sheet.open { transform: translateY(0); }
+    .checkin-scroll { overflow-y: auto; flex: 1; padding-bottom: 8px; }
+    .checkin-section { margin-bottom: 20px; }
+    .checkin-section-title { font-size: 11px; font-weight: 700; letter-spacing: 1px;
+      text-transform: uppercase; color: var(--accent); margin-bottom: 12px;
+      padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+    .day-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .day-chip { padding: 7px 12px; border-radius: 20px; font-size: 13px; font-weight: 600;
+      border: 1.5px solid var(--border); background: none; color: var(--muted); cursor: pointer; }
+    .day-chip.unavail { border-color: var(--accent2); color: var(--accent2);
+      background: rgba(255,39,18,.1); }
+    .toggle-row { display: flex; align-items: center; justify-content: space-between;
+      padding: 11px 0; border-bottom: 1px solid var(--border); }
+    .toggle-row:last-child { border-bottom: none; }
+    .toggle-label { font-size: 14px; font-weight: 600; color: var(--text); }
+    .toggle-sub   { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .toggle-switch { position: relative; width: 44px; height: 26px; flex-shrink: 0; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .toggle-slider { position: absolute; inset: 0; background: var(--surface2);
+      border-radius: 13px; cursor: pointer; border: 1.5px solid var(--border); transition: .2s; }
+    .toggle-slider::before { content: ''; position: absolute; width: 18px; height: 18px;
+      left: 3px; top: 2px; background: var(--muted); border-radius: 50%; transition: .2s; }
+    .toggle-switch input:checked + .toggle-slider { background: var(--accent); border-color: var(--accent); }
+    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(18px); background: #fff; }
+    .travel-sub { margin-top: 10px; padding: 12px; background: var(--surface2);
+      border-radius: 10px; display: none; }
+    .travel-sub.visible { display: block; }
+    .travel-sub label { font-size: 12px; color: var(--muted); display: block;
+      margin-bottom: 6px; font-weight: 600; letter-spacing: .5px; }
+    .travel-sub select { width: 100%; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 14px; padding: 10px 12px;
+      -webkit-appearance: none; }
+    .summary-tile { background: var(--surface2); border-radius: 10px; padding: 12px 14px;
+      margin: 0 0 12px; font-size: 13px; color: var(--muted); line-height: 1.6; }
+    .summary-tile strong { color: var(--text); font-weight: 700; }
+    .badge-checkin-due  { background: rgba(110,57,158,.15); color: var(--accent);
+      border: 1px dashed var(--accent); }
+    .badge-checkin-done { background: rgba(74,222,128,.1);  color: var(--success); }
+    .card.checkin-card  { border-color: var(--accent); }
   </style>
   <script>
     if ('serviceWorker' in navigator)
@@ -837,6 +883,19 @@
   <button class="btn secondary" style="margin-top:12px" onclick="closeNewSessionSheet()">Cancel</button>
 </div>
 
+<!-- ══════════════════ WEEKLY CHECK-IN SHEET ══════════════════ -->
+<div class="sheet-overlay" id="checkin-overlay" onclick="closeCheckin()"></div>
+<div class="checkin-sheet" id="checkin-sheet">
+  <div class="sheet-handle"></div>
+  <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:16px">
+    <div class="sheet-title" style="margin-bottom:0">Weekly Check-In</div>
+    <span style="font-size:12px;color:var(--muted)" id="checkin-week-label"></span>
+  </div>
+  <div class="checkin-scroll" id="checkin-body">
+    <!-- populated by openCheckin() -->
+  </div>
+</div>
+
 <!-- ══════════════════ TESTS SCREEN ══════════════════ -->
 <div class="screen" id="screen-tests">
   <div class="header">
@@ -1006,6 +1065,9 @@ let S = {
   checkedSets:      {},   // { exerciseKey → { idx → bool } }
   restTimers:       {},   // { exerciseKey → { remaining, targetSeconds, intervalId } }
   sessionStartTime: null,
+
+  // Weekly check-in (most recent submission for the upcoming week)
+  checkin: null,
 };
 
 function today() { return new Date().toISOString().split('T')[0]; }
@@ -1089,7 +1151,7 @@ async function doLogout() {
     activeSession:null, plannedExercises:[], plannedConditioning:null,
     activeCompletedSession:null, savedExercises:{},
     exState:{}, addedExercises:[], addedCounter:0, condBlocks:[], condBlockCounter:0,
-    exerciseLib:[], sheetMode:null, swapExKey:null, painFlags:{} };
+    exerciseLib:[], sheetMode:null, swapExKey:null, painFlags:{}, checkin:null };
   showScreen('login');
 }
 
@@ -1148,6 +1210,30 @@ async function renderWeek() {
       </div>`;
   }).join('');
 
+  // ── Check-In card ──────────────────────────────────────────────────────────
+  const ci = S.checkin;
+  let ciBadge, ciSub;
+  if (ci) {
+    const submittedDate = new Date(ci.submitted_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    ciBadge = `<span class="badge badge-checkin-done">✓ Submitted</span>`;
+    ciSub   = `<div class="card-sub" style="margin-top:4px;font-size:12px">${submittedDate}${ci.resubmitted ? ' · updated' : ''}</div>`;
+  } else {
+    ciBadge = `<span class="badge badge-checkin-due">Due this week</span>`;
+    ciSub   = `<div class="card-sub" style="margin-top:4px;font-size:12px;color:var(--muted)">Let your coach know about next week</div>`;
+  }
+  const checkinCardHtml = `
+    <div class="card tap checkin-card" onclick="openCheckin()" style="margin-top:4px">
+      <div class="session-row">
+        <div style="flex:1">
+          <div class="card-label">Weekly Check-In</div>
+          <div class="card-title" style="font-size:16px">✍️  Notes for Coach</div>
+          <div class="session-meta">${ciBadge}</div>
+          ${ciSub}
+        </div>
+        <div class="arrow">›</div>
+      </div>
+    </div>`;
+
   const utilHtml = `
     <div class="divider"></div>
     <div class="util-grid">
@@ -1177,7 +1263,7 @@ async function renderWeek() {
       🗓  Start New Week
     </button>`;
 
-  body.innerHTML = `<div id="session-list">${sessHtml}</div>` + utilHtml;
+  body.innerHTML = `<div id="session-list">${sessHtml}</div>` + checkinCardHtml + utilHtml;
   initSessionSort();
   showScreen('week');
 }
@@ -1258,6 +1344,16 @@ async function loadProgram() {
     }
     try { await idbSet('sessionDetailCache', sessionDetailCache); } catch {}
     try { await idbSet('programCache', { athleteId: S.athlete.id, cycle: S.cycle, sessions: S.sessions, completed: S.completed }); } catch {}
+
+    // Load most recent check-in for the upcoming week (non-blocking)
+    try {
+      const { data: ci } = await db.from('athlete_weekly_checkin')
+        .select('*')
+        .eq('athlete_id', S.athlete.id)
+        .eq('week_start_date', nextMonday())
+        .maybeSingle();
+      S.checkin = ci || null;
+    } catch (_) { S.checkin = null; }
 
     renderWeek();
   } catch (_) {
@@ -5384,370 +5480,12 @@ function renderMuscleGroupChart(mgSplitMap, maxVal) {
         + '</div>' + barHtml + '</div>';
     }
   });
-  return html || '<div style="color:var(--muted);font-size:12px;padding:6px 0">No data yet</div>';
+  html += '</div>';
+  return html;
 }
-
-// ── Adaptation color palette ──────────────────────────────────────────────────
-const ADAPT_COLORS = {
-  'Power/Speed':        '#60a5fa',  // blue
-  'Max Strength':       '#ef4444',  // red
-  'Strength':           '#f59e0b',  // amber
-  'Hypertrophy':        '#6e399e',  // purple (accent)
-  'Muscular Endurance': '#14b8a6',  // teal
-  'Rehab/Support':      '#6b7280',  // gray
-  'Unclassified':       '#374151',  // dark gray
-};
-const ADAPT_ORDER = [
-  'Power/Speed', 'Max Strength', 'Strength',
-  'Hypertrophy', 'Muscular Endurance', 'Rehab/Support', 'Unclassified',
-];
-
-// Stacked horizontal bar chart
-// rows: [{label, total, segments:[{color,value,title}], suffix?}]
-// maxVal: max total across all rows (controls bar width relative to track)
-// suffix: appended after the total value in the meta line
-function renderStackedHorizChart(rows, maxVal, suffix) {
-  suffix = suffix !== undefined ? suffix : ' sets';
-  if (!rows.length) return '<div style="color:var(--muted);font-size:12px;padding:6px 0">No data yet</div>';
-  return rows.map(function(row) {
-    const barPct     = (row.total / maxVal * 100).toFixed(1);
-    const displayVal = Number.isInteger(row.total) ? row.total : row.total.toFixed(1);
-    const segs = row.segments.filter(function(s) { return s.value > 0; }).map(function(seg) {
-      const segPct = (seg.value / row.total * 100).toFixed(1);
-      return '<div style="width:' + segPct + '%;height:100%;background:' + seg.color + '" title="' + seg.title + '"></div>';
-    }).join('');
-    return '<div class="horiz-bar-row">'
-      + '<div class="horiz-bar-meta">'
-      + '<span style="color:var(--fg)">' + row.label + '</span>'
-      + '<span style="color:var(--muted)">' + displayVal + suffix + '</span>'
-      + '</div>'
-      + '<div class="horiz-bar-track">'
-      + '<div style="width:' + barPct + '%;height:100%;display:flex;overflow:hidden;border-radius:4px">'
-      + segs
-      + '</div>'
-      + '</div>'
-      + '</div>';
-  }).join('');
-}
-
-// Legend for adaptation color key
-function buildAdaptLegend(adaptationsPresent) {
-  const items = ADAPT_ORDER.filter(function(a) { return adaptationsPresent.has(a); });
-  if (!items.length) return '';
-  return '<div class="adapt-legend">'
-    + items.map(function(a) {
-      return '<div class="adapt-legend-item">'
-        + '<div class="adapt-dot" style="background:' + ADAPT_COLORS[a] + '"></div>'
-        + a + '</div>';
-    }).join('')
-    + '</div>';
-}
-
-function buildVolumeBreakdown(sets, weekKeys, period) {
-  var cutKeys;
-  if (period === '1w') {
-    const thisMonday = getWeekMonday(today());
-    cutKeys = new Set([thisMonday]);
-  } else if (period === '2w') {
-    const thisMonday = getWeekMonday(today());
-    const d = new Date(thisMonday + 'T00:00:00');
-    d.setDate(d.getDate() - 7);
-    cutKeys = new Set([d.toISOString().slice(0,10)]);
-  } else {
-    cutKeys = new Set(weekKeys.slice(-4));
-  }
-  const label = period === '1w' ? 'This Week' : period === '2w' ? 'Last Week' : 'Last 4 Weeks';
-
-  // ── Chart 1: Movement Pattern × Adaptation (stacked) ─────────────────────
-  const mpAdaptMap        = {};   // { movement_pattern → { adaptation → count } }
-  const adaptationsPresent = new Set();
-
-  sets.forEach(function(s) {
-    if (!s._sd || !cutKeys.has(getWeekMonday(s._sd))) return;
-    if (s.exercise && s.exercise.exercise_type === 'conditioning') return;
-    const mp = (s.exercise && s.exercise.movement_pattern) || 'Unknown';
-    const ac = (s.planned_ex && s.planned_ex.planned_adaptation) || 'Unclassified';
-    if (!mpAdaptMap[mp]) mpAdaptMap[mp] = {};
-    mpAdaptMap[mp][ac] = (mpAdaptMap[mp][ac] || 0) + 1;
-    adaptationsPresent.add(ac);
-  });
-
-  const mpRows = Object.entries(mpAdaptMap).map(function(entry) {
-    const mp          = entry[0];
-    const adaptCounts = entry[1];
-    const total       = Object.values(adaptCounts).reduce(function(a, b) { return a + b; }, 0);
-    const segments    = ADAPT_ORDER.filter(function(a) { return adaptCounts[a]; }).map(function(a) {
-      return { color: ADAPT_COLORS[a], value: adaptCounts[a], title: a + ': ' + adaptCounts[a] + ' sets' };
-    });
-    return { label: mp, total: total, segments: segments };
-  }).sort(function(a, b) { return b.total - a.total; });
-
-  const maxMp = mpRows.length ? Math.max.apply(null, mpRows.map(function(r) { return r.total; })) : 1;
-
-  // ── Chart 2: Muscle Group — primary vs indirect credited sets ─────────────
-  const mgSplitMap = {};   // { muscle_group → { primary: n, indirect: n } }
-
-  sets.forEach(function(s) {
-    if (!s._sd || !cutKeys.has(getWeekMonday(s._sd))) return;
-    const mmEntries = (window._tMuscleMap || {})[s.exercise_id] || [];
-    mmEntries.forEach(function(e) {
-      if (!mgSplitMap[e.muscle_group]) mgSplitMap[e.muscle_group] = { primary: 0, indirect: 0 };
-      if (e.set_credit >= 1.0)      mgSplitMap[e.muscle_group].primary  += e.set_credit;
-      else if (e.set_credit > 0)    mgSplitMap[e.muscle_group].indirect += e.set_credit;
-    });
-  });
-
-  // maxMg based on group totals (so bar widths are relative to the largest group)
-  const maxMg = MG_GROUPS.reduce(function(mx, g) {
-    const gTotal = g.muscles.reduce(function(s, m) {
-      return s + (mgSplitMap[m] ? mgSplitMap[m].primary + mgSplitMap[m].indirect : 0);
-    }, 0);
-    return Math.max(mx, gTotal);
-  }, 0) || 1;
-
-  // ── Render ────────────────────────────────────────────────────────────────
-  const hasMp  = mpRows.length > 0;
-  const hasMg  = Object.keys(mgSplitMap).length > 0;
-  const empty  = '<div style="color:var(--muted);font-size:13px;padding:8px 0">No data for this period.</div>';
-
-  const mgLegend = '<div style="display:flex;gap:12px;margin-bottom:10px;font-size:10px;color:var(--muted)">'
-    + '<div style="display:flex;align-items:center;gap:4px"><div style="width:8px;height:8px;border-radius:2px;background:#6e399e"></div>Primary (direct)</div>'
-    + '<div style="display:flex;align-items:center;gap:4px"><div style="width:8px;height:8px;border-radius:2px;background:#b08fd0"></div>Indirect</div>'
-    + '</div>';
-
-  return (!hasMp && !hasMg ? empty : '')
-    + (hasMp ? '<div class="trends-chart-box">'
-        + '<div class="trends-chart-title">Movement Pattern by Adaptation — ' + label + '</div>'
-        + buildAdaptLegend(adaptationsPresent)
-        + renderStackedHorizChart(mpRows, maxMp)
-        + '</div>' : '')
-    + (hasMg ? '<div class="trends-chart-box">'
-        + '<div class="trends-chart-title">Credited Sets by Muscle Group — ' + label + '</div>'
-        + mgLegend
-        + renderMuscleGroupChart(mgSplitMap, maxMg)
-        + '</div>' : '');
-}
-
-function refreshVolumeBreakdown() {
-  const sel = document.getElementById('vol-period-select');
-  const el  = document.getElementById('vol-breakdown');
-  if (sel && el) el.innerHTML = buildVolumeBreakdown(window._tSets || [], window._tWkKeys || [], sel.value);
-}
-
-// ── Consistency ───────────────────────────────────────────────────
-function renderTrendsConsistency(sessions, weekKeys, weekLabels, plannedPerWeek) {
-  const byWk = {};
-  weekKeys.forEach(function(k) { byWk[k] = 0; });
-  sessions.forEach(function(s) {
-    const wk = getWeekMonday(s.session_date);
-    if (byWk[wk] !== undefined) byWk[wk]++;
-  });
-  const values = weekKeys.map(function(k) { return byWk[k]; });
-  const chart  = trendsBarChart(values, weekLabels, { height: 110 });
-
-  const byMonth = {};
-  sessions.forEach(function(s) {
-    const m = s.session_date.slice(0, 7);
-    byMonth[m] = (byMonth[m] || 0) + 1;
-  });
-  const monthRows = Object.entries(byMonth).sort(function(a,b) { return b[0].localeCompare(a[0]); }).map(function(e) {
-    const d   = new Date(e[0] + '-01T00:00:00');
-    const lbl = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    return '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px"><span style="color:var(--fg)">' + lbl + '</span><span style="color:var(--accent);font-weight:600">' + e[1] + '</span></div>';
-  }).join('');
-
-  const ytd = sessions.filter(function(s) { return s.session_date.startsWith(new Date().getFullYear().toString()); }).length;
-
-  // Completion rate — only shown when using AI coach (plannedPerWeek > 0)
-  let completionHtml = '';
-  if (plannedPerWeek > 0) {
-    // Count weeks with data (exclude future weeks from denominator)
-    const todayWk = getWeekMonday(today());
-    const pastKeys = weekKeys.filter(function(k) { return k <= todayWk; });
-    const totalPlanned  = pastKeys.length * plannedPerWeek;
-    const totalPlannedCompleted = sessions.filter(function(s) { return s.planned_session_id; }).length;
-    const pct = totalPlanned > 0 ? Math.round(totalPlannedCompleted / totalPlanned * 100) : 0;
-    // This week: sessions completed vs planned
-    const thisWkCompleted = sessions.filter(function(s) {
-      return getWeekMonday(s.session_date) === todayWk && s.planned_session_id;
-    }).length;
-    completionHtml = '<div class="trends-stat-pill"><div class="trends-stat-num">' + pct + '%</div><div class="trends-stat-lbl">Completion Rate</div></div>'
-      + '<div class="trends-stat-pill"><div class="trends-stat-num">' + thisWkCompleted + '/' + plannedPerWeek + '</div><div class="trends-stat-lbl">This Week</div></div>';
-  }
-
-  const statStrip = '<div class="trends-stat-strip"><div class="trends-stat-pill"><div class="trends-stat-num">' + ytd + '</div><div class="trends-stat-lbl">Sessions YTD</div></div><div class="trends-stat-pill"><div class="trends-stat-num">' + sessions.length + '</div><div class="trends-stat-lbl">Last 12 weeks</div></div>' + completionHtml + '</div>';
-
-  return trendSection('consistency', 'Consistency', statStrip + '<div class="trends-chart-box"><div class="trends-chart-title">Sessions per Week</div>' + chart + '</div>' + monthRows);
-}
-
-// ── Readiness & Recovery ─────────────────────────────────────────
-function renderTrendsReadiness(readiness, weekKeys, weekLabels) {
-  if (!readiness.length) return trendSection('readiness', 'Readiness &amp; Recovery', '<div style="color:var(--muted);font-size:13px;padding:8px 0">No readiness data yet.</div>');
-
-  // Compute composite readiness score per week (avg of energy + (5-soreness) + (5-stress) + motivation, scaled 1-5)
-  const scoreByWk = {};
-  readiness.forEach(function(r) {
-    const wk = getWeekMonday(r.log_date);
-    if (!scoreByWk[wk]) scoreByWk[wk] = [];
-    const vals = [];
-    if (r.energy     != null) vals.push(parseFloat(r.energy));
-    if (r.soreness   != null) vals.push(6 - parseFloat(r.soreness)); // invert: low soreness = good
-    if (r.stress     != null) vals.push(6 - parseFloat(r.stress));   // invert: low stress = good
-    if (r.motivation != null) vals.push(parseFloat(r.motivation));
-    if (vals.length) scoreByWk[wk].push(vals.reduce(function(a,b){return a+b;},0) / vals.length);
-  });
-  const scoreVals = weekKeys.map(function(k) {
-    const arr = scoreByWk[k];
-    return arr && arr.length ? parseFloat((arr.reduce(function(a,b){return a+b;},0)/arr.length).toFixed(1)) : null;
-  });
-
-  // Most recent log for the pill strip
-  const latest = readiness.slice().sort(function(a,b){ return b.log_date.localeCompare(a.log_date); })[0];
-  var pillHtml = '';
-  if (latest) {
-    const scoreNum = scoreVals.filter(function(v){return v!=null;}).slice(-1)[0];
-    const scoreClass = scoreNum == null ? '' : scoreNum >= 4 ? 'good' : scoreNum >= 3 ? 'ok' : 'low';
-    const scoreDisp  = scoreNum != null ? scoreNum.toFixed(1) : '—';
-    pillHtml = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
-      + '<div class="ready-score-pip ' + scoreClass + '">' + scoreDisp + '</div>'
-      + '<div style="font-size:12px;color:var(--muted)">Latest score &nbsp;·&nbsp; ' + new Date(latest.log_date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}) + '</div>'
-      + '</div>'
-      + '<div class="ready-last-row">'
-      + (latest.energy     != null ? '<span class="ready-last-pill">⚡ Energy ' + latest.energy + '/5</span>' : '')
-      + (latest.soreness   != null ? '<span class="ready-last-pill">💪 Soreness ' + latest.soreness + '/5</span>' : '')
-      + (latest.stress     != null ? '<span class="ready-last-pill">🧠 Stress ' + latest.stress + '/5</span>' : '')
-      + (latest.motivation != null ? '<span class="ready-last-pill">🔥 Motivation ' + latest.motivation + '/5</span>' : '')
-      + (latest.sleep_hours!= null ? '<span class="ready-last-pill">😴 Sleep ' + latest.sleep_hours + 'h</span>' : '')
-      + '</div>';
-  }
-
-  const chartHtml = '<div class="trends-chart-box"><div class="trends-chart-title">Readiness Score per Week (1–5)</div>'
-    + trendsLineChart(scoreVals, weekLabels, { decimals: 1, min: 1, max: 5 }) + '</div>';
-
-  return trendSection('readiness', 'Readiness &amp; Recovery', pillHtml + chartHtml);
-}
-
-function condAdaptation(workoutType, modality) {
-  // Derive adaptation zone from workout_type / modality
-  if (!workoutType && !modality) return 'Unknown';
-  const wt = (workoutType || '').toLowerCase();
-  const mo = (modality || '').toLowerCase();
-  if (wt === 'intervals') return 'Anaerobic / Mixed';
-  if (wt === 'circuit' || mo === 'circuit training') return 'Mixed / GPP';
-  if (wt === 'tempo') return 'Threshold';
-  if (wt === 'steady state' || mo === 'run' || mo === 'ruck' || mo === 'walk'
-      || mo === 'rower' || mo === 'skierge' || mo === 'cycling'
-      || mo === 'echo bike' || mo === 'swimming') return 'Aerobic Base';
-  return 'Other';
-}
-
-function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
-  if (!conditioning.length) return trendSection('conditioning', 'Conditioning', '<div style="color:var(--muted);font-size:13px;padding:8px 0">No conditioning data yet.</div>');
-
-  // ── Minutes per week (12-week bar) ────────────────────────────────────────
-  const byWk = {};
-  weekKeys.forEach(function(k) { byWk[k] = 0; });
-  conditioning.forEach(function(row) {
-    const dateStr = row.conditioning_date || (row.created_at ? row.created_at.slice(0,10) : null);
-    if (!dateStr) return;
-    const wk = getWeekMonday(dateStr);
-    if (byWk[wk] !== undefined && row.duration_minutes) byWk[wk] += row.duration_minutes;
-  });
-  const wkValues = weekKeys.map(function(k) { return Math.round(byWk[k]); });
-  const minChart = trendsBarChart(wkValues, weekLabels, { height: 110, color: '#06b6d4' });
-
-  // ── Last-30-day window ────────────────────────────────────────────────────
-  const now30 = new Date(); now30.setDate(now30.getDate() - 30);
-  const cutoff30 = now30.toISOString().slice(0,10);
-  const recent = conditioning.filter(function(row) {
-    const d = row.conditioning_date || (row.created_at ? row.created_at.slice(0,10) : null);
-    return d && d >= cutoff30;
-  });
-
-  // ── Time by modality (30 days) ────────────────────────────────────────────
-  const timeByMod = {};
-  recent.forEach(function(row) {
-    if (!row.modality) return;
-    timeByMod[row.modality] = (timeByMod[row.modality] || 0) + (row.duration_minutes || 0);
-  });
-  const timeItems = Object.entries(timeByMod)
-    .map(function(e) { return { label: e[0], value: Math.round(e[1]) }; })
-    .sort(function(a,b) { return b.value - a.value; });
-
-  // ── Distance by modality (30 days, metres -> miles) ───────────────────────
-  const DIST_MODS = ['Run','Ruck','Walk','Rower','SkiErg','Cycling','Echo Bike','Swimming'];
-  const distByMod = {};
-  recent.forEach(function(row) {
-    if (!row.modality || !row.distance_meters) return;
-    if (!DIST_MODS.includes(row.modality)) return;
-    distByMod[row.modality] = (distByMod[row.modality] || 0) + row.distance_meters;
-  });
-  const distItems = Object.entries(distByMod)
-    .map(function(e) { return { label: e[0], value: parseFloat((e[1] / 1609.34).toFixed(1)) }; })
-    .sort(function(a,b) { return b.value - a.value; });
-
-  // ── Adaptation breakdown (30 days) ───────────────────────────────────────
-  const adaptMap = {};
-  recent.forEach(function(row) {
-    const zone = condAdaptation(row.workout_type, row.modality);
-    adaptMap[zone] = (adaptMap[zone] || 0) + (row.duration_minutes || 1);
-  });
-  const adaptColors = {
-    'Aerobic Base': '#22c55e', 'Threshold': '#f59e0b',
-    'Anaerobic / Mixed': '#ef4444', 'Mixed / GPP': '#8b5cf6', 'Other': '#94a3b8'
-  };
-  const adaptItems = Object.entries(adaptMap)
-    .map(function(e) { return { label: e[0], value: Math.round(e[1]) }; })
-    .sort(function(a,b) { return b.value - a.value; });
-
-  // ── Workout type breakdown (30 days) ─────────────────────────────────────
-  const wtMap = {};
-  recent.forEach(function(row) {
-    const wt = row.workout_type || 'Unspecified';
-    wtMap[wt] = (wtMap[wt] || 0) + (row.duration_minutes || 1);
-  });
-  const wtItems = Object.entries(wtMap)
-    .map(function(e) { return { label: e[0], value: Math.round(e[1]) }; })
-    .sort(function(a,b) { return b.value - a.value; });
-
-  // ── Build HTML ─────────────────────────────────────────────────────────────
-  var body = '';
-
-  body += '<div class="trends-chart-box"><div class="trends-chart-title">Minutes per Week</div>' + minChart + '</div>';
-
-  if (adaptItems.length) {
-    // Custom color horiz chart for adaptation
-    const adaptTotal = adaptItems.reduce(function(s,i){return s+i.value;},0);
-    var adaptRows = '';
-    adaptItems.forEach(function(item) {
-      const pct = adaptTotal ? Math.round(item.value / adaptTotal * 100) : 0;
-      const col = adaptColors[item.label] || '#94a3b8';
-      adaptRows += '<div class="horiz-bar-row">'
-        + '<div class="horiz-bar-meta"><span>' + item.label + '</span><span>' + item.value + ' min (' + pct + '%)</span></div>'
-        + '<div class="horiz-bar-track"><div class="horiz-bar-fill" style="width:' + pct + '%;background:' + col + '"></div></div>'
-        + '</div>';
-    });
-    body += '<div class="trends-chart-box"><div class="trends-chart-title">By Adaptation Zone — last 30 days</div>' + adaptRows + '</div>';
-  }
-
-  if (wtItems.length) {
-    body += '<div class="trends-chart-box"><div class="trends-chart-title">By Workout Type — last 30 days (min)</div>' + trendsHorizChart(wtItems, '#06b6d4') + '</div>';
-  }
-
-  if (timeItems.length) {
-    body += '<div class="trends-chart-box"><div class="trends-chart-title">Time by Modality — last 30 days (min)</div>' + trendsHorizChart(timeItems, '#0891b2') + '</div>';
-  }
-
-  if (distItems.length) {
-    body += '<div class="trends-chart-box"><div class="trends-chart-title">Distance by Modality — last 30 days (mi)</div>' + trendsHorizChart(distItems, '#0e7490') + '</div>';
-  }
-
-  return trendSection('conditioning', 'Conditioning', body);
-}
-
 
 function renderTrendsPain(painItems) {
-  if (!painItems.length) return trendSection('pain', 'Watch Items', '<div style="color:var(--muted);font-size:13px;padding:8px 0">No active pain or injury flags. ✓</div>');
+  if (!painItems.length) return '<div class="trends-section"><div class="trends-section-title">Watch Items</div><div style="color:var(--muted);font-size:13px;padding:8px 0">No active pain or injury flags. ✓</div></div>';
   const scMap = { 'new': '#ef4444', 'worse': '#ef4444', 'same': '#f59e0b', 'improving': '#22c55e' };
   const html  = painItems.map(function(p) {
     const sc   = scMap[p.status] || '#94a3b8';
@@ -5760,7 +5498,241 @@ function renderTrendsPain(painItems) {
     const notesHtml = p.notes ? '<div class="pain-meta" style="margin-top:4px;font-style:italic">' + p.notes + '</div>' : '';
     return '<div class="pain-flag" style="border-left-color:' + sc + '"><div class="pain-region">' + p.body_region + '</div><div class="pain-meta">' + meta + '</div>' + notesHtml + '</div>';
   }).join('');
-  return trendSection('pain', 'Watch Items', html);
+  return '<div class="trends-section"><div class="trends-section-title">Watch Items</div>' + html + '</div>';
+}
+
+
+// ── Weekly Check-In ───────────────────────────────────────────────────────────
+
+/** Returns the ISO date string for the next upcoming Monday (always future). */
+function nextMonday() {
+  const d   = new Date();
+  const day = d.getDay(); // 0=Sun, 1=Mon, …
+  const add = day === 1 ? 7 : (8 - day) % 7;
+  d.setDate(d.getDate() + add);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Friendly label for the upcoming week start date. */
+function nextMondayLabel() {
+  const d = new Date(nextMonday() + 'T00:00:00');
+  return 'Week of ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+async function openCheckin() {
+  document.getElementById('checkin-week-label').textContent = nextMondayLabel();
+  document.getElementById('checkin-overlay').classList.add('open');
+  document.getElementById('checkin-sheet').classList.add('open');
+
+  const body = document.getElementById('checkin-body');
+  body.innerHTML = '<div style="color:var(--muted);padding:20px 0;text-align:center">Loading…</div>';
+
+  // Pre-fill from existing submission if any
+  const ci = S.checkin || {};
+
+  // Fetch health summary (this week's avg readiness + pain flags)
+  let summaryHtml = '<div class="summary-tile"><strong>This week from your logs:</strong><br>';
+  try {
+    const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
+    const weekStr = weekAgo.toISOString().slice(0, 10);
+
+    const [rRes, pRes] = await Promise.all([
+      db.from('readiness_logs').select('readiness_score').eq('athlete_id', S.athlete.id).gte('log_date', weekStr),
+      db.from('pain_injury_logs').select('body_region,status').eq('athlete_id', S.athlete.id).gte('log_date', weekStr).in('status', ['new','same','worse']),
+    ]);
+
+    const scores = (rRes.data || []).map(r => r.readiness_score).filter(Boolean);
+    const avgR   = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : null;
+    summaryHtml += avgR ? `Avg readiness: <strong>${avgR}/5</strong>` : 'No readiness logs yet';
+
+    const painRegions = [...new Set((pRes.data || []).map(p => p.body_region))];
+    summaryHtml += painRegions.length
+      ? `&nbsp;·&nbsp;Pain flags: <strong>${painRegions.join(', ')}</strong>`
+      : '&nbsp;·&nbsp;No active pain flags';
+  } catch (_) {
+    summaryHtml += 'Could not load summary — check connection';
+  }
+  summaryHtml += '</div>';
+
+  // Days (all 7; pre-mark any previously selected unavailable days)
+  // TODO: Once athlete profile has available_days field, pre-grey normal off days.
+  const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  const unavailSet = new Set(ci.unavailable_days || []);
+  const dayChips = DAYS.map(d =>
+    `<button class="day-chip${unavailSet.has(d) ? ' unavail' : ''}" onclick="toggleDay(this,'${d}')">${d.slice(0,3)}</button>`
+  ).join('');
+
+  // Travel sub-option visibility
+  const isTraveling    = ci.is_traveling    === true;
+  const plansTrain     = ci.travel_plans_to_train === true;
+  const equipVal       = ci.travel_equipment_access || '';
+  const trainSubVis    = isTraveling  ? 'visible' : '';
+  const equipSubVis    = plansTrain   ? 'visible' : '';
+
+  const equipOptions = [
+    ['full_commercial_gym',   'Full commercial gym'],
+    ['home_gym_well_equipped','Home gym / well-equipped setup'],
+    ['hotel_gym',             'Hotel gym / basic fitness center'],
+    ['bodyweight_only',       'Bodyweight only'],
+    ['not_sure',              'Not sure'],
+  ].map(([val, lbl]) =>
+    `<option value="${val}"${equipVal === val ? ' selected' : ''}>${lbl}</option>`
+  ).join('');
+
+  body.innerHTML = `
+    <div class="checkin-section">
+      <div class="checkin-section-title">Next Week Schedule</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:4px">Any training days you'll miss?</div>
+      <div class="day-chips" id="ci-day-chips">${dayChips}</div>
+
+      <div style="margin-top:14px">
+        <div class="toggle-row">
+          <div><div class="toggle-label">Traveling?</div></div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="ci-traveling" ${isTraveling ? 'checked' : ''}
+              onchange="toggleTravelFields()">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="travel-sub ${trainSubVis}" id="ci-travel-sub">
+          <div class="toggle-row" style="padding:0 0 10px">
+            <div><div class="toggle-label" style="font-size:13px">Planning to train while away?</div></div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="ci-train-away" ${plansTrain ? 'checked' : ''}
+                onchange="toggleEquipField()">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="travel-sub ${equipSubVis}" id="ci-equip-sub" style="margin-top:0;padding:10px 0 0">
+            <label>What will you have access to?</label>
+            <select id="ci-equip">${equipOptions}</select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="checkin-section">
+      <div class="checkin-section-title">Health &amp; Recovery</div>
+      ${summaryHtml}
+      <div class="form-field wide" style="margin-top:0">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">
+          Anything your logs don't show?
+        </label>
+        <textarea id="ci-health" placeholder="E.g., sick this week, poor sleep, high stress, injury update…"
+          style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                 color:var(--text);font-size:14px;padding:10px 12px;resize:none;min-height:72px"
+        >${ci.health_recovery_notes || ''}</textarea>
+      </div>
+    </div>
+
+    <div class="checkin-section">
+      <div class="checkin-section-title">Notes for Coach <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--muted)">(all optional)</span></div>
+      <div class="form-field wide" style="margin-bottom:10px">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">Anything you want more or less of?</label>
+        <textarea id="ci-more-less" placeholder="E.g., more upper body work, less conditioning this week…"
+          style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                 color:var(--text);font-size:14px;padding:10px 12px;resize:none;min-height:60px"
+        >${ci.more_less_notes || ''}</textarea>
+      </div>
+      <div class="form-field wide" style="margin-bottom:10px">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">Schedule preferences or changes?</label>
+        <textarea id="ci-schedule" placeholder="E.g., prefer not to lift on Tuesdays anymore…"
+          style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                 color:var(--text);font-size:14px;padding:10px 12px;resize:none;min-height:60px"
+        >${ci.schedule_preference_notes || ''}</textarea>
+      </div>
+      <div class="form-field wide">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">Anything else for the coach?</label>
+        <textarea id="ci-general" placeholder="Questions, updates, general notes…"
+          style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                 color:var(--text);font-size:14px;padding:10px 12px;resize:none;min-height:60px"
+        >${ci.general_notes || ''}</textarea>
+      </div>
+    </div>
+
+    <button class="btn" onclick="submitCheckin()" style="margin-top:4px">
+      ${ci.submitted_at ? 'Update Check-In' : 'Submit Check-In'}
+    </button>
+    <button class="btn secondary" onclick="closeCheckin()" style="margin-top:8px">Cancel</button>
+  `;
+}
+
+function closeCheckin() {
+  document.getElementById('checkin-overlay').classList.remove('open');
+  document.getElementById('checkin-sheet').classList.remove('open');
+}
+
+function toggleDay(el, day) {
+  el.classList.toggle('unavail');
+}
+
+function toggleTravelFields() {
+  const traveling = document.getElementById('ci-traveling').checked;
+  const sub = document.getElementById('ci-travel-sub');
+  if (traveling) { sub.classList.add('visible'); }
+  else {
+    sub.classList.remove('visible');
+    // Clear the nested sub-field too
+    const trainAway = document.getElementById('ci-train-away');
+    if (trainAway) trainAway.checked = false;
+    const equipSub = document.getElementById('ci-equip-sub');
+    if (equipSub) equipSub.classList.remove('visible');
+  }
+}
+
+function toggleEquipField() {
+  const trainAway = document.getElementById('ci-train-away').checked;
+  const equipSub  = document.getElementById('ci-equip-sub');
+  if (trainAway) { equipSub.classList.add('visible'); }
+  else           { equipSub.classList.remove('visible'); }
+}
+
+async function submitCheckin() {
+  // Gather unavailable days from chip state
+  const chips = document.querySelectorAll('#ci-day-chips .day-chip.unavail');
+  const unavailDays = Array.from(chips).map(c => c.textContent.trim());
+  // Expand 3-letter back to full
+  const DAY_EXPAND = { Mon:'Monday', Tue:'Tuesday', Wed:'Wednesday', Thu:'Thursday',
+                       Fri:'Friday', Sat:'Saturday', Sun:'Sunday' };
+  const unavailFull = unavailDays.map(d => DAY_EXPAND[d] || d);
+
+  const traveling       = document.getElementById('ci-traveling')?.checked  ?? false;
+  const trainAway       = document.getElementById('ci-train-away')?.checked ?? null;
+  const equipVal        = document.getElementById('ci-equip')?.value         || null;
+  const healthNotes     = document.getElementById('ci-health')?.value.trim()    || null;
+  const moreNotes       = document.getElementById('ci-more-less')?.value.trim() || null;
+  const schedNotes      = document.getElementById('ci-schedule')?.value.trim()  || null;
+  const generalNotes    = document.getElementById('ci-general')?.value.trim()   || null;
+
+  const isResubmit = !!S.checkin;
+  const payload = {
+    athlete_id:                S.athlete.id,
+    week_start_date:           nextMonday(),
+    submitted_at:              new Date().toISOString(),
+    unavailable_days:          unavailFull.length ? unavailFull : null,
+    is_traveling:              traveling || null,
+    travel_plans_to_train:     traveling ? (trainAway ?? null) : null,
+    travel_equipment_access:   traveling && trainAway ? (equipVal || null) : null,
+    health_recovery_notes:     healthNotes,
+    more_less_notes:           moreNotes,
+    schedule_preference_notes: schedNotes,
+    general_notes:             generalNotes,
+    resubmitted:               isResubmit,
+  };
+
+  try {
+    const { data, error } = await db.from('athlete_weekly_checkin')
+      .upsert(payload, { onConflict: 'athlete_id,week_start_date' })
+      .select().single();
+    if (error) throw error;
+    S.checkin = data;
+    toast(isResubmit ? 'Check-in updated ✓' : 'Check-in submitted ✓');
+    closeCheckin();
+    renderWeek(); // refresh card badge
+  } catch (err) {
+    console.error('Check-in save error:', err);
+    toast('Error saving check-in. Try again.', 4000);
+  }
 }
 
 (async () => {
