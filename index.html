@@ -5399,66 +5399,6 @@ function renderTrendsVolume(sets, weekKeys, weekLabels) {
   return trendSection('volume', 'Volume &amp; Workload', body);
 }
 
-// ── Volume breakdown helpers ─────────────────────────────────────
-function buildVolumeBreakdown(sets, weekKeys, period) {
-  const nWeeks  = period === '1w' ? 1 : period === '2w' ? 2 : 4;
-  const cutKeys = new Set(weekKeys.slice(-nWeeks));
-
-  // Aggregate sets, hard sets, and tonnage by movement pattern
-  const byPattern = {};
-  sets.forEach(function(s) {
-    if (!s._sd) return;
-    if (s.exercise && s.exercise.exercise_type === 'conditioning') return;
-    const wk = getWeekMonday(s._sd);
-    if (!cutKeys.has(wk)) return;
-    const mp = (s.exercise && s.exercise.movement_pattern) || 'Unknown';
-    if (!byPattern[mp]) byPattern[mp] = { sets: 0, hard: 0, tonnage: 0 };
-    byPattern[mp].sets++;
-    if (s.actual_rpe && parseFloat(s.actual_rpe) >= 7) byPattern[mp].hard++;
-    if (s.actual_load && s.actual_reps) {
-      byPattern[mp].tonnage += parseFloat(s.actual_load) * parseInt(s.actual_reps);
-    }
-  });
-
-  const patterns = Object.keys(byPattern).sort();
-  if (!patterns.length) {
-    return '<div style="color:var(--muted);font-size:13px;padding:8px 0">No logged sets for this period.</div>';
-  }
-
-  const headerStyle = 'display:grid;grid-template-columns:1fr auto auto auto;gap:4px 14px';
-  const rowStyle    = headerStyle + ';padding:5px 0;border-bottom:1px solid var(--border)';
-
-  let html = '<div style="margin-top:10px">';
-  html += '<div style="' + headerStyle + ';font-size:10px;font-weight:700;color:var(--muted);'
-    + 'letter-spacing:.6px;padding-bottom:6px;border-bottom:1px solid var(--border);margin-bottom:4px">'
-    + '<div>PATTERN</div><div style="text-align:right">SETS</div>'
-    + '<div style="text-align:right">HARD≥7</div><div style="text-align:right">TONNAGE</div></div>';
-
-  patterns.forEach(function(mp) {
-    const d   = byPattern[mp];
-    const ton = d.tonnage >= 1000
-      ? (d.tonnage / 1000).toFixed(1) + 'k'
-      : Math.round(d.tonnage).toLocaleString();
-    html += '<div style="' + rowStyle + ';font-size:12px">'
-      + '<div style="color:var(--text)">'    + mp         + '</div>'
-      + '<div style="text-align:right;color:var(--text)">'   + d.sets + '</div>'
-      + '<div style="text-align:right;color:var(--accent)">' + d.hard + '</div>'
-      + '<div style="text-align:right;color:var(--muted)">'  + ton    + '</div>'
-      + '</div>';
-  });
-  html += '</div>';
-  return html;
-}
-
-function refreshVolumeBreakdown() {
-  const sel    = document.getElementById('vol-period-select');
-  const period = sel ? sel.value : '4w';
-  const el     = document.getElementById('vol-breakdown');
-  if (el && window._tSets && window._tWkKeys) {
-    el.innerHTML = buildVolumeBreakdown(window._tSets, window._tWkKeys, period);
-  }
-}
-
 // ── Muscle group display groups ───────────────────────────────────────────────
 // Multi-muscle groups are expandable in the Trends chart.
 // Grip/Forearms, Calves, and Tibialis/Lower Leg are excluded from reporting.
@@ -5553,10 +5493,157 @@ function renderMuscleGroupChart(mgSplitMap, maxVal) {
         + '</div>' + barHtml + '</div>';
     }
   });
-  html += '</div>';
-  return html;
+  return html || '<div style="color:var(--muted);font-size:12px;padding:6px 0">No data yet</div>';
 }
 
+// ── Adaptation color palette ──────────────────────────────────────────────────
+const ADAPT_COLORS = {
+  'Power/Speed':        '#60a5fa',  // blue
+  'Max Strength':       '#ef4444',  // red
+  'Strength':           '#f59e0b',  // amber
+  'Hypertrophy':        '#6e399e',  // purple (accent)
+  'Muscular Endurance': '#14b8a6',  // teal
+  'Rehab/Support':      '#6b7280',  // gray
+  'Unclassified':       '#374151',  // dark gray
+};
+const ADAPT_ORDER = [
+  'Power/Speed', 'Max Strength', 'Strength',
+  'Hypertrophy', 'Muscular Endurance', 'Rehab/Support', 'Unclassified',
+];
+
+// Stacked horizontal bar chart
+// rows: [{label, total, segments:[{color,value,title}], suffix?}]
+// maxVal: max total across all rows (controls bar width relative to track)
+// suffix: appended after the total value in the meta line
+function renderStackedHorizChart(rows, maxVal, suffix) {
+  suffix = suffix !== undefined ? suffix : ' sets';
+  if (!rows.length) return '<div style="color:var(--muted);font-size:12px;padding:6px 0">No data yet</div>';
+  return rows.map(function(row) {
+    const barPct     = (row.total / maxVal * 100).toFixed(1);
+    const displayVal = Number.isInteger(row.total) ? row.total : row.total.toFixed(1);
+    const segs = row.segments.filter(function(s) { return s.value > 0; }).map(function(seg) {
+      const segPct = (seg.value / row.total * 100).toFixed(1);
+      return '<div style="width:' + segPct + '%;height:100%;background:' + seg.color + '" title="' + seg.title + '"></div>';
+    }).join('');
+    return '<div class="horiz-bar-row">'
+      + '<div class="horiz-bar-meta">'
+      + '<span style="color:var(--fg)">' + row.label + '</span>'
+      + '<span style="color:var(--muted)">' + displayVal + suffix + '</span>'
+      + '</div>'
+      + '<div class="horiz-bar-track">'
+      + '<div style="width:' + barPct + '%;height:100%;display:flex;overflow:hidden;border-radius:4px">'
+      + segs
+      + '</div>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+// Legend for adaptation color key
+function buildAdaptLegend(adaptationsPresent) {
+  const items = ADAPT_ORDER.filter(function(a) { return adaptationsPresent.has(a); });
+  if (!items.length) return '';
+  return '<div class="adapt-legend">'
+    + items.map(function(a) {
+      return '<div class="adapt-legend-item">'
+        + '<div class="adapt-dot" style="background:' + ADAPT_COLORS[a] + '"></div>'
+        + a + '</div>';
+    }).join('')
+    + '</div>';
+}
+
+function buildVolumeBreakdown(sets, weekKeys, period) {
+  var cutKeys;
+  if (period === '1w') {
+    const thisMonday = getWeekMonday(today());
+    cutKeys = new Set([thisMonday]);
+  } else if (period === '2w') {
+    const thisMonday = getWeekMonday(today());
+    const d = new Date(thisMonday + 'T00:00:00');
+    d.setDate(d.getDate() - 7);
+    cutKeys = new Set([d.toISOString().slice(0,10)]);
+  } else {
+    cutKeys = new Set(weekKeys.slice(-4));
+  }
+  const label = period === '1w' ? 'This Week' : period === '2w' ? 'Last Week' : 'Last 4 Weeks';
+
+  // ── Chart 1: Movement Pattern × Adaptation (stacked) ─────────────────────
+  const mpAdaptMap        = {};   // { movement_pattern → { adaptation → count } }
+  const adaptationsPresent = new Set();
+
+  sets.forEach(function(s) {
+    if (!s._sd || !cutKeys.has(getWeekMonday(s._sd))) return;
+    if (s.exercise && s.exercise.exercise_type === 'conditioning') return;
+    const mp = (s.exercise && s.exercise.movement_pattern) || 'Unknown';
+    const ac = (s.planned_ex && s.planned_ex.planned_adaptation) || 'Unclassified';
+    if (!mpAdaptMap[mp]) mpAdaptMap[mp] = {};
+    mpAdaptMap[mp][ac] = (mpAdaptMap[mp][ac] || 0) + 1;
+    adaptationsPresent.add(ac);
+  });
+
+  const mpRows = Object.entries(mpAdaptMap).map(function(entry) {
+    const mp          = entry[0];
+    const adaptCounts = entry[1];
+    const total       = Object.values(adaptCounts).reduce(function(a, b) { return a + b; }, 0);
+    const segments    = ADAPT_ORDER.filter(function(a) { return adaptCounts[a]; }).map(function(a) {
+      return { color: ADAPT_COLORS[a], value: adaptCounts[a], title: a + ': ' + adaptCounts[a] + ' sets' };
+    });
+    return { label: mp, total: total, segments: segments };
+  }).sort(function(a, b) { return b.total - a.total; });
+
+  const maxMp = mpRows.length ? Math.max.apply(null, mpRows.map(function(r) { return r.total; })) : 1;
+
+  // ── Chart 2: Muscle Group — primary vs indirect credited sets ─────────────
+  const mgSplitMap = {};   // { muscle_group → { primary: n, indirect: n } }
+
+  sets.forEach(function(s) {
+    if (!s._sd || !cutKeys.has(getWeekMonday(s._sd))) return;
+    const mmEntries = (window._tMuscleMap || {})[s.exercise_id] || [];
+    mmEntries.forEach(function(e) {
+      if (!mgSplitMap[e.muscle_group]) mgSplitMap[e.muscle_group] = { primary: 0, indirect: 0 };
+      if (e.set_credit >= 1.0)      mgSplitMap[e.muscle_group].primary  += e.set_credit;
+      else if (e.set_credit > 0)    mgSplitMap[e.muscle_group].indirect += e.set_credit;
+    });
+  });
+
+  // maxMg based on group totals (so bar widths are relative to the largest group)
+  const maxMg = MG_GROUPS.reduce(function(mx, g) {
+    const gTotal = g.muscles.reduce(function(s, m) {
+      return s + (mgSplitMap[m] ? mgSplitMap[m].primary + mgSplitMap[m].indirect : 0);
+    }, 0);
+    return Math.max(mx, gTotal);
+  }, 0) || 1;
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  const hasMp  = mpRows.length > 0;
+  const hasMg  = Object.keys(mgSplitMap).length > 0;
+  const empty  = '<div style="color:var(--muted);font-size:13px;padding:8px 0">No data for this period.</div>';
+
+  const mgLegend = '<div style="display:flex;gap:12px;margin-bottom:10px;font-size:10px;color:var(--muted)">'
+    + '<div style="display:flex;align-items:center;gap:4px"><div style="width:8px;height:8px;border-radius:2px;background:#6e399e"></div>Primary (direct)</div>'
+    + '<div style="display:flex;align-items:center;gap:4px"><div style="width:8px;height:8px;border-radius:2px;background:#b08fd0"></div>Indirect</div>'
+    + '</div>';
+
+  return (!hasMp && !hasMg ? empty : '')
+    + (hasMp ? '<div class="trends-chart-box">'
+        + '<div class="trends-chart-title">Movement Pattern by Adaptation — ' + label + '</div>'
+        + buildAdaptLegend(adaptationsPresent)
+        + renderStackedHorizChart(mpRows, maxMp)
+        + '</div>' : '')
+    + (hasMg ? '<div class="trends-chart-box">'
+        + '<div class="trends-chart-title">Credited Sets by Muscle Group — ' + label + '</div>'
+        + mgLegend
+        + renderMuscleGroupChart(mgSplitMap, maxMg)
+        + '</div>' : '');
+}
+
+function refreshVolumeBreakdown() {
+  const sel = document.getElementById('vol-period-select');
+  const el  = document.getElementById('vol-breakdown');
+  if (sel && el) el.innerHTML = buildVolumeBreakdown(window._tSets || [], window._tWkKeys || [], sel.value);
+}
+
+// ── Consistency ───────────────────────────────────────────────────
 
 function renderTrendsConsistency(sessions, weekKeys, weekLabels, plannedPerWeek) {
   const byWk = {};
