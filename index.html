@@ -935,6 +935,21 @@
   <div class="sheet-list" id="hist-body"></div>
 </div>
 
+<!-- ══════════════════ EXPORT SHEET ══════════════════ -->
+<div class="sheet-overlay" id="export-overlay" onclick="closeExportSheet()"></div>
+<div class="sheet" id="export-sheet" style="max-height:55vh">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">Export Training Log</div>
+  <div style="color:var(--muted);font-size:13px;margin-bottom:20px;line-height:1.5">
+    Downloads a CSV of your logged sets. Share it with any AI to get personalized analysis of your training.
+  </div>
+  <button class="btn" style="margin-bottom:10px" onclick="exportLog('week')">This Week</button>
+  <button class="btn" style="margin-bottom:10px" onclick="exportLog('30')">Last 30 Days</button>
+  <button class="btn" style="margin-bottom:10px" onclick="exportLog('90')">Last 90 Days</button>
+  <button class="btn" style="margin-bottom:10px" onclick="exportLog('all')">All Time</button>
+  <button class="btn secondary" onclick="closeExportSheet()">Cancel</button>
+</div>
+
 <!-- ══════════════════ JAVASCRIPT ══════════════════ -->
 <script>
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -1154,6 +1169,9 @@ async function renderWeek() {
       </div>
       <div class="util-btn" onclick="openTrends()">
         <span class="util-icon">📈</span>Trends
+      </div>
+      <div class="util-btn" onclick="openExportSheet()">
+        <span class="util-icon">📥</span>Export
       </div>
     </div>
     <button class="add-ex-btn" onclick="openNewSessionSheet()" style="margin-top:10px">
@@ -2385,6 +2403,116 @@ async function loadExerciseHistory(exId) {
     console.error(err);
     body.innerHTML = '<div class="hist-empty" style="color:var(--danger)">Error loading history.</div>';
   }
+}
+
+// ── Export ────────────────────────────────────────────────────────────────────
+function openExportSheet() {
+  document.getElementById('export-overlay').classList.add('open');
+  document.getElementById('export-sheet').classList.add('open');
+}
+
+function closeExportSheet() {
+  document.getElementById('export-overlay').classList.remove('open');
+  document.getElementById('export-sheet').classList.remove('open');
+}
+
+async function exportLog(range) {
+  closeExportSheet();
+  toast('Preparing export…', 4000);
+
+  // Determine start date
+  let startDate = null;
+  if (range === 'week') {
+    startDate = getWeekMonday(today());
+  } else if (range === '30' || range === '90') {
+    const d = new Date();
+    d.setDate(d.getDate() - parseInt(range));
+    startDate = d.toISOString().slice(0, 10);
+  }
+  // range === 'all': no filter
+
+  try {
+    // Step 1: athlete's sessions in range (RLS ensures own data only)
+    let q = db.from('completed_sessions')
+      .select('id, session_date, day_label, session_type')
+      .eq('athlete_id', S.athlete.id)
+      .order('session_date');
+    if (startDate) q = q.gte('session_date', startDate);
+
+    const { data: sessions, error: sErr } = await q;
+    if (sErr) throw sErr;
+    if (!sessions || !sessions.length) { toast('No training data for this period.'); return; }
+
+    const sessionIds  = sessions.map(function(s) { return s.id; });
+    const sessMap     = {};
+    sessions.forEach(function(s) {
+      sessMap[s.id] = { date: s.session_date, day: s.day_label || '', type: s.session_type || '' };
+    });
+
+    // Step 2: all sets for those sessions
+    const { data: sets, error: stErr } = await db.from('completed_strength_sets')
+      .select('completed_session_id, set_number, actual_load, actual_reps, actual_rpe, notes, measure_type, actual_value, is_skipped, exercise:exercise_id(name), planned_ex:planned_exercise_id(planned_adaptation,exercise_role)')
+      .in('completed_session_id', sessionIds)
+      .gt('set_number', 0)
+      .order('completed_session_id')
+      .order('set_number');
+    if (stErr) throw stErr;
+    if (!sets || !sets.length) { toast('No set data found for this period.'); return; }
+
+    // Build CSV
+    const esc = function(v) {
+      if (v == null || v === '') return '';
+      const s = String(v);
+      return s.includes(',') || s.includes('"') || s.includes('\n')
+        ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+
+    const headers = ['date','day','session_type','exercise','planned_adaptation',
+      'exercise_role','set_number','load_lb','reps','rpe','skipped','notes'];
+    const rows = [headers.join(',')];
+
+    sets.forEach(function(s) {
+      const sess  = sessMap[s.completed_session_id] || {};
+      const reps  = s.actual_reps != null ? s.actual_reps : (s.actual_value != null ? s.actual_value : '');
+      rows.push([
+        sess.date,
+        esc(sess.day),
+        esc(sess.type),
+        esc(s.exercise ? s.exercise.name : ''),
+        esc(s.planned_ex ? s.planned_ex.planned_adaptation  : ''),
+        esc(s.planned_ex ? s.planned_ex.exercise_role       : ''),
+        s.set_number,
+        s.actual_load != null ? s.actual_load : '',
+        reps,
+        s.actual_rpe  != null ? s.actual_rpe  : '',
+        s.is_skipped  ? 'yes' : 'no',
+        esc(s.notes),
+      ].join(','));
+    });
+
+    const csv      = rows.join('\n');
+    const rangeLbl = startDate || 'all';
+    const name     = (S.athlete.name || 'athlete').toLowerCase().replace(/\s+/g, '_');
+    const filename = 'kardia_' + name + '_' + rangeLbl + '_to_' + today() + '.csv';
+    downloadCSV(csv, filename);
+    toast('Export ready ✓');
+
+  } catch (err) {
+    console.error('exportLog:', err);
+    toast('Export failed — check connection.');
+  }
+}
+
+function downloadCSV(content, filename) {
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // ── History screen ────────────────────────────────────────────────────────────
