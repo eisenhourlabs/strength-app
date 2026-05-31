@@ -5165,9 +5165,15 @@ async function loadTrends() {
 
     // Fetch muscle map for all unique exercises in the sets
     const uniqueExIds = Array.from(new Set(sets.map(function(s) { return s.exercise_id; }).filter(Boolean)));
-    const mmRes = uniqueExIds.length
-      ? await db.from('exercise_muscle_map').select('exercise_id,muscle_group,set_credit').in('exercise_id', uniqueExIds)
-      : { data: [] };
+    // exercise_muscle_map is optional — muscle group chart shows empty if table doesn't exist yet.
+    let mmRes = { data: [] };
+    if (uniqueExIds.length) {
+      try {
+        mmRes = await db.from('exercise_muscle_map')
+          .select('exercise_id,muscle_group,set_credit')
+          .in('exercise_id', uniqueExIds);
+      } catch (_) { /* table not yet created — muscle group chart will be empty */ }
+    }
     const muscleMap = {};
     (mmRes.data || []).forEach(function(r) {
       if (!muscleMap[r.exercise_id]) muscleMap[r.exercise_id] = [];
