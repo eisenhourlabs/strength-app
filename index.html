@@ -819,15 +819,11 @@
 
   <div class="form-section-label">Session Type</div>
   <select id="new-sess-type" class="sheet-search" style="margin-bottom:16px;font-size:15px">
-    <option value="Upper Max Effort">Upper Max Effort</option>
-    <option value="Lower Max Effort">Lower Max Effort</option>
-    <option value="Upper Dynamic Effort">Upper Dynamic Effort</option>
-    <option value="Lower Dynamic Effort">Lower Dynamic Effort</option>
-    <option value="Upper Repeated Effort" selected>Upper Repeated Effort</option>
-    <option value="Lower Repeated Effort">Lower Repeated Effort</option>
+    <option value="Upper Body">Upper Body</option>
+    <option value="Lower Body">Lower Body</option>
     <option value="Full Body">Full Body</option>
     <option value="Conditioning Only">Conditioning Only</option>
-    <option value="Open">Open</option>
+    <option value="Open" selected>Open</option>
   </select>
 
   <button class="btn" onclick="createUserSession()">Create Session</button>
@@ -2494,8 +2490,7 @@ async function exportLog(range) {
     const rangeLbl = startDate || 'all';
     const name     = (S.athlete.name || 'athlete').toLowerCase().replace(/\s+/g, '_');
     const filename = 'kardia_' + name + '_' + rangeLbl + '_to_' + today() + '.csv';
-    downloadCSV(csv, filename);
-    toast('Export ready ✓');
+    await downloadCSV(csv, filename);
 
   } catch (err) {
     console.error('exportLog:', err);
@@ -4895,6 +4890,55 @@ function shortWeekLabel(wkKey) {
 }
 
 // SVG bar chart — values[], labels[], opts: { height, color, formatVal }
+// Classify exercise by movement_pattern into Upper / Lower / Other
+function classifyExerciseCategory(movementPattern) {
+  if (!movementPattern) return 'Other';
+  if (/push|pull|press|row|curl|fly|chest|shoulder|tricep|bicep|delt|lat|chin|dip/i.test(movementPattern)) return 'Upper';
+  if (/squat|hinge|lunge|deadlift|leg|hip|glute|hamstring|quad|calf/i.test(movementPattern)) return 'Lower';
+  return 'Other';
+}
+
+// SVG stacked bar chart — series: [{label, color, values[]}], weekLabels[], opts: { height }
+function trendsStackedBarChart(series, weekLabels, opts) {
+  opts = opts || {};
+  const W = 320, H = opts.height || 130;
+  const PAD_L = 32, PAD_R = 8, PAD_T = 10, PAD_B = 28;
+  const chartW = W - PAD_L - PAD_R;
+  const chartH = H - PAD_T - PAD_B;
+  const n = weekLabels.length;
+  if (!n) return '';
+  const totals = weekLabels.map(function(_, i) {
+    return series.reduce(function(sum, s) { return sum + (s.values[i] || 0); }, 0);
+  });
+  const maxVal = Math.max.apply(null, totals.concat([1]));
+  const barW = Math.max(4, Math.floor(chartW / n) - 3);
+  const gap  = (chartW - barW * n) / (n + 1);
+  const yTicks = [0, 0.5, 1].map(function(t) { return Math.round(maxVal * t); });
+  let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;display:block">';
+  yTicks.forEach(function(v) {
+    const y = PAD_T + chartH - (v / maxVal) * chartH;
+    svg += '<line x1="' + PAD_L + '" y1="' + y + '" x2="' + (W - PAD_R) + '" y2="' + y + '" stroke="#2d2d2d" stroke-width="1"/>';
+    const lbl = v >= 1000 ? (v/1000).toFixed(0) + 'k' : v;
+    svg += '<text x="' + (PAD_L - 3) + '" y="' + (y + 4) + '" text-anchor="end" fill="#666" font-size="9">' + lbl + '</text>';
+  });
+  for (var i = 0; i < n; i++) {
+    const x = PAD_L + gap + i * (barW + gap);
+    let yBase = PAD_T + chartH;
+    series.forEach(function(s) {
+      const val = s.values[i] || 0;
+      if (!val) return;
+      const bh = (val / maxVal) * chartH;
+      yBase -= bh;
+      svg += '<rect x="' + x + '" y="' + yBase + '" width="' + barW + '" height="' + bh + '" fill="' + s.color + '" rx="1"/>';
+    });
+    if (i % 2 === 0 || n <= 6) {
+      svg += '<text x="' + (x + barW/2) + '" y="' + (H - 6) + '" text-anchor="middle" fill="#666" font-size="9">' + weekLabels[i] + '</text>';
+    }
+  }
+  svg += '</svg>';
+  return svg;
+}
+
 function trendsBarChart(values, labels, opts) {
   opts = opts || {};
   const W = 320, H = opts.height || 130;
@@ -4969,6 +5013,7 @@ function trendsHorizChart(items, color, suffix) {
 }
 
 async function openTrends() {
+  _tOpen = {}; // reset collapse state — always open collapsed
   document.getElementById('trends-body').innerHTML = '<div class="spinner">Loading…</div>';
   showScreen('trends');
   await loadTrends();
@@ -4990,6 +5035,13 @@ async function loadTrends() {
       .gte('session_date', cutoffStr).order('session_date');
 
     const sessionIds = (sessions || []).map(function(s) { return s.id; });
+
+    // Fetch planned session count for the current program (for completion rate)
+    const plannedCountRes = S.cycle && S.cycle.program_id
+      ? await db.from('planned_sessions').select('id', { count: 'exact', head: true }).eq('program_id', S.cycle.program_id)
+      : { count: 0 };
+    const plannedPerWeek = plannedCountRes.count || 0;
+    window._tPlannedPerWeek = plannedPerWeek;
 
     const [readyRes, painRes, condRes, setsRes] = await Promise.all([
       db.from('readiness_logs').select('*').eq('athlete_id', S.athlete.id).gte('log_date', cutoffStr).order('log_date'),
@@ -5053,7 +5105,7 @@ async function loadTrends() {
 var _tOpen = {}; // section open state: id -> bool (default true)
 
 function trendSection(id, title, bodyHtml) {
-  if (_tOpen[id] === undefined) _tOpen[id] = true;
+  if (_tOpen[id] === undefined) _tOpen[id] = false;
   const open = _tOpen[id];
   return '<div class="trends-section" id="tsec-' + id + '">'
     + '<div class="trends-section-hdr" onclick="toggleTrendSection(\'' + id + '\')">'
@@ -5091,48 +5143,13 @@ function renderTrendsBody(body, allSessions, readiness, sets, weekKeys, weekLabe
     + '<button class="trends-ctrl-btn" onclick="trendsCollapseAll()">Collapse All</button>'
     + '</div>';
   body.innerHTML = ctrlBar + [
-    renderTrendsSnapshot(allSessions, readiness, sets, weekKeys),
     renderTrendsStrength(sets),
     renderTrendsVolume(sets, weekKeys, weekLabels),
-    renderTrendsConsistency(allSessions, weekKeys, weekLabels),
+    renderTrendsConsistency(allSessions, weekKeys, weekLabels, window._tPlannedPerWeek || 0),
     renderTrendsReadiness(readiness, weekKeys, weekLabels),
     renderTrendsConditioning(conditioning, weekKeys, weekLabels),
     renderTrendsPain(painItems),
   ].join('');
-}
-
-// ── Snapshot ─────────────────────────────────────────────────────
-function renderTrendsSnapshot(sessions, readiness, sets, weekKeys) {
-  const thisWk = weekKeys[weekKeys.length - 1];
-  const lastWk = weekKeys[weekKeys.length - 2];
-
-  const thisWkSess = sessions.filter(function(s) { return getWeekMonday(s.session_date) === thisWk; }).length;
-
-  const tonByWk = {};
-  sets.forEach(function(s) {
-    if (!s._sd) return;
-    const wk = getWeekMonday(s._sd);
-    tonByWk[wk] = (tonByWk[wk] || 0) + (s.actual_load || 0) * (s.actual_reps || 0);
-  });
-  const tonThis = Math.round(tonByWk[thisWk] || 0);
-  const tonLast = Math.round(tonByWk[lastWk] || 0);
-  let volHtml;
-  if (tonLast > 0) {
-    const pct = Math.round((tonThis - tonLast) / tonLast * 100);
-    const cls  = pct >= 0 ? 'pos' : 'neg';
-    const sign = pct >= 0 ? '+' : '';
-    volHtml = '<div class="snap-val ' + cls + '">' + sign + pct + '%</div><div class="snap-label">Volume vs last week</div><div class="snap-sub">' + tonThis.toLocaleString() + ' lb·reps</div>';
-  } else {
-    volHtml = '<div class="snap-val">' + tonThis.toLocaleString() + '</div><div class="snap-label">lb·reps this week</div>';
-  }
-
-  const latestReady  = readiness.length ? readiness[readiness.length - 1] : null;
-  const energySnap   = latestReady && latestReady.energy     != null ? latestReady.energy     : null;
-  const readyHtml    = energySnap != null
-    ? '<div class="snap-val">' + energySnap + '/5</div><div class="snap-label">Energy</div><div class="snap-sub">' + latestReady.log_date + '</div>'
-    : '<div class="snap-val" style="color:var(--muted)">—</div><div class="snap-label">Energy</div>';
-
-  return trendSection('thisweek', 'This Week', '<div class="snap-grid"><div class="snap-card"><div class="snap-val">' + thisWkSess + '</div><div class="snap-label">Sessions logged</div></div><div class="snap-card">' + volHtml + '</div><div class="snap-card">' + readyHtml + '</div></div>');
 }
 
 // ── Strength: PR board + per-exercise load trend ──────────────────
@@ -5203,7 +5220,7 @@ function renderTrendsStrength(sets) {
     : '';
 
   const exTrendSection = exSelectHtml
-    ? '<div class="trends-chart-title" style="margin-top:16px;margin-bottom:8px">Load Trend by Exercise (top set per week)</div>' + exSelectHtml + '<div class="trends-chart-box" style="margin-top:0" id="ex-trend-chart"></div>'
+    ? '<div class="trends-chart-title" style="margin-top:16px;margin-bottom:8px">e1RM Trend by Exercise</div>' + exSelectHtml + '<div class="trends-chart-box" style="margin-top:0" id="ex-trend-chart"></div>'
     : '';
 
   return trendSection('strength', 'Strength — Est. 1RM Board', prHtml + exTrendSection);
@@ -5213,28 +5230,49 @@ function renderExTrend(exName) {
   const sets     = window._tSets   || [];
   const weekKeys = window._tWkKeys || [];
   const weekLbls = window._tWkLbls || [];
-  const topByWk  = {};
+  const e1rmByWk = {};
   sets.forEach(function(s) {
-    if (!s.exercise || s.exercise.name !== exName || !s.actual_load || !s._sd) return;
+    if (!s.exercise || s.exercise.name !== exName || !s.actual_load || !s.actual_reps || !s._sd) return;
+    if (s.actual_reps > 12) return; // outside e1RM reliable range
+    const e1rm = s.actual_reps === 1 ? s.actual_load : Math.round(s.actual_load * (1 + s.actual_reps / 30));
     const wk = getWeekMonday(s._sd);
-    if (!topByWk[wk] || s.actual_load > topByWk[wk]) topByWk[wk] = s.actual_load;
+    if (!e1rmByWk[wk] || e1rm > e1rmByWk[wk]) e1rmByWk[wk] = e1rm;
   });
-  const values = weekKeys.map(function(wk) { return topByWk[wk] != null ? topByWk[wk] : null; });
+  const values = weekKeys.map(function(wk) { return e1rmByWk[wk] != null ? e1rmByWk[wk] : null; });
   const el = document.getElementById('ex-trend-chart');
   if (el) el.innerHTML = trendsLineChart(values, weekLbls, { decimals: 0 });
 }
 
 // ── Volume & Workload ─────────────────────────────────────────────
 function renderTrendsVolume(sets, weekKeys, weekLabels) {
-  const tonByWk = {};
-  weekKeys.forEach(function(k) { tonByWk[k] = 0; });
+  // Upper / Lower / Other tonnage per week
+  const catColors = { Upper: '#6e399e', Lower: '#ff2712', Other: '#4a4a4a' };
+  const catByWk   = { Upper: {}, Lower: {}, Other: {} };
+  weekKeys.forEach(function(k) { catByWk.Upper[k] = 0; catByWk.Lower[k] = 0; catByWk.Other[k] = 0; });
   sets.forEach(function(s) {
     if (!s._sd || !s.actual_load || !s.actual_reps) return;
-    const wk = getWeekMonday(s._sd);
-    if (tonByWk[wk] !== undefined) tonByWk[wk] += s.actual_load * s.actual_reps;
+    if (s.exercise && s.exercise.exercise_type === 'conditioning') return;
+    const wk  = getWeekMonday(s._sd);
+    if (catByWk.Upper[wk] === undefined) return;
+    const cat = classifyExerciseCategory((s.exercise && s.exercise.movement_pattern) || '');
+    catByWk[cat][wk] += s.actual_load * s.actual_reps;
   });
-  const tonValues   = weekKeys.map(function(k) { return Math.round(tonByWk[k]); });
-  const tonnageChrt = trendsBarChart(tonValues, weekLabels, { formatVal: function(v) { return v >= 1000 ? (v/1000).toFixed(1) + 'k' : v; } });
+
+  const series = ['Upper', 'Lower', 'Other'].map(function(cat) {
+    return {
+      label:  cat,
+      color:  catColors[cat],
+      values: weekKeys.map(function(k) { return Math.round(catByWk[cat][k]); }),
+    };
+  });
+
+  const stackedChart = trendsStackedBarChart(series, weekLabels);
+  const legend = '<div style="display:flex;gap:14px;margin-bottom:10px;font-size:11px;color:var(--muted)">'
+    + ['Upper', 'Lower', 'Other'].map(function(cat) {
+        return '<div style="display:flex;align-items:center;gap:4px">'
+          + '<div style="width:8px;height:8px;border-radius:2px;background:' + catColors[cat] + '"></div>' + cat + '</div>';
+      }).join('')
+    + '</div>';
 
   const period = (document.getElementById('vol-period-select') || {}).value || '4w';
   const breakdownHtml = buildVolumeBreakdown(sets, weekKeys, period);
@@ -5245,7 +5283,7 @@ function renderTrendsVolume(sets, weekKeys, weekLabels) {
     + '<option value="4w"' + (period === '4w' ? ' selected' : '') + '>Last 4 Weeks</option>'
     + '</select>';
 
-  const body = '<div class="trends-chart-box"><div class="trends-chart-title">Weekly Tonnage (lb × reps)</div>' + tonnageChrt + '</div>'
+  const body = '<div class="trends-chart-box"><div class="trends-chart-title">Weekly Tonnage by Category (lb × reps)</div>' + legend + stackedChart + '</div>'
     + periodSelect
     + '<div id="vol-breakdown">' + breakdownHtml + '</div>';
 
@@ -5497,7 +5535,7 @@ function refreshVolumeBreakdown() {
 }
 
 // ── Consistency ───────────────────────────────────────────────────
-function renderTrendsConsistency(sessions, weekKeys, weekLabels) {
+function renderTrendsConsistency(sessions, weekKeys, weekLabels, plannedPerWeek) {
   const byWk = {};
   weekKeys.forEach(function(k) { byWk[k] = 0; });
   sessions.forEach(function(s) {
@@ -5520,7 +5558,26 @@ function renderTrendsConsistency(sessions, weekKeys, weekLabels) {
 
   const ytd = sessions.filter(function(s) { return s.session_date.startsWith(new Date().getFullYear().toString()); }).length;
 
-  return trendSection('consistency', 'Consistency', '<div class="trends-stat-strip"><div class="trends-stat-pill"><div class="trends-stat-num">' + ytd + '</div><div class="trends-stat-lbl">Sessions YTD</div></div><div class="trends-stat-pill"><div class="trends-stat-num">' + sessions.length + '</div><div class="trends-stat-lbl">Last 12 weeks</div></div></div><div class="trends-chart-box"><div class="trends-chart-title">Sessions per Week</div>' + chart + '</div>' + monthRows);
+  // Completion rate — only shown when using AI coach (plannedPerWeek > 0)
+  let completionHtml = '';
+  if (plannedPerWeek > 0) {
+    // Count weeks with data (exclude future weeks from denominator)
+    const todayWk = getWeekMonday(today());
+    const pastKeys = weekKeys.filter(function(k) { return k <= todayWk; });
+    const totalPlanned  = pastKeys.length * plannedPerWeek;
+    const totalPlannedCompleted = sessions.filter(function(s) { return s.planned_session_id; }).length;
+    const pct = totalPlanned > 0 ? Math.round(totalPlannedCompleted / totalPlanned * 100) : 0;
+    // This week: sessions completed vs planned
+    const thisWkCompleted = sessions.filter(function(s) {
+      return getWeekMonday(s.session_date) === todayWk && s.planned_session_id;
+    }).length;
+    completionHtml = '<div class="trends-stat-pill"><div class="trends-stat-num">' + pct + '%</div><div class="trends-stat-lbl">Completion Rate</div></div>'
+      + '<div class="trends-stat-pill"><div class="trends-stat-num">' + thisWkCompleted + '/' + plannedPerWeek + '</div><div class="trends-stat-lbl">This Week</div></div>';
+  }
+
+  const statStrip = '<div class="trends-stat-strip"><div class="trends-stat-pill"><div class="trends-stat-num">' + ytd + '</div><div class="trends-stat-lbl">Sessions YTD</div></div><div class="trends-stat-pill"><div class="trends-stat-num">' + sessions.length + '</div><div class="trends-stat-lbl">Last 12 weeks</div></div>' + completionHtml + '</div>';
+
+  return trendSection('consistency', 'Consistency', statStrip + '<div class="trends-chart-box"><div class="trends-chart-title">Sessions per Week</div>' + chart + '</div>' + monthRows);
 }
 
 // ── Readiness & Recovery ─────────────────────────────────────────
