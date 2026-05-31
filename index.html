@@ -612,9 +612,16 @@
       padding-bottom: 6px; border-bottom: 1px solid var(--border); }
     .day-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
     .day-chip { padding: 7px 12px; border-radius: 20px; font-size: 13px; font-weight: 600;
-      border: 1.5px solid var(--border); background: none; color: var(--muted); cursor: pointer; }
+      border: 1.5px solid var(--border); background: none; color: var(--muted); cursor: default; }
+    /* Normal training day — tappable */
+    .day-chip.avail   { border-color: var(--success); color: var(--success);
+      background: rgba(74,222,128,.1); cursor: pointer; }
+    /* Training day being skipped this week */
+    .day-chip.skipping { border-color: var(--accent2); color: var(--accent2);
+      background: rgba(255,39,18,.1); cursor: pointer; text-decoration: line-through; }
+    /* Legacy — kept for graceful fallback when available_days not set */
     .day-chip.unavail { border-color: var(--accent2); color: var(--accent2);
-      background: rgba(255,39,18,.1); }
+      background: rgba(255,39,18,.1); cursor: pointer; }
     .toggle-row { display: flex; align-items: center; justify-content: space-between;
       padding: 11px 0; border-bottom: 1px solid var(--border); }
     .toggle-row:last-child { border-bottom: none; }
@@ -1117,7 +1124,7 @@ async function onLogin(user) {
   try {
     if (isOffline || !(await checkOnline())) throw new Error('offline');
     const { data: athlete, error: aErr } = await db.from('athletes')
-      .select('id,name,email').eq('email', user.email).single();
+      .select('id,name,email,available_days').eq('email', user.email).single();
     if (aErr) throw aErr;
     if (!athlete) { toast('Athlete record not found. Contact your coach.'); doLogout(); return; }
     S.athlete = athlete;
@@ -5554,13 +5561,28 @@ async function openCheckin() {
   }
   summaryHtml += '</div>';
 
-  // Days (all 7; pre-mark any previously selected unavailable days)
-  // TODO: Once athlete profile has available_days field, pre-grey normal off days.
-  const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
-  const unavailSet = new Set(ci.unavailable_days || []);
-  const dayChips = DAYS.map(d =>
-    `<button class="day-chip${unavailSet.has(d) ? ' unavail' : ''}" onclick="toggleDay(this,'${d}')">${d.slice(0,3)}</button>`
-  ).join('');
+  // Days — pre-color from athlete's available_days profile field.
+  // Green (.avail)   = normal training day, tappable to mark as skipping this week.
+  // Strikethrough red (.skipping) = normal training day being skipped this week.
+  // Grey (default)  = normal off day, not interactive.
+  // Falls back to all-grey when available_days is not set on the athlete record.
+  const DAYS      = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  const trainSet  = new Set(S.athlete.available_days || []);  // normal training days
+  const skipSet   = new Set(ci.unavailable_days || []);       // days skipped this week
+  const hasProfile = trainSet.size > 0;
+
+  const dayChips = DAYS.map(d => {
+    if (!hasProfile) {
+      // No profile data yet — legacy grey chips, tappable
+      return `<button class="day-chip${skipSet.has(d) ? ' unavail' : ''}" onclick="toggleDay(this,'${d}')">${d.slice(0,3)}</button>`;
+    }
+    if (trainSet.has(d)) {
+      const cls = skipSet.has(d) ? 'skipping' : 'avail';
+      return `<button class="day-chip ${cls}" onclick="toggleDay(this,'${d}')">${d.slice(0,3)}</button>`;
+    }
+    // Normal off day — grey, not interactive
+    return `<button class="day-chip" style="opacity:.4;cursor:default" disabled>${d.slice(0,3)}</button>`;
+  }).join('');
 
   // Travel sub-option visibility
   const isTraveling    = ci.is_traveling    === true;
@@ -5641,12 +5663,19 @@ async function openCheckin() {
                  color:var(--text);font-size:14px;padding:10px 12px;resize:none;min-height:60px"
         >${ci.schedule_preference_notes || ''}</textarea>
       </div>
-      <div class="form-field wide">
+      <div class="form-field wide" style="margin-bottom:10px">
         <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">Anything else for the coach?</label>
         <textarea id="ci-general" placeholder="Questions, updates, general notes…"
           style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
                  color:var(--text);font-size:14px;padding:10px 12px;resize:none;min-height:60px"
         >${ci.general_notes || ''}</textarea>
+      </div>
+      <div class="form-field wide">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">Anything coming up in the next few weeks?</label>
+        <textarea id="ci-future" placeholder="E.g., traveling June 14–21, no gym access…"
+          style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                 color:var(--text);font-size:14px;padding:10px 12px;resize:none;min-height:60px"
+        >${ci.future_notes || ''}</textarea>
       </div>
     </div>
 
@@ -5663,7 +5692,21 @@ function closeCheckin() {
 }
 
 function toggleDay(el, day) {
-  el.classList.toggle('unavail');
+  if (el.disabled) return;
+  const trainSet = new Set(S.athlete.available_days || []);
+  if (trainSet.size > 0) {
+    // Profile-aware: toggle between avail and skipping
+    if (el.classList.contains('avail')) {
+      el.classList.remove('avail');
+      el.classList.add('skipping');
+    } else if (el.classList.contains('skipping')) {
+      el.classList.remove('skipping');
+      el.classList.add('avail');
+    }
+  } else {
+    // Legacy fallback: no profile data, toggle unavail
+    el.classList.toggle('unavail');
+  }
 }
 
 function toggleTravelFields() {
@@ -5688,13 +5731,16 @@ function toggleEquipField() {
 }
 
 async function submitCheckin() {
-  // Gather unavailable days from chip state
-  const chips = document.querySelectorAll('#ci-day-chips .day-chip.unavail');
-  const unavailDays = Array.from(chips).map(c => c.textContent.trim());
-  // Expand 3-letter back to full
+  // Gather skipped training days from chip state.
+  // With profile: collect .skipping chips (training days being skipped this week).
+  // Legacy fallback: collect .unavail chips.
   const DAY_EXPAND = { Mon:'Monday', Tue:'Tuesday', Wed:'Wednesday', Thu:'Thursday',
                        Fri:'Friday', Sat:'Saturday', Sun:'Sunday' };
-  const unavailFull = unavailDays.map(d => DAY_EXPAND[d] || d);
+  const trainSet = new Set(S.athlete.available_days || []);
+  const skipSelector = trainSet.size > 0 ? '#ci-day-chips .day-chip.skipping'
+                                         : '#ci-day-chips .day-chip.unavail';
+  const skipChips   = document.querySelectorAll(skipSelector);
+  const unavailFull = Array.from(skipChips).map(c => DAY_EXPAND[c.textContent.trim()] || c.textContent.trim());
 
   const traveling       = document.getElementById('ci-traveling')?.checked  ?? false;
   const trainAway       = document.getElementById('ci-train-away')?.checked ?? null;
@@ -5703,6 +5749,7 @@ async function submitCheckin() {
   const moreNotes       = document.getElementById('ci-more-less')?.value.trim() || null;
   const schedNotes      = document.getElementById('ci-schedule')?.value.trim()  || null;
   const generalNotes    = document.getElementById('ci-general')?.value.trim()   || null;
+  const futureNotes     = document.getElementById('ci-future')?.value.trim()    || null;
 
   const isResubmit = !!S.checkin;
   const payload = {
@@ -5717,6 +5764,7 @@ async function submitCheckin() {
     more_less_notes:           moreNotes,
     schedule_preference_notes: schedNotes,
     general_notes:             generalNotes,
+    future_notes:              futureNotes,
     resubmitted:               isResubmit,
   };
 
@@ -5733,6 +5781,23 @@ async function submitCheckin() {
     console.error('Check-in save error:', err);
     toast('Error saving check-in. Try again.', 4000);
   }
+}
+
+function renderTrendsPain(painItems) {
+  if (!painItems.length) return '<div class="trends-section"><div class="trends-section-title">Watch Items</div><div style="color:var(--muted);font-size:13px;padding:8px 0">No active pain or injury flags. ✓</div></div>';
+  const scMap = { 'new': '#ef4444', 'worse': '#ef4444', 'same': '#f59e0b', 'improving': '#22c55e' };
+  const html  = painItems.map(function(p) {
+    const sc   = scMap[p.status] || '#94a3b8';
+    const meta = [
+      p.pain_score != null ? 'Pain: ' + p.pain_score + '/10' : null,
+      p.status     ? p.status.charAt(0).toUpperCase() + p.status.slice(1) : null,
+      p.log_date   ? new Date(p.log_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null,
+      p.modified_training ? 'Training modified' : null,
+    ].filter(Boolean).join(' · ');
+    const notesHtml = p.notes ? '<div class="pain-meta" style="margin-top:4px;font-style:italic">' + p.notes + '</div>' : '';
+    return '<div class="pain-flag" style="border-left-color:' + sc + '"><div class="pain-region">' + p.body_region + '</div><div class="pain-meta">' + meta + '</div>' + notesHtml + '</div>';
+  }).join('');
+  return '<div class="trends-section"><div class="trends-section-title">Watch Items</div>' + html + '</div>';
 }
 
 (async () => {
