@@ -5557,6 +5557,217 @@ function renderMuscleGroupChart(mgSplitMap, maxVal) {
   return html;
 }
 
+
+function renderTrendsConsistency(sessions, weekKeys, weekLabels, plannedPerWeek) {
+  const byWk = {};
+  weekKeys.forEach(function(k) { byWk[k] = 0; });
+  sessions.forEach(function(s) {
+    const wk = getWeekMonday(s.session_date);
+    if (byWk[wk] !== undefined) byWk[wk]++;
+  });
+  const values = weekKeys.map(function(k) { return byWk[k]; });
+  const chart  = trendsBarChart(values, weekLabels, { height: 110 });
+
+  const byMonth = {};
+  sessions.forEach(function(s) {
+    const m = s.session_date.slice(0, 7);
+    byMonth[m] = (byMonth[m] || 0) + 1;
+  });
+  const monthRows = Object.entries(byMonth).sort(function(a,b) { return b[0].localeCompare(a[0]); }).map(function(e) {
+    const d   = new Date(e[0] + '-01T00:00:00');
+    const lbl = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    return '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px"><span style="color:var(--fg)">' + lbl + '</span><span style="color:var(--accent);font-weight:600">' + e[1] + '</span></div>';
+  }).join('');
+
+  const ytd = sessions.filter(function(s) { return s.session_date.startsWith(new Date().getFullYear().toString()); }).length;
+
+  // Completion rate — only shown when using AI coach (plannedPerWeek > 0)
+  let completionHtml = '';
+  if (plannedPerWeek > 0) {
+    // Count weeks with data (exclude future weeks from denominator)
+    const todayWk = getWeekMonday(today());
+    const pastKeys = weekKeys.filter(function(k) { return k <= todayWk; });
+    const totalPlanned  = pastKeys.length * plannedPerWeek;
+    const totalPlannedCompleted = sessions.filter(function(s) { return s.planned_session_id; }).length;
+    const pct = totalPlanned > 0 ? Math.round(totalPlannedCompleted / totalPlanned * 100) : 0;
+    // This week: sessions completed vs planned
+    const thisWkCompleted = sessions.filter(function(s) {
+      return getWeekMonday(s.session_date) === todayWk && s.planned_session_id;
+    }).length;
+    completionHtml = '<div class="trends-stat-pill"><div class="trends-stat-num">' + pct + '%</div><div class="trends-stat-lbl">Completion Rate</div></div>'
+      + '<div class="trends-stat-pill"><div class="trends-stat-num">' + thisWkCompleted + '/' + plannedPerWeek + '</div><div class="trends-stat-lbl">This Week</div></div>';
+  }
+
+  const statStrip = '<div class="trends-stat-strip"><div class="trends-stat-pill"><div class="trends-stat-num">' + ytd + '</div><div class="trends-stat-lbl">Sessions YTD</div></div><div class="trends-stat-pill"><div class="trends-stat-num">' + sessions.length + '</div><div class="trends-stat-lbl">Last 12 weeks</div></div>' + completionHtml + '</div>';
+
+  return trendSection('consistency', 'Consistency', statStrip + '<div class="trends-chart-box"><div class="trends-chart-title">Sessions per Week</div>' + chart + '</div>' + monthRows);
+}
+
+// ── Readiness & Recovery ─────────────────────────────────────────
+function renderTrendsReadiness(readiness, weekKeys, weekLabels) {
+  if (!readiness.length) return trendSection('readiness', 'Readiness &amp; Recovery', '<div style="color:var(--muted);font-size:13px;padding:8px 0">No readiness data yet.</div>');
+
+  // Compute composite readiness score per week (avg of energy + (5-soreness) + (5-stress) + motivation, scaled 1-5)
+  const scoreByWk = {};
+  readiness.forEach(function(r) {
+    const wk = getWeekMonday(r.log_date);
+    if (!scoreByWk[wk]) scoreByWk[wk] = [];
+    const vals = [];
+    if (r.energy     != null) vals.push(parseFloat(r.energy));
+    if (r.soreness   != null) vals.push(6 - parseFloat(r.soreness)); // invert: low soreness = good
+    if (r.stress     != null) vals.push(6 - parseFloat(r.stress));   // invert: low stress = good
+    if (r.motivation != null) vals.push(parseFloat(r.motivation));
+    if (vals.length) scoreByWk[wk].push(vals.reduce(function(a,b){return a+b;},0) / vals.length);
+  });
+  const scoreVals = weekKeys.map(function(k) {
+    const arr = scoreByWk[k];
+    return arr && arr.length ? parseFloat((arr.reduce(function(a,b){return a+b;},0)/arr.length).toFixed(1)) : null;
+  });
+
+  // Most recent log for the pill strip
+  const latest = readiness.slice().sort(function(a,b){ return b.log_date.localeCompare(a.log_date); })[0];
+  var pillHtml = '';
+  if (latest) {
+    const scoreNum = scoreVals.filter(function(v){return v!=null;}).slice(-1)[0];
+    const scoreClass = scoreNum == null ? '' : scoreNum >= 4 ? 'good' : scoreNum >= 3 ? 'ok' : 'low';
+    const scoreDisp  = scoreNum != null ? scoreNum.toFixed(1) : '—';
+    pillHtml = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
+      + '<div class="ready-score-pip ' + scoreClass + '">' + scoreDisp + '</div>'
+      + '<div style="font-size:12px;color:var(--muted)">Latest score &nbsp;·&nbsp; ' + new Date(latest.log_date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}) + '</div>'
+      + '</div>'
+      + '<div class="ready-last-row">'
+      + (latest.energy     != null ? '<span class="ready-last-pill">⚡ Energy ' + latest.energy + '/5</span>' : '')
+      + (latest.soreness   != null ? '<span class="ready-last-pill">💪 Soreness ' + latest.soreness + '/5</span>' : '')
+      + (latest.stress     != null ? '<span class="ready-last-pill">🧠 Stress ' + latest.stress + '/5</span>' : '')
+      + (latest.motivation != null ? '<span class="ready-last-pill">🔥 Motivation ' + latest.motivation + '/5</span>' : '')
+      + (latest.sleep_hours!= null ? '<span class="ready-last-pill">😴 Sleep ' + latest.sleep_hours + 'h</span>' : '')
+      + '</div>';
+  }
+
+  const chartHtml = '<div class="trends-chart-box"><div class="trends-chart-title">Readiness Score per Week (1–5)</div>'
+    + trendsLineChart(scoreVals, weekLabels, { decimals: 1, min: 1, max: 5 }) + '</div>';
+
+  return trendSection('readiness', 'Readiness &amp; Recovery', pillHtml + chartHtml);
+}
+
+function condAdaptation(workoutType, modality) {
+  // Derive adaptation zone from workout_type / modality
+  if (!workoutType && !modality) return 'Unknown';
+  const wt = (workoutType || '').toLowerCase();
+  const mo = (modality || '').toLowerCase();
+  if (wt === 'intervals') return 'Anaerobic / Mixed';
+  if (wt === 'circuit' || mo === 'circuit training') return 'Mixed / GPP';
+  if (wt === 'tempo') return 'Threshold';
+  if (wt === 'steady state' || mo === 'run' || mo === 'ruck' || mo === 'walk'
+      || mo === 'rower' || mo === 'skierge' || mo === 'cycling'
+      || mo === 'echo bike' || mo === 'swimming') return 'Aerobic Base';
+  return 'Other';
+}
+
+function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
+  if (!conditioning.length) return trendSection('conditioning', 'Conditioning', '<div style="color:var(--muted);font-size:13px;padding:8px 0">No conditioning data yet.</div>');
+
+  // ── Minutes per week (12-week bar) ────────────────────────────────────────
+  const byWk = {};
+  weekKeys.forEach(function(k) { byWk[k] = 0; });
+  conditioning.forEach(function(row) {
+    const dateStr = row.conditioning_date || (row.created_at ? row.created_at.slice(0,10) : null);
+    if (!dateStr) return;
+    const wk = getWeekMonday(dateStr);
+    if (byWk[wk] !== undefined && row.duration_minutes) byWk[wk] += row.duration_minutes;
+  });
+  const wkValues = weekKeys.map(function(k) { return Math.round(byWk[k]); });
+  const minChart = trendsBarChart(wkValues, weekLabels, { height: 110, color: '#06b6d4' });
+
+  // ── Last-30-day window ────────────────────────────────────────────────────
+  const now30 = new Date(); now30.setDate(now30.getDate() - 30);
+  const cutoff30 = now30.toISOString().slice(0,10);
+  const recent = conditioning.filter(function(row) {
+    const d = row.conditioning_date || (row.created_at ? row.created_at.slice(0,10) : null);
+    return d && d >= cutoff30;
+  });
+
+  // ── Time by modality (30 days) ────────────────────────────────────────────
+  const timeByMod = {};
+  recent.forEach(function(row) {
+    if (!row.modality) return;
+    timeByMod[row.modality] = (timeByMod[row.modality] || 0) + (row.duration_minutes || 0);
+  });
+  const timeItems = Object.entries(timeByMod)
+    .map(function(e) { return { label: e[0], value: Math.round(e[1]) }; })
+    .sort(function(a,b) { return b.value - a.value; });
+
+  // ── Distance by modality (30 days, metres -> miles) ───────────────────────
+  const DIST_MODS = ['Run','Ruck','Walk','Rower','SkiErg','Cycling','Echo Bike','Swimming'];
+  const distByMod = {};
+  recent.forEach(function(row) {
+    if (!row.modality || !row.distance_meters) return;
+    if (!DIST_MODS.includes(row.modality)) return;
+    distByMod[row.modality] = (distByMod[row.modality] || 0) + row.distance_meters;
+  });
+  const distItems = Object.entries(distByMod)
+    .map(function(e) { return { label: e[0], value: parseFloat((e[1] / 1609.34).toFixed(1)) }; })
+    .sort(function(a,b) { return b.value - a.value; });
+
+  // ── Adaptation breakdown (30 days) ───────────────────────────────────────
+  const adaptMap = {};
+  recent.forEach(function(row) {
+    const zone = condAdaptation(row.workout_type, row.modality);
+    adaptMap[zone] = (adaptMap[zone] || 0) + (row.duration_minutes || 1);
+  });
+  const adaptColors = {
+    'Aerobic Base': '#22c55e', 'Threshold': '#f59e0b',
+    'Anaerobic / Mixed': '#ef4444', 'Mixed / GPP': '#8b5cf6', 'Other': '#94a3b8'
+  };
+  const adaptItems = Object.entries(adaptMap)
+    .map(function(e) { return { label: e[0], value: Math.round(e[1]) }; })
+    .sort(function(a,b) { return b.value - a.value; });
+
+  // ── Workout type breakdown (30 days) ─────────────────────────────────────
+  const wtMap = {};
+  recent.forEach(function(row) {
+    const wt = row.workout_type || 'Unspecified';
+    wtMap[wt] = (wtMap[wt] || 0) + (row.duration_minutes || 1);
+  });
+  const wtItems = Object.entries(wtMap)
+    .map(function(e) { return { label: e[0], value: Math.round(e[1]) }; })
+    .sort(function(a,b) { return b.value - a.value; });
+
+  // ── Build HTML ─────────────────────────────────────────────────────────────
+  var body = '';
+
+  body += '<div class="trends-chart-box"><div class="trends-chart-title">Minutes per Week</div>' + minChart + '</div>';
+
+  if (adaptItems.length) {
+    // Custom color horiz chart for adaptation
+    const adaptTotal = adaptItems.reduce(function(s,i){return s+i.value;},0);
+    var adaptRows = '';
+    adaptItems.forEach(function(item) {
+      const pct = adaptTotal ? Math.round(item.value / adaptTotal * 100) : 0;
+      const col = adaptColors[item.label] || '#94a3b8';
+      adaptRows += '<div class="horiz-bar-row">'
+        + '<div class="horiz-bar-meta"><span>' + item.label + '</span><span>' + item.value + ' min (' + pct + '%)</span></div>'
+        + '<div class="horiz-bar-track"><div class="horiz-bar-fill" style="width:' + pct + '%;background:' + col + '"></div></div>'
+        + '</div>';
+    });
+    body += '<div class="trends-chart-box"><div class="trends-chart-title">By Adaptation Zone — last 30 days</div>' + adaptRows + '</div>';
+  }
+
+  if (wtItems.length) {
+    body += '<div class="trends-chart-box"><div class="trends-chart-title">By Workout Type — last 30 days (min)</div>' + trendsHorizChart(wtItems, '#06b6d4') + '</div>';
+  }
+
+  if (timeItems.length) {
+    body += '<div class="trends-chart-box"><div class="trends-chart-title">Time by Modality — last 30 days (min)</div>' + trendsHorizChart(timeItems, '#0891b2') + '</div>';
+  }
+
+  if (distItems.length) {
+    body += '<div class="trends-chart-box"><div class="trends-chart-title">Distance by Modality — last 30 days (mi)</div>' + trendsHorizChart(distItems, '#0e7490') + '</div>';
+  }
+
+  return trendSection('conditioning', 'Conditioning', body);
+}
+
 function renderTrendsPain(painItems) {
   if (!painItems.length) return '<div class="trends-section"><div class="trends-section-title">Watch Items</div><div style="color:var(--muted);font-size:13px;padding:8px 0">No active pain or injury flags. ✓</div></div>';
   const scMap = { 'new': '#ef4444', 'worse': '#ef4444', 'same': '#f59e0b', 'improving': '#22c55e' };
