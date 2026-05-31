@@ -5399,6 +5399,66 @@ function renderTrendsVolume(sets, weekKeys, weekLabels) {
   return trendSection('volume', 'Volume &amp; Workload', body);
 }
 
+// ── Volume breakdown helpers ─────────────────────────────────────
+function buildVolumeBreakdown(sets, weekKeys, period) {
+  const nWeeks  = period === '1w' ? 1 : period === '2w' ? 2 : 4;
+  const cutKeys = new Set(weekKeys.slice(-nWeeks));
+
+  // Aggregate sets, hard sets, and tonnage by movement pattern
+  const byPattern = {};
+  sets.forEach(function(s) {
+    if (!s._sd) return;
+    if (s.exercise && s.exercise.exercise_type === 'conditioning') return;
+    const wk = getWeekMonday(s._sd);
+    if (!cutKeys.has(wk)) return;
+    const mp = (s.exercise && s.exercise.movement_pattern) || 'Unknown';
+    if (!byPattern[mp]) byPattern[mp] = { sets: 0, hard: 0, tonnage: 0 };
+    byPattern[mp].sets++;
+    if (s.actual_rpe && parseFloat(s.actual_rpe) >= 7) byPattern[mp].hard++;
+    if (s.actual_load && s.actual_reps) {
+      byPattern[mp].tonnage += parseFloat(s.actual_load) * parseInt(s.actual_reps);
+    }
+  });
+
+  const patterns = Object.keys(byPattern).sort();
+  if (!patterns.length) {
+    return '<div style="color:var(--muted);font-size:13px;padding:8px 0">No logged sets for this period.</div>';
+  }
+
+  const headerStyle = 'display:grid;grid-template-columns:1fr auto auto auto;gap:4px 14px';
+  const rowStyle    = headerStyle + ';padding:5px 0;border-bottom:1px solid var(--border)';
+
+  let html = '<div style="margin-top:10px">';
+  html += '<div style="' + headerStyle + ';font-size:10px;font-weight:700;color:var(--muted);'
+    + 'letter-spacing:.6px;padding-bottom:6px;border-bottom:1px solid var(--border);margin-bottom:4px">'
+    + '<div>PATTERN</div><div style="text-align:right">SETS</div>'
+    + '<div style="text-align:right">HARD≥7</div><div style="text-align:right">TONNAGE</div></div>';
+
+  patterns.forEach(function(mp) {
+    const d   = byPattern[mp];
+    const ton = d.tonnage >= 1000
+      ? (d.tonnage / 1000).toFixed(1) + 'k'
+      : Math.round(d.tonnage).toLocaleString();
+    html += '<div style="' + rowStyle + ';font-size:12px">'
+      + '<div style="color:var(--text)">'    + mp         + '</div>'
+      + '<div style="text-align:right;color:var(--text)">'   + d.sets + '</div>'
+      + '<div style="text-align:right;color:var(--accent)">' + d.hard + '</div>'
+      + '<div style="text-align:right;color:var(--muted)">'  + ton    + '</div>'
+      + '</div>';
+  });
+  html += '</div>';
+  return html;
+}
+
+function refreshVolumeBreakdown() {
+  const sel    = document.getElementById('vol-period-select');
+  const period = sel ? sel.value : '4w';
+  const el     = document.getElementById('vol-breakdown');
+  if (el && window._tSets && window._tWkKeys) {
+    el.innerHTML = buildVolumeBreakdown(window._tSets, window._tWkKeys, period);
+  }
+}
+
 // ── Muscle group display groups ───────────────────────────────────────────────
 // Multi-muscle groups are expandable in the Trends chart.
 // Grip/Forearms, Calves, and Tibialis/Lower Leg are excluded from reporting.
