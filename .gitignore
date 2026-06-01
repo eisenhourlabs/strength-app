@@ -1,0 +1,24 @@
+# ── Credentials — never commit ──────────────────────────────────
+supabase_config.py
+Supabase.txt
+
+# ── Python cache ─────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+
+# ── App backups — local development artifacts ────────────────────
+06_App/index.html.bak*
+
+# ── Regenerated weekly files — optional to commit ───────────────
+# These are recreated every week. Commit them if you want a git
+# history of each week's output; exclude them for a cleaner repo.
+# Uncomment either block depending on your preference.
+#
+# last_week_pull.txt
+# current_week_program.json
+
+# ── OS junk ──────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
