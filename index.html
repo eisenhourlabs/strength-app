@@ -797,6 +797,7 @@
   <div class="sheet-handle"></div>
   <div class="sheet-title" id="ex-sheet-title">Select Exercise</div>
   <div id="ex-sheet-hint" style="display:none;font-size:12px;color:var(--muted);padding:0 0 8px;flex-shrink:0"></div>
+  <div class="chip-row" id="skill-chips" style="margin-bottom:2px"></div>
   <div class="chip-row" id="pattern-chips"></div>
   <input class="sheet-search" id="ex-search" placeholder="Search exercises…" oninput="filterExercises(this.value)">
   <div class="sheet-list" id="ex-list"></div>
@@ -1081,6 +1082,7 @@ function today() { return new Date().toISOString().split('T')[0]; }
 
 // ── Pattern filter state ──────────────────────────────────────────────────────
 let activePatternFilter = null;
+let activeSkillFilter   = null;
 let isOffline = !navigator.onLine;
 
 
@@ -1130,7 +1132,7 @@ async function onLogin(user) {
     S.athlete = athlete;
 
     const { data: lib } = await db.from('exercise_library')
-      .select('id,name,movement_pattern,exercise_type,equipment').order('name');
+      .select('id,name,movement_pattern,exercise_type,equipment,skill_level').order('name');
     S.exerciseLib = lib || [];
 
     try { await idbSet('athleteCache', { email: user.email, athlete, exerciseLib: S.exerciseLib }); } catch {}
@@ -1147,7 +1149,10 @@ async function onLogin(user) {
       toast('Offline — loading from cache…', 2000);
       await loadProgram();
     } else {
-      toast('Offline — open the app while connected first to enable offline use.', 5000);
+      // Reset login button so user can retry
+      const loginBtn = document.getElementById('login-btn');
+      if (loginBtn) { loginBtn.textContent = 'Log In'; loginBtn.disabled = false; }
+      toast('Connection error — check your network and try again.', 5000);
     }
   }
 }
@@ -1174,20 +1179,19 @@ async function renderWeek() {
   }
 
   const body = document.getElementById('week-body');
-  if (!S.cycle) {
-    body.innerHTML = '<div class="card"><div class="card-title">No active program</div>' +
-      '<div class="card-sub">Your coach hasn\'t pushed a program yet.</div></div>';
-    document.getElementById('week-name').textContent  = S.athlete.name;
+  document.getElementById('week-name').textContent = S.athlete.name;
+  if (S.cycle) {
+    const weekDate = new Date(S.cycle.start_date + 'T00:00:00');
+    const weekStr  = weekDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    document.getElementById('week-block').textContent = `${S.cycle.name}  ·  ${weekStr}`;
+  } else {
     document.getElementById('week-block').textContent = '';
-    showScreen('week');
-    return;
   }
-  const weekDate = new Date(S.cycle.start_date + 'T00:00:00');
-  const weekStr  = weekDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  document.getElementById('week-name').textContent  = S.athlete.name;
-  document.getElementById('week-block').textContent = `${S.cycle.name}  ·  ${weekStr}`;
 
-  const sessHtml = S.sessions.map(s => {
+  const sessHtml = !S.cycle
+    ? '<div class="card"><div class="card-title">No active program</div>' +
+      '<div class="card-sub">Your coach hasn\'t pushed a program yet.</div></div>'
+    : S.sessions.map(s => {
     const comp       = S.completed[s.id];
     const isCondOnly = s.session_type === 'Conditioning Only';
     const icon       = isCondOnly ? '🚴 ' : '';
@@ -1414,6 +1418,7 @@ async function openSession(sessionId) {
   S.savedExercises         = {};
   S.checkedSets            = {};
   S.restTimers             = {};
+  S._conditioningLogged    = false;
   startSessionTimer();
 
   document.getElementById('session-title').textContent = S.activeSession.day_label;
@@ -1518,7 +1523,8 @@ async function openSession(sessionId) {
         S.exState[pe.id] = { skipped: false, swappedTo: null, setCount: count, measureType: 'reps' };
       }
     });
-    if (isCondOnly) { renderConditioningSessionBody(); } else { renderSessionBody(); await restoreDraft(sessionId); initExerciseSort(sessionId); }
+    const shouldUseCondForm2 = isCondOnly || (!!S.plannedConditioning && S.plannedExercises.length === 0);
+    if (shouldUseCondForm2) { renderConditioningSessionBody(); } else { renderSessionBody(); await restoreDraft(sessionId); initExerciseSort(sessionId); }
     return;
   }
 
@@ -1607,7 +1613,9 @@ async function openSession(sessionId) {
     }
   });
 
-  if (isCondOnly) {
+  // Treat as conditioning if session_type matches OR planned conditioning exists with no strength exercises
+  const shouldUseCondForm = isCondOnly || (!!S.plannedConditioning && S.plannedExercises.length === 0);
+  if (shouldUseCondForm) {
     renderConditioningSessionBody();
   } else {
     renderSessionBody();
@@ -1869,6 +1877,8 @@ async function renderSessionBody() {
   html += '<div id="exercise-list">';
   // Planned exercises
   S.plannedExercises.forEach(pe => {
+    // Skip conditioning-type exercises — they are logged via the conditioning form, not as strength sets
+    if (pe.exercise && pe.exercise.exercise_type === 'conditioning') return;
     const savedSets = S.savedExercises[pe.id];
     if (savedSets) {
       // Already saved — render read-only card
@@ -3207,6 +3217,48 @@ function togglePainFlag(key, exName) {
   if (btn) btn.classList.toggle('flagged', !!S.painFlags[key]);
 }
 
+function showConditioningPrompt(onYes, onNo) {
+  const pc   = S.plannedConditioning;
+  const desc = pc
+    ? (pc.modality || 'Conditioning')
+        + (pc.workout_type     ? ' · ' + pc.workout_type     : '')
+        + (pc.target_duration_min ? ' · ' + pc.target_duration_min + ' min' : '')
+    : 'Conditioning block';
+  const overlay = document.createElement('div');
+  overlay.className = 'pain-prompt-overlay';
+  overlay.innerHTML = `
+    <div class="pain-prompt-box">
+      <div class="pain-prompt-title">Log conditioning?</div>
+      <div class="pain-prompt-sub">You had a conditioning block planned:<br><strong>${desc}</strong><br>Log it now?</div>
+      <div class="pain-prompt-btns">
+        <button class="pain-prompt-yes" id="cpYes">Log it</button>
+        <button class="pain-prompt-no"  id="cpNo">Skip</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('cpYes').onclick = () => { overlay.remove(); onYes(); };
+  document.getElementById('cpNo').onclick  = () => { overlay.remove(); onNo();  };
+}
+
+function checkAndPromptConditioning(successTitle, successMsg) {
+  if (S.plannedConditioning && !S._conditioningLogged) {
+    showConditioningPrompt(
+      () => {
+        // Keep user on the session screen and switch to conditioning logging
+        const btn = document.getElementById('submit-btn');
+        btn.disabled    = false;
+        btn.className   = 'btn';
+        btn.textContent = 'Log Conditioning';
+        renderConditioningSessionBody();
+        showScreen('session');
+      },
+      () => showSuccess(successTitle, successMsg)
+    );
+  } else {
+    showSuccess(successTitle, successMsg);
+  }
+}
+
 function showPainPrompt(onYes, onNo) {
   const flaggedNames = Object.values(S.painFlags || {});
   if (!flaggedNames.length) { onNo(); return; }
@@ -3284,8 +3336,8 @@ async function finishSession() {
       S.completed[S.activeSession.id] = cs;
     }
     showPainPrompt(
-      () => { openPainSheet(); showSuccess('Session Complete', 'All work saved. Great effort.'); },
-      () => { showSuccess('Session Complete', 'All work saved. Great effort.'); }
+      () => { openPainSheet(); checkAndPromptConditioning('Session Complete', 'All work saved. Great effort.'); },
+      () => { checkAndPromptConditioning('Session Complete', 'All work saved. Great effort.'); }
     );
     S.painFlags = {};
   } catch (err) {
@@ -3723,7 +3775,9 @@ function openAddExSheet() {
 
 function openExSheet(defaultPattern = null) {
   activePatternFilter = defaultPattern;
+  activeSkillFilter   = null;
   document.getElementById('ex-search').value = '';
+  renderSkillChips();
   renderChips();
   renderExList(getFilteredExercises());
   // Scroll active chip into view
@@ -3739,6 +3793,37 @@ function openExSheet(defaultPattern = null) {
 function closeExSheet() {
   document.getElementById('ex-overlay').classList.remove('open');
   document.getElementById('ex-sheet').classList.remove('open');
+}
+
+// ── Skill level filter ───────────────────────────────────────────────────────
+const SKILL_LEVELS = ['beginner', 'novice', 'intermediate', 'advanced'];
+function skillRank(level) {
+  const idx = SKILL_LEVELS.indexOf((level || '').toLowerCase());
+  return idx === -1 ? 99 : idx;
+}
+
+function renderSkillChips() {
+  const el = document.getElementById('skill-chips');
+  if (!el) return;
+  // Only show levels that exist in the loaded library
+  const presentLevels = [...new Set(
+    (S.exerciseLib || []).map(e => (e.skill_level || '').toLowerCase()).filter(Boolean)
+  )].sort((a, b) => skillRank(a) - skillRank(b));
+  if (presentLevels.length < 2) { el.innerHTML = ''; return; }
+  const chips = [{ label: 'All Levels', value: null },
+    ...presentLevels.map(l => ({ label: l.charAt(0).toUpperCase() + l.slice(1), value: l }))];
+  el.innerHTML = chips.map(ch => {
+    const val    = ch.value === null ? 'null' : `'${ch.value}'`;
+    const active = activeSkillFilter === ch.value ? ' chip-active' : '';
+    return `<button class="chip${active}" onclick="setSkillFilter(${val})">${ch.label}</button>`;
+  }).join('');
+}
+
+function setSkillFilter(level) {
+  activeSkillFilter = level;
+  renderSkillChips();
+  renderChips();
+  renderExList(getFilteredExercises());
 }
 
 function renderChips() {
@@ -3763,11 +3848,17 @@ function getFilteredExercises() {
   const q = (document.getElementById('ex-search')?.value || '').toLowerCase().trim();
   const isTestMode = S.sheetMode === 'test-ex-select';
   return S.exerciseLib.filter(ex => {
-    const matchesPat = !activePatternFilter || ex.movement_pattern === activePatternFilter;
-    const matchesTxt = !q || ex.name.toLowerCase().includes(q);
+    const matchesPat   = !activePatternFilter || ex.movement_pattern === activePatternFilter;
+    const matchesTxt   = !q || ex.name.toLowerCase().includes(q);
+    // Cumulative skill filter: selecting 'intermediate' shows beginner, novice, and intermediate
+    const matchesSkill = !activeSkillFilter || skillRank(ex.skill_level) <= skillRank(activeSkillFilter);
     // In test mode with no active search, restrict to strength exercises only
     const matchesType = !isTestMode || q || ex.exercise_type !== 'conditioning';
-    return matchesPat && matchesTxt && matchesType;
+    // Exclude conditioning exercises from swap/add lists in strength sessions
+    const isCondOnlySession = S.activeSession?.session_type === 'Conditioning Only'
+      || (S.activeSession?.includes_conditioning && !(S.plannedExercises || []).some(p => p.exercise?.exercise_type !== 'conditioning'));
+    const notCondExercise = isCondOnlySession || ex.exercise_type !== 'conditioning';
+    return matchesPat && matchesTxt && matchesType && notCondExercise && matchesSkill;
   });
 }
 
@@ -4165,7 +4256,7 @@ function buildCondRows(csId, sv) {
       load_lbs:             isCircuit ? null : b.load,
       intervals_completed:  isCircuit ? b.circuitRounds : (isIntervals ? b.intRounds : null),
       max_heart_rate:       isIntervals ? b.intMaxHR : null,
-      overall_rpe:          sv.rpe,
+      rpe:                  sv.rpe,
       avg_heart_rate:       sv.avgHR,
       notes:                notesVal,
     };
@@ -4356,19 +4447,36 @@ async function submitConditioningSession() {
       return;
     }
 
-    const { data: cs, error: csErr } = await db.from('completed_sessions').insert({
-      athlete_id: S.athlete.id, planned_session_id: S.activeSession.id,
-      session_date: today(), week_of: (S.cycle && S.cycle.start_date) || today(),
-      session_type: 'Conditioning Only', status: 'completed',
-      overall_rpe: sv.rpe, avg_heart_rate: sv.avgHR,
-    }).select().single();
-    if (csErr) throw csErr;
+    // Reuse existing completed_sessions record if available (post-strength or prior partial save)
+    let cs = (S.activeCompletedSession && !S.activeCompletedSession._isTemp) ? S.activeCompletedSession : null;
+    let createdNewSession = false;
+    if (!cs) {
+      const { data: csData, error: csErr } = await db.from('completed_sessions').insert({
+        athlete_id: S.athlete.id, planned_session_id: S.activeSession.id,
+        session_date: today(), week_of: (S.cycle && S.cycle.start_date) || today(),
+        session_type: S.activeSession.session_type || 'Conditioning Only', status: 'completed',
+        overall_rpe: sv.rpe, avg_heart_rate: sv.avgHR,
+      }).select().single();
+      if (csErr) throw csErr;
+      cs = csData;
+      createdNewSession = true;
+    } else {
+      // Update rpe/hr on existing record
+      await db.from('completed_sessions')
+        .update({ overall_rpe: sv.rpe, avg_heart_rate: sv.avgHR })
+        .eq('id', cs.id);
+    }
 
     const { error: condErr } = await db.from('completed_conditioning').insert(buildCondRows(cs.id, sv));
-    if (condErr) throw condErr;
+    if (condErr) {
+      // Roll back new session record if we created it (avoid orphan)
+      if (createdNewSession) await db.from('completed_sessions').delete().eq('id', cs.id);
+      throw condErr;
+    }
 
     S.completed[S.activeSession.id] = cs;
     S.activeCompletedSession        = cs;
+    S._conditioningLogged           = true;
     toast('Conditioning logged. ✓', 2000);
     renderConditioningSessionBody();
   } catch (err) {
@@ -4896,16 +5004,30 @@ async function syncQueue() {
         case 'conditioning_session': {
           const { data: cs2, error: cse } = await db.from('completed_sessions').insert(p.session).select().single();
           if (cse) throw cse;
-          const condRows2 = (p.blocks || []).filter(b => b.modality).map(b => ({
-            athlete_id: p.session.athlete_id, completed_session_id: cs2.id,
-            conditioning_date: p.session.session_date, week_of: p.session.week_of,
-            modality: b.modality, workout_type: p.session.effort_level || null,
-            is_planned: !!p.isPlanned, duration_minutes: b.duration || null,
-            distance_meters: b.distanceMeters || null, load_lbs: b.load || null,
-            intervals_completed: p.session.effort_level === 'Intervals' ? (p.rounds || null) : null,
-            max_heart_rate: p.session.effort_level === 'Intervals' ? (p.maxHR || null) : null,
-            notes: p.notes || null,
-          }));
+          const condRows2 = (p.blocks || []).filter(b => b.modality).map(b => {
+            const isCircuit2   = b.modality === 'Circuit Training';
+            const isIntervals2 = !isCircuit2 && b.workoutType === 'Intervals';
+            const notesVal2    = isCircuit2 ? [b.circuitDesc, p.notes].filter(Boolean).join(' | ') || null : p.notes || null;
+            return {
+              athlete_id:           p.session.athlete_id,
+              completed_session_id: cs2.id,
+              conditioning_date:    p.session.session_date,
+              week_of:              p.session.week_of,
+              conditioning_system:  p.session.conditioning_system || null,
+              conditioning_phase:   p.session.conditioning_phase  || null,
+              modality:             b.modality,
+              workout_type:         isCircuit2 ? 'Circuit' : (b.workoutType || null),
+              is_planned:           !!p.isPlanned,
+              duration_minutes:     b.duration       || null,
+              distance_meters:      isCircuit2 ? null : (b.distanceMeters || null),
+              load_lbs:             isCircuit2 ? null : (b.load || null),
+              intervals_completed:  isCircuit2 ? (b.circuitRounds || null) : (isIntervals2 ? (b.intRounds || null) : null),
+              max_heart_rate:       isIntervals2 ? (b.intMaxHR || null) : null,
+              avg_heart_rate:       p.session.avg_heart_rate || null,
+              rpe:                  p.session.overall_rpe    || null,
+              notes:                notesVal2,
+            };
+          });
           if (condRows2.length) { const { error: cce } = await db.from('completed_conditioning').insert(condRows2); if (cce) throw cce; }
           break;
         }
@@ -4914,20 +5036,32 @@ async function syncQueue() {
             athlete_id: p.athlete_id, planned_session_id: null,
             session_date: p.conditioning_date, week_of: p.week_of,
             session_type: 'Conditioning Only', status: 'completed',
-            overall_rpe: p.overall_rpe || null, effort_level: p.effort_level || null,
+            overall_rpe: p.overall_rpe || null,
             avg_heart_rate: p.avg_heart_rate || null,
           }).select().single();
           if (cse3) throw cse3;
-          const condRows3 = (p.blocks || []).filter(b => b.modality).map(b => ({
-            athlete_id: p.athlete_id, completed_session_id: cs3.id,
-            conditioning_date: p.conditioning_date, week_of: p.week_of,
-            modality: b.modality, workout_type: p.effort_level || null,
-            is_planned: false, duration_minutes: b.duration || null,
-            distance_meters: b.distanceMeters || null, load_lbs: b.load || null,
-            intervals_completed: p.effort_level === 'Intervals' ? (p.rounds || null) : null,
-            max_heart_rate: p.effort_level === 'Intervals' ? (p.maxHR || null) : null,
-            notes: p.notes || null,
-          }));
+          const condRows3 = (p.blocks || []).filter(b => b.modality).map(b => {
+            const isCircuit3   = b.modality === 'Circuit Training';
+            const isIntervals3 = !isCircuit3 && b.workoutType === 'Intervals';
+            const notesVal3    = isCircuit3 ? [b.circuitDesc, p.notes].filter(Boolean).join(' | ') || null : p.notes || null;
+            return {
+              athlete_id:           p.athlete_id,
+              completed_session_id: cs3.id,
+              conditioning_date:    p.conditioning_date,
+              week_of:              p.week_of,
+              modality:             b.modality,
+              workout_type:         isCircuit3 ? 'Circuit' : (b.workoutType || null),
+              is_planned:           false,
+              duration_minutes:     b.duration       || null,
+              distance_meters:      isCircuit3 ? null : (b.distanceMeters || null),
+              load_lbs:             isCircuit3 ? null : (b.load || null),
+              intervals_completed:  isCircuit3 ? (b.circuitRounds || null) : (isIntervals3 ? (b.intRounds || null) : null),
+              max_heart_rate:       isIntervals3 ? (b.intMaxHR || null) : null,
+              avg_heart_rate:       p.avg_heart_rate || null,
+              rpe:                  p.overall_rpe    || null,
+              notes:                notesVal3,
+            };
+          });
           if (condRows3.length) { const { error: e5 } = await db.from('completed_conditioning').insert(condRows3); if (e5) throw e5; }
           break;
         }
