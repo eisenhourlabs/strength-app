@@ -335,6 +335,11 @@
     .hist-e1rm { font-size: 11px; color: var(--muted); margin-left: auto; flex-shrink: 0; }
     .hist-set-row.top-set .hist-e1rm { color: var(--accent); }
     .hist-empty { padding: 32px 16px; text-align: center; color: var(--muted); font-size: 14px; }
+    .hist-notes { font-size: 12px; color: var(--muted); font-style: italic; padding: 6px 0 2px; border-top: 1px solid var(--border); margin-top: 4px; }
+    .sess-day-chip { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; border-radius: 4px; padding: 1px 4px 1px 0; transition: opacity .15s; }
+    .sess-day-chip:active { opacity: .6; }
+    .day-edit-icon { font-size: 10px; opacity: .4; }
+    .sheet-item-active { color: var(--accent); font-weight: 600; }
     .sheet-handle { width: 40px; height: 4px; background: var(--border);
       border-radius: 2px; margin: 0 auto 16px; }
     .sheet-title  { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
@@ -803,6 +808,14 @@
   <div class="sheet-list" id="ex-list"></div>
 </div>
 
+<!-- ══════════════════ DAY LABEL PICKER ══════════════════ -->
+<div class="sheet-overlay" id="day-label-overlay" onclick="closeDayLabelPicker()"></div>
+<div class="sheet" id="day-label-sheet" style="max-height:52vh">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">Day Label</div>
+  <div id="day-label-options" class="sheet-list"></div>
+</div>
+
 <!-- ══════════════════ PAIN LOG SHEET ══════════════════ -->
 <div class="sheet-overlay" id="pain-overlay" onclick="closePainSheet()"></div>
 <div class="pain-sheet" id="pain-sheet">
@@ -860,18 +873,7 @@
   <div class="sheet-handle"></div>
   <div class="sheet-title">New Session</div>
 
-  <div class="form-section-label" style="margin-top:0">Day</div>
-  <select id="new-sess-day" class="sheet-search" style="margin-bottom:12px;font-size:15px">
-    <option value="Monday">Monday</option>
-    <option value="Tuesday">Tuesday</option>
-    <option value="Wednesday">Wednesday</option>
-    <option value="Thursday">Thursday</option>
-    <option value="Friday">Friday</option>
-    <option value="Saturday">Saturday</option>
-    <option value="Sunday">Sunday</option>
-  </select>
-
-  <div class="form-section-label">Session Type</div>
+  <div class="form-section-label" style="margin-top:0">Session Type</div>
   <select id="new-sess-type" class="sheet-search" style="margin-bottom:16px;font-size:15px">
     <option value="Upper Body">Upper Body</option>
     <option value="Lower Body">Lower Body</option>
@@ -1195,7 +1197,7 @@ async function renderWeek() {
     const comp       = S.completed[s.id];
     const isCondOnly = s.session_type === 'Conditioning Only';
     const icon       = isCondOnly ? '🚴 ' : '';
-    const dayLabel   = s.day_label || 'Session';
+    const dayLabel   = s.day_label || '';
     let statusBadge;
     if (!comp) {
       statusBadge = `<span class="badge badge-pending">Pending</span>`;
@@ -1209,7 +1211,7 @@ async function renderWeek() {
         <div class="session-row">
           <span class="drag-handle" onclick="event.stopPropagation()" style="margin-right:10px;flex-shrink:0">⠿</span>
           <div style="flex:1">
-            <div class="card-label">${dayLabel}</div>
+            <div class="card-label sess-day-chip" onclick="event.stopPropagation();editDayLabel('${s.id}')">${dayLabel || '<span style=\"opacity:.45\">+ day</span>'} <span class="day-edit-icon">✎</span></div>
             <div class="card-title">${icon}${s.session_type || 'Session'}</div>
             <div class="session-meta">${statusBadge}</div>
           </div>
@@ -2442,7 +2444,7 @@ async function loadExerciseHistory(exId) {
 
     // Step 2: get all non-skipped sets for this exercise from those sessions
     const { data: sets } = await db.from('completed_strength_sets')
-      .select('completed_session_id,set_number,actual_load,actual_reps,actual_rpe')
+      .select('completed_session_id,set_number,actual_load,actual_reps,actual_rpe,notes')
       .eq('exercise_id', exId)
       .eq('is_skipped', false)
       .in('completed_session_id', sessionIds)
@@ -2504,6 +2506,12 @@ async function loadExerciseHistory(exId) {
           </div>`;
       });
 
+      // Notes are stored per set but entered once per exercise — show if any set has them
+      const sessionNotes = sess.sets.map(s => s.notes).find(n => n);
+      if (sessionNotes) {
+        html += `<div class="hist-notes">📝 ${sessionNotes}</div>`;
+      }
+
       html += `</div>`;
     });
 
@@ -2542,8 +2550,9 @@ async function exportLog(range) {
 
   try {
     // Step 1: athlete's sessions in range (RLS ensures own data only)
+    // day_label lives on planned_sessions — join via planned_session_id
     let q = db.from('completed_sessions')
-      .select('id, session_date, day_label, session_type')
+      .select('id, session_date, session_type, session_notes, overall_rpe, planned:planned_session_id(day_label)')
       .eq('athlete_id', S.athlete.id)
       .order('session_date');
     if (startDate) q = q.gte('session_date', startDate);
@@ -2555,7 +2564,13 @@ async function exportLog(range) {
     const sessionIds  = sessions.map(function(s) { return s.id; });
     const sessMap     = {};
     sessions.forEach(function(s) {
-      sessMap[s.id] = { date: s.session_date, day: s.day_label || '', type: s.session_type || '' };
+      sessMap[s.id] = {
+        date:         s.session_date,
+        day:          (s.planned && s.planned.day_label) || '',
+        type:         s.session_type  || '',
+        sessionNotes: s.session_notes || '',
+        overallRpe:   s.overall_rpe   != null ? s.overall_rpe : '',
+      };
     });
 
     // Step 2: all sets for those sessions
@@ -2576,8 +2591,9 @@ async function exportLog(range) {
         ? '"' + s.replace(/"/g, '""') + '"' : s;
     };
 
-    const headers = ['date','day','session_type','exercise','planned_adaptation',
-      'exercise_role','set_number','load_lb','reps','rpe','skipped','notes'];
+    const headers = ['date','day','session_type','session_rpe','session_notes',
+      'exercise','planned_adaptation','exercise_role',
+      'set_number','load_lb','reps','rpe','skipped','set_notes'];
     const rows = [headers.join(',')];
 
     sets.forEach(function(s) {
@@ -2587,6 +2603,8 @@ async function exportLog(range) {
         sess.date,
         esc(sess.day),
         esc(sess.type),
+        sess.overallRpe,
+        esc(sess.sessionNotes),
         esc(s.exercise ? s.exercise.name : ''),
         esc(s.planned_ex ? s.planned_ex.planned_adaptation  : ''),
         esc(s.planned_ex ? s.planned_ex.exercise_role       : ''),
@@ -2984,15 +3002,47 @@ async function deleteSession(sessionId) {
   }
 }
 
+// ── Day label editor ─────────────────────────────────────────────────────────
+let _dayLabelSessionId = null;
+
+function editDayLabel(sessionId) {
+  _dayLabelSessionId = sessionId;
+  const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  const current = (S.sessions.find(s => s.id === sessionId) || {}).day_label || '';
+  const opts = [
+    ...days.map(d => `<div class="sheet-item${d === current ? ' sheet-item-active' : ''}" onclick="saveDayLabel('${d}')">${d}</div>`),
+    `<div class="sheet-item${!current ? ' sheet-item-active' : ''}" onclick="saveDayLabel('')" style="color:var(--muted)">No label</div>`,
+  ].join('');
+  document.getElementById('day-label-options').innerHTML = opts;
+  document.getElementById('day-label-overlay').classList.add('open');
+  document.getElementById('day-label-sheet').classList.add('open');
+}
+
+function closeDayLabelPicker() {
+  document.getElementById('day-label-overlay').classList.remove('open');
+  document.getElementById('day-label-sheet').classList.remove('open');
+}
+
+async function saveDayLabel(newLabel) {
+  closeDayLabelPicker();
+  const sessionId = _dayLabelSessionId;
+  if (!sessionId) return;
+  const sess = S.sessions.find(s => s.id === sessionId);
+  if (sess) { sess.day_label = newLabel || null; renderWeek(); }
+  if (!isOffline) {
+    try {
+      await db.from('planned_sessions').update({ day_label: newLabel || null }).eq('id', sessionId);
+    } catch (err) {
+      console.error('saveDayLabel:', err);
+      toast('Could not save — check connection.', 3000);
+    }
+  }
+}
+
 // ── New session sheet ─────────────────────────────────────────────────────────
 const DAY_ORDER = { Monday:1, Tuesday:2, Wednesday:3, Thursday:4, Friday:5, Saturday:6, Sunday:7 };
 
 function openNewSessionSheet() {
-  // Pre-select today's day
-  const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-  const dayEl = document.getElementById('new-sess-day');
-  if (dayEl && DAY_ORDER[todayName]) dayEl.value = todayName;
-
   document.getElementById('new-sess-overlay').classList.add('open');
   document.getElementById('new-sess-sheet').classList.add('open');
 
@@ -3045,11 +3095,10 @@ async function loadRecentSessionsForCopy() {
 async function createUserSession() {
   if (isOffline) { toast('Cannot create sessions offline.'); return; }
   const sessionType = document.getElementById('new-sess-type').value;
-  const dayName     = document.getElementById('new-sess-day').value;
   closeNewSessionSheet();
 
-  document.getElementById('session-title').textContent = dayName;
-  document.getElementById('session-sub').textContent   = sessionType;
+  document.getElementById('session-title').textContent = sessionType;
+  document.getElementById('session-sub').textContent   = '';
   document.getElementById('session-body').innerHTML    = '<div class="spinner">Creating…</div>';
   const btn = document.getElementById('submit-btn');
   btn.disabled    = false;
@@ -3062,7 +3111,7 @@ async function createUserSession() {
       athlete_id:            S.athlete.id,
       cycle_id:              S.cycle?.id,
       week_of:               S.cycle?.start_date || today(),
-      day_label:             dayName,
+      day_label:             null,
       session_order:         null,
       session_type:          sessionType,
       includes_conditioning: sessionType === 'Conditioning Only',
@@ -3082,11 +3131,10 @@ async function createUserSession() {
 // Copy a previous completed session's exercises into a new session
 async function copyPreviousSession(completedSessionId, sessionType, plannedSessionId) {
   if (isOffline) { toast('Cannot create sessions offline.'); return; }
-  const dayName = document.getElementById('new-sess-day').value;
   closeNewSessionSheet();
 
-  document.getElementById('session-title').textContent = dayName;
-  document.getElementById('session-sub').textContent   = sessionType;
+  document.getElementById('session-title').textContent = sessionType;
+  document.getElementById('session-sub').textContent   = '';
   document.getElementById('session-body').innerHTML    = '<div class="spinner">Copying session…</div>';
   const btn = document.getElementById('submit-btn');
   btn.disabled    = false;
@@ -3100,7 +3148,7 @@ async function copyPreviousSession(completedSessionId, sessionType, plannedSessi
       athlete_id:            S.athlete.id,
       cycle_id:              S.cycle?.id,
       week_of:               S.cycle?.start_date || today(),
-      day_label:             dayName,
+      day_label:             null,
       session_order:         null,
       session_type:          sessionType,
       includes_conditioning: sessionType === 'Conditioning Only',
@@ -6299,20 +6347,4 @@ async function submitCheckin() {
       toast('Offline — loading from cache…', 2000);
       await loadProgram();
     } else {
-      toast('Offline — open the app while connected first to enable offline use.', 5000);
-      showScreen('login');
-    }
-  } else {
-    // Online: normal Supabase auth flow
-    const { data: { session } } = await db.auth.getSession();
-    if (session?.user) await onLogin(session.user);
-  }
-
-  // Always register auth state change listener
-  db.auth.onAuthStateChange(async (event) => {
-    if (event === 'SIGNED_OUT') showScreen('login');
-  });
-})();
-</script>
-</body>
-</html>
+      toast('Offline — open the app while connected fi
