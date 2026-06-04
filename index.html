@@ -1628,7 +1628,7 @@ async function openSession(sessionId) {
 
 // ── Render session body ───────────────────────────────────────────────────────
 // ── Inline readiness widget ───────────────────────────────────────────────────
-function buildReadinessSavedHtml(r) {
+function buildReadinessSavedHtml(r, readOnly) {
   const fields = [
     { k: 'energy',     l: 'Energy'     },
     { k: 'soreness',   l: 'Soreness'   },
@@ -1640,10 +1640,9 @@ function buildReadinessSavedHtml(r) {
     .filter(f => r[f.k] != null)
     .map(f => `<span class="hist-ready-chip">${f.l} <span>${r[f.k]}${f.k==='sleep_hours'?'h':''}</span></span>`)
     .join('');
+  const editBtn = readOnly ? '' : '<button onclick="resetInlineReadiness()" style="float:right;font-size:10px;background:none;border:none;color:var(--muted);cursor:pointer">Edit</button>';
   return `<div class="sess-ready-card" id="sess-ready-card" style="border-color:var(--success)">
-    <div class="sess-ready-title" style="color:var(--success);margin-bottom:6px">Readiness ✓
-      <button onclick="resetInlineReadiness()" style="float:right;font-size:10px;background:none;border:none;color:var(--muted);cursor:pointer">Edit</button>
-    </div>
+    <div class="sess-ready-title" style="color:var(--success);margin-bottom:6px">Readiness ✓ ${editBtn}</div>
     <div class="hist-ready-strip" style="flex-wrap:wrap">${chips}</div>
   </div>`;
 }
@@ -1678,9 +1677,25 @@ function buildInlineReadinessForm() {
 }
 
 async function resolveInlineReadinessCard() {
-  // Expire cache if it's from a previous day
+  // For completed sessions from a previous day, show that day's readiness (read-only)
+  const cs = S.activeCompletedSession;
+  const sessionDate = cs?.session_date || today();
+  const isHistorical = cs?.status === 'completed' && sessionDate !== today();
+
+  if (isHistorical) {
+    if (!isOffline) {
+      try {
+        const { data } = await db.from('readiness_logs')
+          .select('*').eq('athlete_id', S.athlete.id).eq('log_date', sessionDate).maybeSingle();
+        if (data) return buildReadinessSavedHtml(data, true);
+      } catch {}
+    }
+    // No readiness found for that day — show a quiet note, not the logging form
+    return '<div class="sess-ready-card" id="sess-ready-card" style="border-color:var(--border);color:var(--muted);font-size:13px">No readiness logged for this session.</div>';
+  }
+
+  // Current session — show today's readiness or the logging form
   if (S._todayReadiness && S._todayReadiness.log_date !== today()) S._todayReadiness = null;
-  // Check if already logged today (in-memory cache first, then DB)
   if (S._todayReadiness) return buildReadinessSavedHtml(S._todayReadiness);
   if (!isOffline) {
     try {
