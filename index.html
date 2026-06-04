@@ -4365,7 +4365,8 @@ async function renderConditioningSessionBody() {
   S.condBlocks = [{ id: 1, modality: (pc && pc.modality) || '', workoutType: '', duration: '', distance: '', distUnit: 'mi', load: '', circuitDesc: '', circuitRounds: '', intRounds: '', intMaxHR: '' }];
   S.condBlockCounter = 1;
 
-  let html = '';
+  const readinessHtml = await resolveInlineReadinessCard();
+  let html = readinessHtml;
   if (S.activeSession && S.activeSession.session_notes)
     html += '<div class="info-card">📋 ' + S.activeSession.session_notes + '</div>';
   html += renderCondFormHtml(pc);
