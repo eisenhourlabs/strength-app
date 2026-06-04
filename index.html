@@ -1211,7 +1211,7 @@ async function renderWeek() {
         <div class="session-row">
           <span class="drag-handle" onclick="event.stopPropagation()" style="margin-right:10px;flex-shrink:0">⠿</span>
           <div style="flex:1">
-            <div class="card-label sess-day-chip" onclick="event.stopPropagation();editDayLabel('${s.id}')">${dayLabel || '<span style=\"opacity:.45\">+ day</span>'} <span class="day-edit-icon">✎</span></div>
+            <div class="card-label sess-day-chip" onclick="event.stopPropagation();editDayLabel('${s.id}')">${dayLabel || '<span style="opacity:.45">+ day</span>'} <span class="day-edit-icon">&#9998;</span></div>
             <div class="card-title">${icon}${s.session_type || 'Session'}</div>
             <div class="session-meta">${statusBadge}</div>
           </div>
@@ -2506,11 +2506,9 @@ async function loadExerciseHistory(exId) {
           </div>`;
       });
 
-      // Notes are stored per set but entered once per exercise — show if any set has them
-      const sessionNotes = sess.sets.map(s => s.notes).find(n => n);
-      if (sessionNotes) {
-        html += `<div class="hist-notes">📝 ${sessionNotes}</div>`;
-      }
+      // Notes saved once per exercise — grab from first set that has them
+      const sessExNotes = sess.sets.map(s => s.notes).find(n => n);
+      if (sessExNotes) html += `<div class="hist-notes">📝 ${sessExNotes}</div>`;
 
       html += `</div>`;
     });
@@ -2550,7 +2548,7 @@ async function exportLog(range) {
 
   try {
     // Step 1: athlete's sessions in range (RLS ensures own data only)
-    // day_label lives on planned_sessions — join via planned_session_id
+    // day_label is on planned_sessions, not completed_sessions — join via FK
     let q = db.from('completed_sessions')
       .select('id, session_date, session_type, session_notes, overall_rpe, planned:planned_session_id(day_label)')
       .eq('athlete_id', S.athlete.id)
@@ -3002,15 +3000,17 @@ async function deleteSession(sessionId) {
   }
 }
 
-// ── Day label editor ─────────────────────────────────────────────────────────
+// ── Day label editor ────────────────────────────────────────────────────────
 let _dayLabelSessionId = null;
 
 function editDayLabel(sessionId) {
   _dayLabelSessionId = sessionId;
-  const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  const days    = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
   const current = (S.sessions.find(s => s.id === sessionId) || {}).day_label || '';
-  const opts = [
-    ...days.map(d => `<div class="sheet-item${d === current ? ' sheet-item-active' : ''}" onclick="saveDayLabel('${d}')">${d}</div>`),
+  const opts    = [
+    ...days.map(d =>
+      `<div class="sheet-item${d === current ? ' sheet-item-active' : ''}" onclick="saveDayLabel('${d}')">${d}</div>`
+    ),
     `<div class="sheet-item${!current ? ' sheet-item-active' : ''}" onclick="saveDayLabel('')" style="color:var(--muted)">No label</div>`,
   ].join('');
   document.getElementById('day-label-options').innerHTML = opts;
@@ -6347,4 +6347,20 @@ async function submitCheckin() {
       toast('Offline — loading from cache…', 2000);
       await loadProgram();
     } else {
-      toast('Offline — open the app while connected fi
+      toast('Offline — open the app while connected first to enable offline use.', 5000);
+      showScreen('login');
+    }
+  } else {
+    // Online: normal Supabase auth flow
+    const { data: { session } } = await db.auth.getSession();
+    if (session?.user) await onLogin(session.user);
+  }
+
+  // Always register auth state change listener
+  db.auth.onAuthStateChange(async (event) => {
+    if (event === 'SIGNED_OUT') showScreen('login');
+  });
+})();
+</script>
+</body>
+</html>
