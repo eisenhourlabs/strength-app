@@ -1,6 +1,18 @@
 // ── Exercise filter state ───────────────────────────────────────────────────
-let activePatternFilter = null;
-let activeSkillFilter   = null;
+let activePatternFilter  = null;
+let activeSkillFilter    = null;
+let _exSheetVVHandler    = null;   // visualViewport resize handler ref for cleanup
+
+// Adjust exercise sheet height/position when keyboard appears (iOS)
+function _adjustExSheetForKeyboard() {
+  if (!window.visualViewport) return;
+  const sheet = document.getElementById('ex-sheet');
+  if (!sheet || !sheet.classList.contains('open')) return;
+  const vvHeight  = window.visualViewport.height;
+  const keyboardH = window.innerHeight - vvHeight - (window.visualViewport.offsetTop || 0);
+  sheet.style.maxHeight = Math.max(vvHeight - 60, 200) + 'px';
+  sheet.style.bottom    = keyboardH > 0 ? keyboardH + 'px' : '';
+}
 
 // ── Exercise sheet ────────────────────────────────────────────────────────────
 function openSwap(peId) {
@@ -47,11 +59,24 @@ function openExSheet(defaultPattern = null) {
   document.getElementById('ex-overlay').classList.add('open');
   document.getElementById('ex-sheet').classList.add('open');
   setTimeout(() => document.getElementById('ex-search').focus(), 300);
+
+  // Attach keyboard-appears listener (iOS: keyboard shrinks visualViewport)
+  if (window.visualViewport && !_exSheetVVHandler) {
+    _exSheetVVHandler = _adjustExSheetForKeyboard;
+    window.visualViewport.addEventListener('resize', _exSheetVVHandler);
+  }
 }
 
 function closeExSheet() {
   document.getElementById('ex-overlay').classList.remove('open');
   document.getElementById('ex-sheet').classList.remove('open');
+  // Remove keyboard listener and reset any inline sheet sizing
+  if (_exSheetVVHandler && window.visualViewport) {
+    window.visualViewport.removeEventListener('resize', _exSheetVVHandler);
+    _exSheetVVHandler = null;
+  }
+  const sheet = document.getElementById('ex-sheet');
+  if (sheet) { sheet.style.maxHeight = ''; sheet.style.bottom = ''; }
 }
 
 // ── Skill level filter ───────────────────────────────────────────────────────
@@ -189,10 +214,25 @@ function selectExercise(exId, exName) {
       let swapNote = card.querySelector('.ex-swap-note');
       const origName = S.plannedExercises.find(pe => pe.id === S.swapExKey)?.exercise?.name || '';
       if (!swapNote) {
-        card.querySelector('.ex-header').insertAdjacentHTML(
-          'afterend', `<div class="ex-swap-note">↕ swapped from ${origName}</div>`);
+        const exBody = card.querySelector('.ex-body');
+        const insertTarget = exBody || card.querySelector('.ex-header');
+        if (insertTarget) insertTarget.insertAdjacentHTML(
+          exBody ? 'afterbegin' : 'afterend',
+          `<div class="ex-swap-note">⇕ swapped from ${origName}</div>`);
       }
     }
+    // Immediately persist swap to draft so it survives re-entry without an explicit Save
+    ;(async () => {
+      try {
+        const sessionId = S.activeSession?.id;
+        if (!sessionId) return;
+        const allDrafts = (await idbGet('sessionDraftCache')) || {};
+        const draft = allDrafts[sessionId] || {};
+        draft[key] = { ...(draft[key] || { sets: [], notes: '' }), swappedTo: { id: exId, name: exName } };
+        allDrafts[sessionId] = draft;
+        await idbSet('sessionDraftCache', allDrafts);
+      } catch (_) {}
+    })();
   } else if (S.sheetMode === 'test-ex-select') {
     testSelectedExId   = exId;
     testSelectedExName = exName;
@@ -213,26 +253,32 @@ function selectExercise(exId, exName) {
         <div class="ex-header">
           <span class="drag-handle">⠿</span>
           <span class="ex-name">${exName}</span>
-          <span class="ex-swap" onclick="openAddedSwap('${localId}')">⇄ swap</span>
+          <div class="ex-header-right">
+            <span class="ex-swap" onclick="openAddedSwap('${localId}')">&#8644; swap</span>
+            <button class="ex-collapse-btn" onclick="toggleExCard('${key}')">&#9660;</button>
+          </div>
         </div>
-        <div class="measure-chip-wrap">
-          <select class="measure-chip" onchange="changeMeasureType('${key}',this.value)" id="mchip-${key}">
-            <option value="reps" selected>Reps</option>
-            <option value="time">Time (sec)</option>
-            <option value="dist">Distance (yds)</option>
-          </select>
+        <div class="ex-body">
+          <div class="measure-chip-wrap">
+            <select class="measure-chip" onchange="changeMeasureType('${key}',this.value)" id="mchip-${key}">
+              <option value="reps" selected>Reps</option>
+              <option value="time">Time (sec)</option>
+              <option value="dist">Distance (yds)</option>
+            </select>
+          </div>
+          <div class="sets-wrap" id="sets-${key}">${buildOneSetRow(key, 0, false, 'reps')}</div>
+          <button class="add-set-btn" onclick="addSet('${key}','${localId}',true)">＋ Add Set</button>
+          <textarea class="notes-input" id="notes-${key}" placeholder="Notes…"></textarea>
+          <div class="ex-footer">
+            <button class="remove-btn" onclick="removeAdded('${localId}')">Remove</button>
+            <button class="pain-flag-btn" id="pflag-${key}"
+              onclick="togglePainFlag('${key}','${exName.replace(/'/g,"\\'")}')">🩹 Pain</button>
+            <button class="save-ex-btn" id="save-${key}"
+              onclick="saveAddedExercise('${localId}')">Save</button>
+          </div>
+
         </div>
-        <div class="sets-wrap" id="sets-${key}">${buildOneSetRow(key, 0, false, 'reps')}</div>
-        <button class="add-set-btn" onclick="addSet('${key}','${localId}',true)">＋ Add Set</button>
-        <textarea class="notes-input" id="notes-${key}" placeholder="Notes…"></textarea>
-        <div class="ex-footer">
-          <button class="remove-btn" onclick="removeAdded('${localId}')">Remove</button>
-          <button class="pain-flag-btn" id="pflag-${key}"
-            onclick="togglePainFlag('${key}','${exName.replace(/'/g,"\\'")}')">🩹 Pain</button>
-          <button class="save-ex-btn" id="save-${key}"
-            onclick="saveAddedExercise('${localId}')">Save</button>
-        </div>
-      </div>`;
+      </div>`
     if (exList) exList.insertAdjacentHTML('beforeend', newCardHtml);
   } else if (S.sheetMode === 'swap-added' && S.swapExKey != null) {
     // Swap an added exercise

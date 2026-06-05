@@ -85,12 +85,21 @@
     .sess-del-btn:active { color: var(--danger); }
 
     /* Drag-to-reorder */
-    .drag-handle { color: var(--border); font-size: 15px; cursor: grab;
-      flex-shrink: 0; touch-action: none; user-select: none;
-      padding: 0 6px; line-height: 1; }
+    .drag-handle { color: #666666; font-size: 20px; cursor: grab;
+      flex-shrink: 0; touch-action: none; user-select: none; -webkit-user-select: none;
+      padding: 2px 8px; line-height: 1; }
     .drag-handle:active { cursor: grabbing; color: var(--muted); }
     .sortable-ghost  { opacity: 0.35; }
     .sortable-chosen { outline: 2px solid var(--accent) !important; border-radius: var(--radius); }
+
+    /* Exercise card collapse/expand */
+    .ex-header-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .ex-collapse-btn { background: none; border: none; color: var(--muted);
+      font-size: 15px; cursor: pointer; padding: 4px 6px; line-height: 1;
+      transition: transform 0.2s; flex-shrink: 0; }
+    .ex-card.ex-collapsed .ex-collapse-btn { transform: rotate(-90deg); }
+    .ex-card.ex-collapsed .ex-body { display: none; }
+    .ex-card.ex-collapsed .ex-header { margin-bottom: 0; }
 
     /* Saved badge inline */
     .saved-badge { font-size: 11px; font-weight: 700; color: var(--success);

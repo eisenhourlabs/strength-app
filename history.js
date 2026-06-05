@@ -434,6 +434,10 @@ async function reEditExercise(key) {
     // Re-render session (now async — must await so DOM is ready before populating)
     await renderSessionBody();
 
+    // Expand the re-opened card (all cards start collapsed after re-render)
+    const reEditCard = document.getElementById(`ex-card-${key}`);
+    if (reEditCard) reEditCard.classList.remove('ex-collapsed');
+
     // Pre-populate inputs with previous values
     prevSets.forEach((s, i) => {
       const loadEl = document.getElementById(`load-${key}-${i}`);

@@ -585,13 +585,17 @@ async function renderSessionBody() {
           </div>`;
 
       html += `
-        <div class="ex-card ${st.skipped ? 'skipped' : ''}" id="ex-card-p-${pe.id}">
+        <div class="ex-card ex-collapsed ${st.skipped ? 'skipped' : ''}" id="ex-card-p-${pe.id}">
           ${groupHtml}
           <div class="ex-header">
             <span class="drag-handle">⠿</span>
             <span class="ex-name" onclick="openExerciseHistory('${exId}','${safeExName}')">${exName}</span>
-            <span class="ex-swap" onclick="openSwap('${pe.id}')">⇄ swap</span>
+            <div class="ex-header-right">
+              <span class="ex-swap" onclick="openSwap('${pe.id}')">&#8644; swap</span>
+              <button class="ex-collapse-btn" onclick="toggleExCard('p-${pe.id}')">&#9660;</button>
+            </div>
           </div>
+          <div class="ex-body">
           ${swapNoteHtml}
           ${measureRowHtml}
           ${(targetHtml || restHtml) ? `<div class="ex-target">${targetHtml}${restHtml}</div>` : ''}
@@ -614,6 +618,7 @@ async function renderSessionBody() {
             <button class="save-ex-btn" id="save-p-${pe.id}"
               onclick="saveExercise('${pe.id}')">Save</button>
           </div>
+          </div>
         </div>`;
     }
   });
@@ -627,12 +632,16 @@ async function renderSessionBody() {
     } else {
       const mt = ae.measureType || 'reps';
       html += `
-      <div class="ex-card added-card" id="ex-card-${key}">
+      <div class="ex-card added-card ex-collapsed" id="ex-card-${key}">
         <div class="ex-header">
           <span class="drag-handle">⠿</span>
           <span class="ex-name">${ae.exName}</span>
-          <span class="ex-swap" onclick="openAddedSwap('${ae.localId}')">⇄ swap</span>
+          <div class="ex-header-right">
+            <span class="ex-swap" onclick="openAddedSwap('${ae.localId}')">⇄ swap</span>
+            <button class="ex-collapse-btn" onclick="toggleExCard('${key}')">&#9660;</button>
+          </div>
         </div>
+        <div class="ex-body">
         ${ae.swappedFrom ? `<div class="ex-swap-note">↕ swapped from ${ae.swappedFrom}</div>` : ''}
         <div class="measure-chip-wrap">
           <select class="measure-chip${mt!=='reps'?' non-reps':''}" onchange="changeMeasureType('${key}',this.value)" id="mchip-${key}">
@@ -660,6 +669,7 @@ async function renderSessionBody() {
             onclick="togglePainFlag('${key}','${ae.exName.replace(/'/g,"\\'")}')">🩹 Pain</button>
           <button class="save-ex-btn" id="save-${key}"
             onclick="saveAddedExercise('${ae.localId}')">Save</button>
+        </div>
         </div>
       </div>`;
     }
@@ -776,17 +786,22 @@ function buildSavedExCard(key, exName, exId, sets, supersetGroup) {
     ? `<div style="font-size:12px;color:var(--muted);margin-top:6px;font-style:italic">${noteText}</div>` : '';
 
   return `
-    <div class="ex-card saved-card" id="ex-card-${key}">
+    <div class="ex-card saved-card ex-collapsed" id="ex-card-${key}">
       ${groupHtml}
       <div class="ex-header">
         <span class="drag-handle">⠿</span>
         <span class="ex-name" onclick="openExerciseHistory('${exId}','${safeExName}')">${exName}</span>
-        <div style="display:flex;align-items:center;gap:4px">
+        <div class="ex-header-right">
+          <div style="display:flex;align-items:center;gap:4px">
           <button class="re-edit-btn" onclick="reEditExercise('${key}')" title="Re-open to edit">✎</button>
           <span class="saved-badge">✓ Saved</span>
         </div>
+          <button class="ex-collapse-btn" onclick="toggleExCard('${key}')">&#9660;</button>
+        </div>
       </div>
-      ${setsHtml}${noteHtml}
+      <div class="ex-body">
+        ${setsHtml}${noteHtml}
+      </div>
     </div>`;
 }
 
@@ -1323,6 +1338,7 @@ async function captureDraft() {
     if (S.savedExercises[pe.id]) return;
     const key  = `p-${pe.id}`;
     const wrap = document.getElementById(`sets-${key}`);
+    const st   = S.exState[pe.id];
     if (!wrap) return;
     const rowCount = wrap.querySelectorAll('.set-row').length;
     const sets = [];
@@ -1333,9 +1349,10 @@ async function captureDraft() {
         rpe:  document.getElementById(`rpe-${key}-${i}`)?.value  || '',
       });
     }
-    const notes    = document.getElementById(`notes-${key}`)?.value || '';
-    const hasData  = sets.some(s => s.load || s.reps || s.rpe) || notes;
-    if (hasData) draft[key] = { sets, notes };
+    const notes      = document.getElementById(`notes-${key}`)?.value || '';
+    const swappedTo  = st?.swappedTo || null;
+    const hasData    = sets.some(s => s.load || s.reps || s.rpe) || notes;
+    if (hasData || swappedTo) draft[key] = { sets, notes, swappedTo };
   });
 
   // Added exercises — only capture unsaved
@@ -1439,6 +1456,29 @@ async function restoreDraft(sessionId) {
       const notesEl = document.getElementById(`notes-${key}`);
       if (notesEl) notesEl.value = d.notes || '';
     });
+    // Restore swaps for planned exercises — apply to state and DOM
+    S.plannedExercises.forEach(pe => {
+      if (S.savedExercises[pe.id]) return;
+      const key = `p-${pe.id}`;
+      const d   = draft[key];
+      if (!d?.swappedTo) return;
+      const st = S.exState[pe.id];
+      if (st) st.swappedTo = d.swappedTo;
+      // Update DOM: exercise name and swap note
+      const card = document.getElementById(`ex-card-${key}`);
+      if (!card) return;
+      const nameEl = card.querySelector('.ex-name');
+      if (nameEl) nameEl.textContent = d.swappedTo.name;
+      if (!card.querySelector('.ex-swap-note')) {
+        const origName = pe.exercise?.name || '';
+        if (origName) {
+          const exBody = card.querySelector('.ex-body');
+          if (exBody) exBody.insertAdjacentHTML('afterbegin',
+            `<div class="ex-swap-note">⇕ swapped from ${origName}</div>`);
+        }
+      }
+    });
+
     // Reorder exercise tiles to match saved order
     if (draft.__order) {
       const container = document.getElementById('exercise-list');
@@ -1471,15 +1511,24 @@ async function clearExerciseDraft(sessionId, draftKey) {
   } catch (_) {}
 }
 
+// ── Exercise card collapse / expand ───────────────────────────────────────────
+function toggleExCard(key) {
+  const card = document.getElementById(`ex-card-${key}`);
+  if (!card) return;
+  card.classList.toggle('ex-collapsed');
+}
+
 function initExerciseSort(sessionId) {
   const container = document.getElementById('exercise-list');
   if (!container || typeof Sortable === 'undefined') return;
   if (container._sortable) container._sortable.destroy();
   container._sortable = Sortable.create(container, {
-    handle:      '.drag-handle',
-    animation:   150,
-    ghostClass:  'sortable-ghost',
-    chosenClass: 'sortable-chosen',
+    handle:           '.drag-handle',
+    animation:        150,
+    forceFallback:    true,
+    fallbackTolerance: 3,
+    ghostClass:       'sortable-ghost',
+    chosenClass:      'sortable-chosen',
     onEnd: function() {
       // Rebuild S arrays to match new DOM order
       const newPlanned = [];

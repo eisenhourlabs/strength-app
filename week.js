@@ -485,10 +485,12 @@ function initSessionSort() {
   if (!list || typeof Sortable === 'undefined') return;
   if (list._sortable) list._sortable.destroy();
   list._sortable = Sortable.create(list, {
-    handle:      '.drag-handle',
-    animation:   150,
-    ghostClass:  'sortable-ghost',
-    chosenClass: 'sortable-chosen',
+    handle:           '.drag-handle',
+    animation:        150,
+    forceFallback:    true,
+    fallbackTolerance: 3,
+    ghostClass:       'sortable-ghost',
+    chosenClass:      'sortable-chosen',
     onEnd: async function() {
       const newOrder = Array.from(list.querySelectorAll('.card[data-sid]'))
         .map(c => c.dataset.sid);
