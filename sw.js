@@ -1,6 +1,10 @@
-const CACHE = 'strength-v3';
+const CACHE = 'strength-v4';
 const ASSETS = [
   './index.html', './manifest.json',
+  './styles.css',
+  './core.js', './week.js', './session.js', './exercises.js',
+  './conditioning.js', './wellness.js', './tests.js',
+  './history.js', './trends.js', './checkin.js',
   'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js',
   'https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js'
 ];
@@ -22,37 +26,20 @@ self.addEventListener('fetch', e => {
   // Always pass Supabase API calls straight through — never cache these
   if (e.request.url.includes('supabase.co')) return;
 
-  // Navigation requests (loading the HTML page itself): network-first.
-  // This ensures the user always gets the latest code when online,
-  // and falls back to the cached page only when offline.
-  if (e.request.mode === 'navigate') {
-    e.respondWith(
-      fetch(e.request)
-        .then(res => {
-          if (res && res.ok) {
-            const clone = res.clone();
-            caches.open(CACHE).then(c => c.put(e.request, clone));
-          }
-          return res;
-        })
-        .catch(() =>
-          caches.match(e.request)
-            .then(hit => hit || caches.match('./index.html'))
-        )
-    );
-    return;
-  }
-
-  // All other requests (JS libs, manifest, etc.): cache-first
+  // Network-first for all app files (HTML, JS, CSS, manifest)
+  // Falls back to cache when offline — app still works without connectivity
   e.respondWith(
-    caches.match(e.request).then(hit =>
-      hit || fetch(e.request).then(res => {
+    fetch(e.request)
+      .then(res => {
         if (res && res.ok) {
           const clone = res.clone();
           caches.open(CACHE).then(c => c.put(e.request, clone));
         }
         return res;
-      }).catch(() => caches.match('./index.html'))
-    )
+      })
+      .catch(() =>
+        caches.match(e.request)
+          .then(hit => hit || caches.match('./index.html'))
+      )
   );
 });
