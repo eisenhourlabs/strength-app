@@ -588,7 +588,7 @@ async function renderSessionBody() {
         <div class="ex-card ex-collapsed ${st.skipped ? 'skipped' : ''}" id="ex-card-p-${pe.id}">
           ${groupHtml}
           <div class="ex-header">
-            <span class="drag-handle">⠿</span>
+            <span class="drag-handle">≡</span>
             <span class="ex-name" onclick="openExerciseHistory('${exId}','${safeExName}')">${exName}</span>
             <div class="ex-header-right">
               <span class="ex-swap" onclick="openSwap('${pe.id}')">&#8644; swap</span>
@@ -634,7 +634,7 @@ async function renderSessionBody() {
       html += `
       <div class="ex-card added-card ex-collapsed" id="ex-card-${key}">
         <div class="ex-header">
-          <span class="drag-handle">⠿</span>
+          <span class="drag-handle">≡</span>
           <span class="ex-name">${ae.exName}</span>
           <div class="ex-header-right">
             <span class="ex-swap" onclick="openAddedSwap('${ae.localId}')">⇄ swap</span>
@@ -789,7 +789,7 @@ function buildSavedExCard(key, exName, exId, sets, supersetGroup) {
     <div class="ex-card saved-card ex-collapsed" id="ex-card-${key}">
       ${groupHtml}
       <div class="ex-header">
-        <span class="drag-handle">⠿</span>
+        <span class="drag-handle">≡</span>
         <span class="ex-name" onclick="openExerciseHistory('${exId}','${safeExName}')">${exName}</span>
         <div class="ex-header-right">
           <div style="display:flex;align-items:center;gap:4px">
@@ -1523,12 +1523,15 @@ function initExerciseSort(sessionId) {
   if (!container || typeof Sortable === 'undefined') return;
   if (container._sortable) container._sortable.destroy();
   container._sortable = Sortable.create(container, {
-    handle:           '.drag-handle',
-    animation:        150,
-    forceFallback:    true,
+    handle:            '.drag-handle',
+    animation:         150,
+    forceFallback:     true,
     fallbackTolerance: 3,
-    ghostClass:       'sortable-ghost',
-    chosenClass:      'sortable-chosen',
+    delay:             150,
+    delayOnTouchOnly:  true,
+    supportPointer:    false,
+    ghostClass:        'sortable-ghost',
+    chosenClass:       'sortable-chosen',
     onEnd: function() {
       // Rebuild S arrays to match new DOM order
       const newPlanned = [];

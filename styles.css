@@ -85,9 +85,9 @@
     .sess-del-btn:active { color: var(--danger); }
 
     /* Drag-to-reorder */
-    .drag-handle { color: #666666; font-size: 20px; cursor: grab;
+    .drag-handle { color: #666666; font-size: 22px; cursor: grab;
       flex-shrink: 0; touch-action: none; user-select: none; -webkit-user-select: none;
-      padding: 2px 8px; line-height: 1; }
+      padding: 2px 8px; line-height: 1; font-style: normal; font-variant-emoji: text; }
     .drag-handle:active { cursor: grabbing; color: var(--muted); }
     .sortable-ghost  { opacity: 0.35; }
     .sortable-chosen { outline: 2px solid var(--accent) !important; border-radius: var(--radius); }

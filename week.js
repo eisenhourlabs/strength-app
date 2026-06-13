@@ -38,7 +38,7 @@ async function renderWeek() {
     return `
       <div class="card tap" data-sid="${s.id}" onclick="openSession('${s.id}')">
         <div class="session-row">
-          <span class="drag-handle" onclick="event.stopPropagation()" style="margin-right:10px;flex-shrink:0">⠿</span>
+          <span class="drag-handle" onclick="event.stopPropagation()" style="margin-right:10px;flex-shrink:0">≡</span>
           <div style="flex:1">
             <div class="card-label sess-day-chip" onclick="event.stopPropagation();editDayLabel('${s.id}')">${dayLabel || '<span style="opacity:.45">+ day</span>'} <span class="day-edit-icon">&#9998;</span></div>
             <div class="card-title">${icon}${s.session_type || 'Session'}</div>
@@ -320,6 +320,7 @@ async function loadRecentSessionsForCopy() {
 // Create a blank user-built session with the selected day/type
 async function createUserSession() {
   if (isOffline) { toast('Cannot create sessions offline.'); return; }
+  if (!S.cycle) { toast('No active program — ask your coach to push a program first.', 4000); return; }
   const sessionType = document.getElementById('new-sess-type').value;
   closeNewSessionSheet();
 
@@ -348,8 +349,9 @@ async function createUserSession() {
     S.sessions.push(ps);
     await openSession(ps.id);
   } catch (err) {
-    console.error(err);
-    toast('Error creating session. Check connection.', 4000);
+    console.error('createUserSession error:', err);
+    const msg = err?.message || err?.details || 'Check connection.';
+    toast('Error creating session: ' + msg, 5000);
     loadProgram();
   }
 }
@@ -485,12 +487,15 @@ function initSessionSort() {
   if (!list || typeof Sortable === 'undefined') return;
   if (list._sortable) list._sortable.destroy();
   list._sortable = Sortable.create(list, {
-    handle:           '.drag-handle',
-    animation:        150,
-    forceFallback:    true,
+    handle:            '.drag-handle',
+    animation:         150,
+    forceFallback:     true,
     fallbackTolerance: 3,
-    ghostClass:       'sortable-ghost',
-    chosenClass:      'sortable-chosen',
+    delay:             150,
+    delayOnTouchOnly:  true,
+    supportPointer:    false,
+    ghostClass:        'sortable-ghost',
+    chosenClass:       'sortable-chosen',
     onEnd: async function() {
       const newOrder = Array.from(list.querySelectorAll('.card[data-sid]'))
         .map(c => c.dataset.sid);

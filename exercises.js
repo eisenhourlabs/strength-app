@@ -251,7 +251,7 @@ function selectExercise(exId, exName) {
     const newCardHtml = `
       <div class="ex-card added-card" id="ex-card-${key}">
         <div class="ex-header">
-          <span class="drag-handle">⠿</span>
+          <span class="drag-handle">≡</span>
           <span class="ex-name">${exName}</span>
           <div class="ex-header-right">
             <span class="ex-swap" onclick="openAddedSwap('${localId}')">&#8644; swap</span>
