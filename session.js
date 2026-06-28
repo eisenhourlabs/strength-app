@@ -1271,7 +1271,12 @@ async function finishSession() {
       S.activeCompletedSession        = { id: tid, _isTemp: true, ...sp };
       S.completed[S.activeSession.id] = S.activeCompletedSession;
     }
-    showSuccess('Session Complete', 'Saved offline — will sync when connected.');
+    const flaggedEx = Object.values(S.painFlags || {}).join(', ');
+    showPainPrompt(
+      () => { openPainSheet({newForm:true, exerciseName: flaggedEx}); showSuccess('Session Complete', 'Saved offline — will sync when connected.'); },
+      () => { showSuccess('Session Complete', 'Saved offline — will sync when connected.'); }
+    );
+    S.painFlags = {};
     return;
   }
 
@@ -1302,8 +1307,9 @@ async function finishSession() {
       S.activeCompletedSession        = cs;
       S.completed[S.activeSession.id] = cs;
     }
+    const flaggedEx = Object.values(S.painFlags || {}).join(', ');
     showPainPrompt(
-      () => { openPainSheet({newForm:true}); checkAndPromptConditioning('Session Complete', 'All work saved. Great effort.'); },
+      () => { openPainSheet({newForm:true, exerciseName: flaggedEx}); checkAndPromptConditioning('Session Complete', 'All work saved. Great effort.'); },
       () => { checkAndPromptConditioning('Session Complete', 'All work saved. Great effort.'); }
     );
     S.painFlags = {};

@@ -128,7 +128,7 @@ function daysAgoLabel(dateStr) {
 function openPainSheet(opts) {
   opts = opts || {};
   if (opts.newForm || !(S.openInjuries || []).length) {
-    renderPainForm({});
+    renderPainForm({ exercise_name: opts.exerciseName || null });
   } else {
     renderPainList();
   }
@@ -192,10 +192,18 @@ function renderPainForm(prefill) {
   const statusOpts = [['new','New'],['improving','Improving'],['same','Same'],['worse','Worse']]
     .map(function(o){ return '<option value="' + o[0] + '"' + (o[0]===statusDefault?' selected':'') + '>' + o[1] + '</option>'; }).join('');
 
+  const exName  = prefill.exercise_name || '';
+  const exField = exName
+    ? '<div class="form-field wide"><label>Flagged during</label>'
+      + '<div style="padding:8px 0;font-weight:600">' + exName + '</div></div>'
+    : '';
+
   document.getElementById('pain-sheet-body').innerHTML =
       '<input type="hidden" id="pain-injury-id" value="' + (prefill.injury_id || '') + '">'
+    + '<input type="hidden" id="pain-exercise-name" value="' + exName.replace(/"/g, '&quot;') + '">'
     + '<div class="form-grid">'
     + regionField
+    + exField
     + '<div class="form-field"><label>Pain Score (0–10)</label>'
     + '<input type="number" id="pain-score" min="0" max="10" inputmode="numeric" placeholder="0–10"></div>'
     + '<div class="form-field"><label>Status</label><select id="pain-status">' + statusOpts + '</select></div>'
@@ -219,7 +227,8 @@ async function submitPain() {
   const modified = document.getElementById('pain-modified').value === 'true';
   const trigger  = (document.getElementById('pain-trigger').value || '').trim() || null;
   const notes    = (document.getElementById('pain-notes').value || '').trim() || null;
-  const existingId = (document.getElementById('pain-injury-id').value || '').trim();
+  const existingId   = (document.getElementById('pain-injury-id').value || '').trim();
+  const exerciseName = ((document.getElementById('pain-exercise-name') || {}).value || '').trim() || null;
 
   if (!region) { toast('Please select a body region.'); return; }
   const injuryId = existingId || (crypto.randomUUID ? crypto.randomUUID() : null);
@@ -234,6 +243,7 @@ async function submitPain() {
     modified_training: modified,
     trigger:           trigger,
     notes:             notes,
+    exercise_name:     exerciseName,
   };
 
   if (isOffline) {
@@ -300,7 +310,7 @@ function applyPainLocally(p) {
   } else {
     S.openInjuries.push({
       injury_id: p.injury_id, body_region: p.body_region, pain_score: p.pain_score,
-      status: p.status, onset_date: p.log_date, last_update: p.log_date, exercise_name: null,
+      status: p.status, onset_date: p.log_date, last_update: p.log_date, exercise_name: p.exercise_name || null,
     });
   }
   S.openInjuries.sort(function(a, b){ return (b.pain_score || 0) - (a.pain_score || 0); });

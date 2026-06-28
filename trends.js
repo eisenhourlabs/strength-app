@@ -179,7 +179,7 @@ async function loadTrends() {
 
     const [readyRes, painRes, condRes, setsRes] = await Promise.all([
       db.from('readiness_logs').select('*').eq('athlete_id', S.athlete.id).gte('log_date', cutoffStr).order('log_date'),
-      db.from('pain_injury_logs').select('*').eq('athlete_id', S.athlete.id).neq('status', 'resolved').order('log_date', { ascending: false }),
+      db.from('pain_injury_logs').select('*').eq('athlete_id', S.athlete.id).order('log_date'),
       db.from('completed_conditioning').select('*').eq('athlete_id', S.athlete.id).gte('conditioning_date', cutoffStr).order('conditioning_date'),
       sessionIds.length
         ? db.from('completed_strength_sets')
@@ -190,7 +190,8 @@ async function loadTrends() {
 
     const allSessions  = sessions        || [];
     const readiness    = readyRes.data   || [];
-    const painItems    = painRes.data    || [];
+    const painItems    = computeOpenInjuries(painRes.data || []);
+    S.openInjuries     = painItems;
     const conditioning = condRes.data    || [];
     const sets         = setsRes.data    || [];
 
@@ -887,20 +888,36 @@ function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
 }
 
 function renderTrendsPain(painItems) {
-  if (!painItems.length) return '<div class="trends-section"><div class="trends-section-title">Watch Items</div><div style="color:var(--muted);font-size:13px;padding:8px 0">No active pain or injury flags. ✓</div></div>';
+  if (!painItems.length) return '<div class="trends-section" id="trends-watch-items"><div class="trends-section-title">Watch Items</div><div style="color:var(--muted);font-size:13px;padding:8px 0">No open pain or injury items. ✓</div></div>';
   const scMap = { 'new': '#ef4444', 'worse': '#ef4444', 'same': '#f59e0b', 'improving': '#22c55e' };
   const html  = painItems.map(function(p) {
     const sc   = scMap[p.status] || '#94a3b8';
+    const id   = p.injury_id || '';
     const meta = [
       p.pain_score != null ? 'Pain: ' + p.pain_score + '/10' : null,
       p.status     ? p.status.charAt(0).toUpperCase() + p.status.slice(1) : null,
-      p.log_date   ? new Date(p.log_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null,
-      p.modified_training ? 'Training modified' : null,
+      'updated ' + daysAgoLabel(p.last_update),
     ].filter(Boolean).join(' · ');
-    const notesHtml = p.notes ? '<div class="pain-meta" style="margin-top:4px;font-style:italic">' + p.notes + '</div>' : '';
-    return '<div class="pain-flag" style="border-left-color:' + sc + '"><div class="pain-region">' + p.body_region + '</div><div class="pain-meta">' + meta + '</div>' + notesHtml + '</div>';
+    const exHtml = p.exercise_name ? '<div class="pain-meta" style="margin-top:2px">Flagged on: ' + p.exercise_name + '</div>' : '';
+    return '<div class="pain-flag" style="border-left-color:' + sc + '">'
+      + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">'
+      + '<div><div class="pain-region">' + p.body_region + '</div><div class="pain-meta">' + meta + '</div>' + exHtml + '</div>'
+      + '<div class="inj-actions">'
+      + '<button class="inj-btn" onclick="openInjuryUpdate(\'' + id + '\')">Update</button>'
+      + '<button class="inj-btn inj-btn-resolve" onclick="trendsResolveInjury(\'' + id + '\')">Resolve</button>'
+      + '</div></div></div>';
   }).join('');
-  return '<div class="trends-section"><div class="trends-section-title">Watch Items</div>' + html + '</div>';
+  return '<div class="trends-section" id="trends-watch-items"><div class="trends-section-title">Watch Items</div>' + html + '</div>';
+}
+
+async function trendsResolveInjury(id) {
+  await resolveInjury(id);
+  refreshTrendsPainSection();
+}
+
+function refreshTrendsPainSection() {
+  const el = document.getElementById('trends-watch-items');
+  if (el) el.outerHTML = renderTrendsPain(S.openInjuries || []);
 }
 
 
