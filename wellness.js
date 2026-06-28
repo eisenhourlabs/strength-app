@@ -125,8 +125,13 @@ function daysAgoLabel(dateStr) {
   return diff + 'd ago';
 }
 
-function openPainSheet(opts) {
+async function openPainSheet(opts) {
   opts = opts || {};
+  // Refresh open injuries on open so the list always matches Watch Items / coach.
+  if (!opts.newForm && !isOffline) {
+    try { await loadOpenInjuries(); } catch (_) {}
+    updatePainBadge();
+  }
   if (opts.newForm || !(S.openInjuries || []).length) {
     renderPainForm({ exercise_name: opts.exerciseName || null });
   } else {
