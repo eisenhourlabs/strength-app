@@ -662,3 +662,17 @@
     .inj-btn { padding: 7px 11px; border-radius: 8px; border: 1px solid var(--border);
       background: var(--surface); color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer; }
     .inj-btn-resolve { border-color: var(--success); color: var(--success); }
+
+    /* Weekly check-in injury review */
+    .ci-inj-wrap { margin: 4px 0 8px; }
+    .ci-inj { padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .ci-inj:last-child { border-bottom: none; }
+    .ci-inj-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 7px; }
+    .ci-inj-region { font-size: 14px; font-weight: 700; }
+    .ci-inj-sub { font-size: 12px; color: var(--muted); }
+    .ci-inj-btns { display: flex; gap: 6px; }
+    .ci-inj-btn { flex: 1; padding: 8px 4px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--surface2); color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer; }
+    .ci-inj-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .ci-inj-btn.active[data-state="worse"] { background: #ff2712; border-color: #ff2712; }
+    .ci-inj-btn.active[data-state="resolved"] { background: var(--success); border-color: var(--success); color: #06240f; }

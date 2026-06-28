@@ -15,6 +15,72 @@ function nextMondayLabel() {
   return 'Week of ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+let _ciInjuryUpdates = {};
+
+// Build the interactive open-injury review shown inside the Weekly Check-In.
+function renderCheckinInjuries(injuries) {
+  if (!injuries.length) {
+    return '<div style="font-size:13px;color:var(--muted);margin:8px 0 4px">No open injuries. \u2713</div>';
+  }
+  const states = [['same','Same'],['improving','Better'],['worse','Worse'],['resolved','Resolved']];
+  const cards = injuries.map(function(inj) {
+    const id  = inj.injury_id || '';
+    const sub = [
+      inj.pain_score != null ? inj.pain_score + '/10' : null,
+      inj.status ? inj.status.charAt(0).toUpperCase() + inj.status.slice(1) : null,
+      'updated ' + daysAgoLabel(inj.last_update),
+    ].filter(Boolean).join(' \u00b7 ');
+    const btns = states.map(function(s) {
+      return '<button type="button" class="ci-inj-btn" data-inj="' + id + '" data-state="' + s[0] + '"'
+        + ' onclick="setInjuryUpdate(\'' + id + '\',\'' + s[0] + '\',this)">' + s[1] + '</button>';
+    }).join('');
+    return '<div class="ci-inj"><div class="ci-inj-head"><span class="ci-inj-region">' + inj.body_region + '</span>'
+      + '<span class="ci-inj-sub">' + sub + '</span></div>'
+      + '<div class="ci-inj-btns">' + btns + '</div></div>';
+  }).join('');
+  return '<div class="ci-inj-wrap"><div style="font-size:12px;color:var(--muted);margin:6px 0 8px">'
+    + 'Injury check \u2014 update any that changed (leave blank if no change):</div>' + cards + '</div>';
+}
+
+function setInjuryUpdate(injuryId, state, btn) {
+  if (_ciInjuryUpdates[injuryId] === state) delete _ciInjuryUpdates[injuryId];
+  else _ciInjuryUpdates[injuryId] = state;
+  document.querySelectorAll('.ci-inj-btn[data-inj="' + injuryId + '"]').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.state === _ciInjuryUpdates[injuryId]);
+  });
+}
+
+// On check-in submit, write a pain_injury_logs row for each injury the athlete
+// updated. Untouched injuries are intentionally left alone (carry forward).
+async function applyCheckinInjuryUpdates() {
+  const ids = Object.keys(_ciInjuryUpdates || {});
+  if (!ids.length) return;
+  for (const id of ids) {
+    const inj = (S.openInjuries || []).find(function(i) { return (i.injury_id || '') === id; });
+    if (!inj) continue;
+    const state = _ciInjuryUpdates[id];
+    const payload = {
+      athlete_id:        S.athlete.id,
+      log_date:          today(),
+      body_region:       inj.body_region,
+      injury_id:         inj.injury_id,
+      pain_score:        state === 'resolved' ? null : inj.pain_score,
+      status:            state,
+      modified_training: false,
+      trigger:           null,
+      notes:             'Weekly check-in update',
+    };
+    try {
+      if (isOffline) await idbQueueWrite({ op: 'pain', payload: payload });
+      else           await db.from('pain_injury_logs').insert(payload);
+      applyPainLocally(payload);
+    } catch (err) { console.error('checkin injury update:', err); }
+  }
+  _ciInjuryUpdates = {};
+  updatePainBadge();
+  try { await idbSet('openInjuriesCache', { athleteId: S.athlete.id, items: S.openInjuries }); } catch (_) {}
+}
+
 async function openCheckin() {
   document.getElementById('checkin-week-label').textContent = nextMondayLabel();
   document.getElementById('checkin-overlay').classList.add('open');
@@ -26,25 +92,20 @@ async function openCheckin() {
   // Pre-fill from existing submission if any
   const ci = S.checkin || {};
 
-  // Fetch health summary (this week's avg readiness + pain flags)
+  // Refresh open injuries for the interactive review below.
+  _ciInjuryUpdates = {};
+  try { await loadOpenInjuries(); } catch (_) {}
+
+  // Fetch health summary (this week's avg readiness)
   let summaryHtml = '<div class="summary-tile"><strong>This week from your logs:</strong><br>';
   try {
     const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
     const weekStr = weekAgo.toISOString().slice(0, 10);
-
-    const [rRes, pRes] = await Promise.all([
-      db.from('readiness_logs').select('readiness_score').eq('athlete_id', S.athlete.id).gte('log_date', weekStr),
-      db.from('pain_injury_logs').select('body_region,status').eq('athlete_id', S.athlete.id).gte('log_date', weekStr).in('status', ['new','same','worse']),
-    ]);
-
+    const rRes = await db.from('readiness_logs')
+      .select('readiness_score').eq('athlete_id', S.athlete.id).gte('log_date', weekStr);
     const scores = (rRes.data || []).map(r => r.readiness_score).filter(Boolean);
     const avgR   = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : null;
     summaryHtml += avgR ? `Avg readiness: <strong>${avgR}/5</strong>` : 'No readiness logs yet';
-
-    const painRegions = [...new Set((pRes.data || []).map(p => p.body_region))];
-    summaryHtml += painRegions.length
-      ? `&nbsp;·&nbsp;Pain flags: <strong>${painRegions.join(', ')}</strong>`
-      : '&nbsp;·&nbsp;No active pain flags';
   } catch (_) {
     summaryHtml += 'Could not load summary — check connection';
   }
@@ -125,6 +186,7 @@ async function openCheckin() {
     <div class="checkin-section">
       <div class="checkin-section-title">Health &amp; Recovery</div>
       ${summaryHtml}
+      ${renderCheckinInjuries(S.openInjuries || [])}
       <div class="form-field wide" style="margin-top:0">
         <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">
           Anything your logs don't show?
@@ -263,6 +325,7 @@ async function submitCheckin() {
       .select().single();
     if (error) throw error;
     S.checkin = data;
+    await applyCheckinInjuryUpdates();
     toast(isResubmit ? 'Check-in updated ✓' : 'Check-in submitted ✓');
     closeCheckin();
     renderWeek(); // refresh card badge
