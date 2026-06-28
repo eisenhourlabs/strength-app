@@ -614,7 +614,7 @@ async function renderSessionBody() {
               ${st.skipped ? 'Skipped ✓' : 'Skip'}
             </button>
             <button class="pain-flag-btn" id="pflag-p-${pe.id}"
-              onclick="togglePainFlag('p-${pe.id}','${exName.replace(/'/g,"\\'")}')">🩹 Pain</button>
+              onclick="togglePainFlag('p-${pe.id}','${exName.replace(/'/g,"\\'")}')">🚩 Pain</button>
             <button class="save-ex-btn" id="save-p-${pe.id}"
               onclick="saveExercise('${pe.id}')">Save</button>
           </div>
@@ -666,7 +666,7 @@ async function renderSessionBody() {
         <div class="ex-footer">
           <button class="remove-btn" onclick="removeAdded('${ae.localId}')">Remove</button>
           <button class="pain-flag-btn" id="pflag-${key}"
-            onclick="togglePainFlag('${key}','${ae.exName.replace(/'/g,"\\'")}')">🩹 Pain</button>
+            onclick="togglePainFlag('${key}','${ae.exName.replace(/'/g,"\\'")}')">🚩 Pain</button>
           <button class="save-ex-btn" id="save-${key}"
             onclick="saveAddedExercise('${ae.localId}')">Save</button>
         </div>
@@ -1303,7 +1303,7 @@ async function finishSession() {
       S.completed[S.activeSession.id] = cs;
     }
     showPainPrompt(
-      () => { openPainSheet(); checkAndPromptConditioning('Session Complete', 'All work saved. Great effort.'); },
+      () => { openPainSheet({newForm:true}); checkAndPromptConditioning('Session Complete', 'All work saved. Great effort.'); },
       () => { checkAndPromptConditioning('Session Complete', 'All work saved. Great effort.'); }
     );
     S.painFlags = {};

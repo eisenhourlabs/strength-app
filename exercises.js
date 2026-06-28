@@ -272,7 +272,7 @@ function selectExercise(exId, exName) {
           <div class="ex-footer">
             <button class="remove-btn" onclick="removeAdded('${localId}')">Remove</button>
             <button class="pain-flag-btn" id="pflag-${key}"
-              onclick="togglePainFlag('${key}','${exName.replace(/'/g,"\\'")}')">🩹 Pain</button>
+              onclick="togglePainFlag('${key}','${exName.replace(/'/g,"\\'")}')">🚩 Pain</button>
             <button class="save-ex-btn" id="save-${key}"
               onclick="saveAddedExercise('${localId}')">Save</button>
           </div>

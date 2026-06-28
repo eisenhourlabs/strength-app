@@ -76,14 +76,16 @@ async function renderWeek() {
       </div>
     </div>`;
 
+  const injCount = (S.openInjuries || []).length;
   const utilHtml = `
     <div class="divider"></div>
     <div class="util-grid">
       <div class="util-btn" onclick="openReadiness()">
         <span class="util-icon">📊</span>Readiness
       </div>
-      <div class="util-btn" onclick="openPainSheet()">
-        <span class="util-icon">🩹</span>Pain
+      <div class="util-btn" onclick="openPainSheet()" style="position:relative">
+        <span class="util-count" id="pain-util-badge" style="${injCount ? '' : 'display:none'}">${injCount || ''}</span>
+        <span class="util-icon">🚩</span>Pain
       </div>
       <div class="util-btn" onclick="openHistory()">
         <span class="util-icon">📋</span>History
@@ -118,6 +120,7 @@ async function loadProgram() {
     const cached = await idbGet('programCache');
     if (cached && cached.athleteId === S.athlete?.id) {
       S.cycle = cached.cycle; S.sessions = cached.sessions || []; S.completed = cached.completed || {};
+      try { const oi = await idbGet('openInjuriesCache'); if (oi && oi.athleteId === S.athlete?.id) S.openInjuries = oi.items || []; } catch (_) {}
       renderWeek();
     } else {
       body.innerHTML = '<div class="card"><div class="card-title" style="color:var(--muted)">Offline</div>' +
@@ -196,6 +199,8 @@ async function loadProgram() {
         .maybeSingle();
       S.checkin = ci || null;
     } catch (_) { S.checkin = null; }
+
+    await loadOpenInjuries();
 
     renderWeek();
   } catch (_) {

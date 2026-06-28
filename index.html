@@ -178,51 +178,8 @@
 <div class="sheet-overlay" id="pain-overlay" onclick="closePainSheet()"></div>
 <div class="pain-sheet" id="pain-sheet">
   <div class="sheet-handle"></div>
-  <div class="sheet-title">Log Pain / Injury</div>
-  <div style="overflow-y:auto;flex:1">
-    <div class="form-grid">
-      <div class="form-field">
-        <label>Body Region</label>
-        <select id="pain-region">
-          <option value="">Select…</option>
-          <option>Hip</option><option>Elbow</option><option>Shoulder</option>
-          <option>Knee</option><option>Low Back</option><option>Upper Back</option>
-          <option>Wrist</option><option>Ankle</option><option>Neck</option><option>Other</option>
-        </select>
-      </div>
-      <div class="form-field">
-        <label>Pain Score (0–10)</label>
-        <input type="number" id="pain-score" min="0" max="10" inputmode="numeric" placeholder="0–10">
-      </div>
-      <div class="form-field">
-        <label>Status</label>
-        <select id="pain-status">
-          <option value="new">New</option>
-          <option value="improving">Improving</option>
-          <option value="same">Same</option>
-          <option value="worse">Worse</option>
-          <option value="resolved">Resolved</option>
-        </select>
-      </div>
-      <div class="form-field">
-        <label>Modified Training?</label>
-        <select id="pain-modified">
-          <option value="false">No</option>
-          <option value="true">Yes</option>
-        </select>
-      </div>
-      <div class="form-field wide">
-        <label>Trigger / Description</label>
-        <input type="text" id="pain-trigger" placeholder="What caused it or where it hurts">
-      </div>
-      <div class="form-field wide">
-        <label>Notes for coach</label>
-        <textarea id="pain-notes" placeholder="Any extra context…"></textarea>
-      </div>
-    </div>
-    <button class="btn" style="margin-top:8px" onclick="submitPain()">Save Pain Log</button>
-    <button class="btn secondary" onclick="closePainSheet()">Cancel</button>
-  </div>
+  <div class="sheet-title" id="pain-sheet-title">Pain / Injury</div>
+  <div id="pain-sheet-body" style="overflow-y:auto;flex:1"></div>
 </div>
 
 <!-- ══════════════════ NEW SESSION SHEET ══════════════════ -->
