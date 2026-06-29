@@ -519,8 +519,18 @@ async function renderSessionBody() {
     if (pe.exercise && pe.exercise.exercise_type === 'conditioning') return;
     const savedSets = S.savedExercises[pe.id];
     if (savedSets) {
-      // Already saved — render read-only card
-      html += buildSavedExCard(`p-${pe.id}`, pe.exercise.name, pe.exercise.id, savedSets, pe.superset_group);
+      // Already saved — render read-only card from the ACTUALLY-LOGGED exercise.
+      // If a swap was saved, the logged exercise_id on the saved rows differs from the
+      // original planned exercise; show the swapped-in exercise, not the original.
+      const loggedExId = savedSets[0] && savedSets[0].exercise_id;
+      let savedName = pe.exercise.name, savedId = pe.exercise.id, swapFrom = '';
+      if (loggedExId && loggedExId !== pe.exercise.id) {
+        const le  = (S.exerciseLib || []).find(e => e.id === loggedExId);
+        savedName = le ? le.name : pe.exercise.name;
+        savedId   = loggedExId;
+        swapFrom  = pe.exercise.name;
+      }
+      html += buildSavedExCard(`p-${pe.id}`, savedName, savedId, savedSets, pe.superset_group, swapFrom);
     } else {
       // Editable card
       const st     = S.exState[pe.id];
@@ -614,7 +624,7 @@ async function renderSessionBody() {
               ${st.skipped ? 'Skipped ✓' : 'Skip'}
             </button>
             <button class="pain-flag-btn" id="pflag-p-${pe.id}"
-              onclick="togglePainFlag('p-${pe.id}','${exName.replace(/'/g,"\\'")}')">🚩 Pain</button>
+              onclick="togglePainFlag('p-${pe.id}','${exName.replace(/'/g,"\\'")}')">🩹 Pain</button>
             <button class="save-ex-btn" id="save-p-${pe.id}"
               onclick="saveExercise('${pe.id}')">Save</button>
           </div>
@@ -666,7 +676,7 @@ async function renderSessionBody() {
         <div class="ex-footer">
           <button class="remove-btn" onclick="removeAdded('${ae.localId}')">Remove</button>
           <button class="pain-flag-btn" id="pflag-${key}"
-            onclick="togglePainFlag('${key}','${ae.exName.replace(/'/g,"\\'")}')">🚩 Pain</button>
+            onclick="togglePainFlag('${key}','${ae.exName.replace(/'/g,"\\'")}')">🩹 Pain</button>
           <button class="save-ex-btn" id="save-${key}"
             onclick="saveAddedExercise('${ae.localId}')">Save</button>
         </div>
@@ -740,11 +750,13 @@ async function renderSessionBody() {
 }
 
 // ── Build saved (read-only) exercise card ─────────────────────────────────────
-function buildSavedExCard(key, exName, exId, sets, supersetGroup) {
+function buildSavedExCard(key, exName, exId, sets, supersetGroup, swappedFromName) {
   const groupHtml  = supersetGroup
     ? `<div class="ex-group">SUPERSET ${supersetGroup.toUpperCase()}</div>` : '';
   const safeExName = exName.replace(/'/g, "\\'");
 
+  const swapNoteHtml = swappedFromName
+    ? `<div class="ex-swap-note">↕ swapped from ${swappedFromName}</div>` : '';
   const isSkipped = sets.length === 1 && sets[0].is_skipped;
   let setsHtml;
 
@@ -800,7 +812,7 @@ function buildSavedExCard(key, exName, exId, sets, supersetGroup) {
         </div>
       </div>
       <div class="ex-body">
-        ${setsHtml}${noteHtml}
+        ${swapNoteHtml}${setsHtml}${noteHtml}
       </div>
     </div>`;
 }
@@ -1271,12 +1283,7 @@ async function finishSession() {
       S.activeCompletedSession        = { id: tid, _isTemp: true, ...sp };
       S.completed[S.activeSession.id] = S.activeCompletedSession;
     }
-    const flaggedEx = Object.values(S.painFlags || {}).join(', ');
-    showPainPrompt(
-      () => { openPainSheet({newForm:true, exerciseName: flaggedEx}); showSuccess('Session Complete', 'Saved offline — will sync when connected.'); },
-      () => { showSuccess('Session Complete', 'Saved offline — will sync when connected.'); }
-    );
-    S.painFlags = {};
+    showSuccess('Session Complete', 'Saved offline — will sync when connected.');
     return;
   }
 
@@ -1307,9 +1314,8 @@ async function finishSession() {
       S.activeCompletedSession        = cs;
       S.completed[S.activeSession.id] = cs;
     }
-    const flaggedEx = Object.values(S.painFlags || {}).join(', ');
     showPainPrompt(
-      () => { openPainSheet({newForm:true, exerciseName: flaggedEx}); checkAndPromptConditioning('Session Complete', 'All work saved. Great effort.'); },
+      () => { openPainSheet(); checkAndPromptConditioning('Session Complete', 'All work saved. Great effort.'); },
       () => { checkAndPromptConditioning('Session Complete', 'All work saved. Great effort.'); }
     );
     S.painFlags = {};
