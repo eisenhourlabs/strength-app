@@ -66,7 +66,7 @@
     .ex-card.saved-card { border-color: var(--success); }
     .ex-header  { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 6px; }
     .ex-name    { font-size: 16px; font-weight: 700; cursor: pointer; color: var(--text); flex: 1; }
-    .ex-swap    { font-size: 11px; color: var(--accent2); margin-left: 8px; flex-shrink: 0; cursor: pointer; padding-top: 2px; }
+    .ex-swap    { font-size: 11px; color: var(--muted); margin-left: 8px; flex-shrink: 0; cursor: pointer; padding-top: 2px; opacity: 0.8; }
     .ex-group   { font-size: 11px; font-weight: 600; color: var(--accent);
       margin-bottom: 6px; letter-spacing: .5px; }
     .ex-target  { font-size: 12px; color: var(--muted); margin-bottom: 10px; line-height: 1.5; }
@@ -93,7 +93,7 @@
     .sortable-chosen { outline: 2px solid var(--accent) !important; border-radius: var(--radius); }
 
     /* Exercise card collapse/expand */
-    .ex-header-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .ex-header-right { display: flex; align-items: center; gap: 18px; flex-shrink: 0; }
     .ex-collapse-btn { background: none; border: none; color: var(--muted);
       font-size: 15px; cursor: pointer; padding: 4px 6px; line-height: 1;
       transition: transform 0.2s; flex-shrink: 0; }
