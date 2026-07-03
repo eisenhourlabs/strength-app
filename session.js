@@ -148,7 +148,7 @@ async function openSession(sessionId) {
       }
     });
     const shouldUseCondForm2 = isCondOnly || (!!S.plannedConditioning && S.plannedExercises.length === 0);
-    if (shouldUseCondForm2) { renderConditioningSessionBody(); } else { renderSessionBody(); await restoreDraft(sessionId); initExerciseSort(sessionId); }
+    if (shouldUseCondForm2) { renderConditioningSessionBody(); } else { await renderSessionBody(); await restoreDraft(sessionId); }
     return;
   }
 
@@ -242,9 +242,8 @@ async function openSession(sessionId) {
   if (shouldUseCondForm) {
     renderConditioningSessionBody();
   } else {
-    renderSessionBody();
+    await renderSessionBody();
     await restoreDraft(sessionId);
-    initExerciseSort(sessionId);
   }
 }
 
@@ -930,6 +929,11 @@ async function renderSessionBody() {
       }
     }
   });
+
+  // Attach drag-to-reorder now that #exercise-list actually exists in the DOM.
+  // (Previously initialized from openSession without awaiting this async render,
+  // so Sortable never attached — dragging silently did nothing.)
+  initExerciseSort();
 }
 
 // ── Build saved (read-only) exercise card ─────────────────────────────────────
