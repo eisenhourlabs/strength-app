@@ -75,7 +75,7 @@
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
       <button style="background:none;border:none;color:var(--muted);font-size:13px;cursor:pointer"
         onclick="doLogout()">Sign out</button>
-      <span style="font-size:10px;color:var(--muted);opacity:0.5">v5</span>
+      <span style="font-size:10px;color:var(--muted);opacity:0.5">v6</span>
     </div>
   </div>
   <div class="body no-fab" id="week-body">
@@ -155,6 +155,7 @@
     <div class="success-icon">✓</div>
     <div class="success-title" id="success-title">Session Logged</div>
     <div class="success-sub"  id="success-sub">Great work. Data saved.</div>
+    <div class="success-recap" id="success-recap"></div>
     <button class="btn" style="max-width:280px" onclick="loadProgram()">Back to Program</button>
   </div>
 </div>
@@ -310,6 +311,24 @@
 <div class="sheet" id="hist-sheet" style="max-height:78vh">
   <div class="sheet-title" id="hist-title">Exercise History</div>
   <div class="sheet-list" id="hist-body"></div>
+</div>
+
+<!-- ══════════════════ PLATE CALCULATOR SHEET ══════════════════ -->
+<div class="sheet-overlay" id="plate-overlay" onclick="closePlateCalc()"></div>
+<div class="sheet" id="plate-sheet" style="max-height:70vh">
+  <div class="sheet-title">Plate Calculator</div>
+  <div class="form-grid" style="margin-bottom:0">
+    <div class="form-field">
+      <label>Target load (lb)</label>
+      <input type="number" id="plate-target" inputmode="decimal" placeholder="0" oninput="renderPlateCalc()">
+    </div>
+    <div class="form-field">
+      <label>Bar weight (lb)</label>
+      <input type="number" id="plate-bar" inputmode="decimal" value="45" oninput="renderPlateCalc()">
+    </div>
+  </div>
+  <div id="plate-result" style="padding:16px 2px;font-size:15px;line-height:1.8"></div>
+  <button class="btn secondary" onclick="closePlateCalc()">Close</button>
 </div>
 
 <!-- ══════════════════ EXPORT SHEET ══════════════════ -->

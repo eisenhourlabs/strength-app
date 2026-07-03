@@ -19,6 +19,15 @@ async function renderWeek() {
     document.getElementById('week-block').textContent = '';
   }
 
+  const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+  const totalSess = S.sessions.length;
+  const doneSess  = S.sessions.filter(s => S.completed[s.id]?.status === 'completed').length;
+  const progressHtml = (S.cycle && totalSess > 0) ? `
+    <div class="week-progress">
+      <div class="week-progress-label">${doneSess} of ${totalSess} session${totalSess !== 1 ? 's' : ''} complete${doneSess === totalSess ? ' — week done! 🎉' : ''}</div>
+      <div class="week-progress-track"><div class="week-progress-fill" style="width:${Math.round(doneSess / totalSess * 100)}%"></div></div>
+    </div>` : '';
+
   const sessHtml = !S.cycle
     ? '<div class="card"><div class="card-title">No active program</div>' +
       '<div class="card-sub">Your coach hasn\'t pushed a program yet.</div></div>'
@@ -35,12 +44,13 @@ async function renderWeek() {
     } else {
       statusBadge = `<span class="badge badge-done">✓ Logged</span>`;
     }
+    const isToday = dayLabel === todayName && !(comp && comp.status === 'completed');
     return `
-      <div class="card tap" data-sid="${s.id}" onclick="openSession('${s.id}')">
+      <div class="card tap${isToday ? ' today-card' : ''}" data-sid="${s.id}" onclick="openSession('${s.id}')">
         <div class="session-row">
           <span class="drag-handle" onclick="event.stopPropagation()" style="margin-right:10px;flex-shrink:0">≡</span>
           <div style="flex:1">
-            <div class="card-label sess-day-chip" onclick="event.stopPropagation();editDayLabel('${s.id}')">${dayLabel || '<span style="opacity:.45">+ day</span>'} <span class="day-edit-icon">&#9998;</span></div>
+            <div class="card-label sess-day-chip" onclick="event.stopPropagation();editDayLabel('${s.id}')">${dayLabel || '<span style="opacity:.45">+ day</span>'} <span class="day-edit-icon">&#9998;</span>${isToday ? ' <span class="today-chip">TODAY</span>' : ''}</div>
             <div class="card-title">${icon}${s.session_type || 'Session'}</div>
             <div class="session-meta">${statusBadge}</div>
           </div>
@@ -107,7 +117,7 @@ async function renderWeek() {
       🗓  Start New Week
     </button>`;
 
-  body.innerHTML = `<div id="session-list">${sessHtml}</div>` + checkinCardHtml + utilHtml;
+  body.innerHTML = progressHtml + `<div id="session-list">${sessHtml}</div>` + checkinCardHtml + utilHtml;
   initSessionSort();
   showScreen('week');
 }
@@ -213,7 +223,12 @@ async function loadProgram() {
 
 // ── Delete ad-hoc session ─────────────────────────────────────────────────────
 async function deleteSession(sessionId) {
-  if (!confirm('Delete this session and all its data?')) return;
+  showConfirm('Delete session?',
+    'This deletes the session and all its logged data. It cannot be undone.',
+    'Delete', () => _deleteSessionConfirmed(sessionId), true);
+}
+
+async function _deleteSessionConfirmed(sessionId) {
   try {
     const cs = S.completed[sessionId];
     if (cs) {
@@ -456,8 +471,12 @@ async function copyPreviousSession(completedSessionId, sessionType, plannedSessi
 // Start a new training week
 async function startNewWeek() {
   if (isOffline) { toast('Cannot start new week offline.'); return; }
-  if (!confirm('Start a new week? The current week will be archived and the session list will clear.')) return;
+  showConfirm('Start a new week?',
+    'The current week will be archived and the session list will clear.',
+    'Start New Week', _startNewWeekConfirmed);
+}
 
+async function _startNewWeekConfirmed() {
   try {
     // Archive the current cycle
     if (S.cycle?.id) {

@@ -272,7 +272,14 @@ async function submitPain() {
 async function resolveInjury(injuryId) {
   const inj = (S.openInjuries || []).find(function(i){ return (i.injury_id || '') === injuryId; });
   if (!inj) { toast('Could not find that injury.'); return; }
-  if (!confirm('Mark ' + inj.body_region + ' as resolved?')) return;
+  showConfirm('Resolve injury?',
+    'Mark ' + inj.body_region + ' as resolved. You can log it again if it comes back.',
+    'Resolve', function() { _resolveInjuryConfirmed(injuryId); });
+}
+
+async function _resolveInjuryConfirmed(injuryId) {
+  const inj = (S.openInjuries || []).find(function(i){ return (i.injury_id || '') === injuryId; });
+  if (!inj) return;
   const payload = {
     athlete_id:        S.athlete.id,
     log_date:          today(),

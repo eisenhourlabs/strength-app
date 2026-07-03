@@ -81,6 +81,24 @@ function toast(msg, ms = 2500) {
   setTimeout(() => t.classList.remove('show'), ms);
 }
 
+// ── Styled confirm dialog (replaces native confirm()) ─────────────────────────
+function showConfirm(title, sub, yesLabel, onYes, yesDanger) {
+  const overlay = document.createElement('div');
+  overlay.className = 'pain-prompt-overlay';
+  overlay.innerHTML = `
+    <div class="pain-prompt-box">
+      <div class="pain-prompt-title">${title}</div>
+      <div class="pain-prompt-sub">${sub}</div>
+      <div class="pain-prompt-btns">
+        <button class="pain-prompt-yes${yesDanger ? ' danger' : ''}" id="cfYes">${yesLabel || 'Confirm'}</button>
+        <button class="pain-prompt-no" id="cfNo">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('cfYes').onclick = () => { overlay.remove(); onYes(); };
+  document.getElementById('cfNo').onclick  = () => overlay.remove();
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 async function doLogin() {
   const email = document.getElementById('login-email').value.trim();
@@ -194,7 +212,7 @@ async function idbQueueWrite(item) {
   return new Promise((res, rej) => {
     const tx = d.transaction('write_queue', 'readwrite');
     const req = tx.objectStore('write_queue').add({ ...item, createdAt: Date.now() });
-    req.onsuccess = () => res();
+    req.onsuccess = () => { res(); try { updateOfflineBanner(); } catch (_) {} };
     req.onerror   = e => rej(e.target.error);
   });
 }
@@ -220,7 +238,16 @@ async function idbDeleteQueueItem(id) {
 // ── Offline banner ────────────────────────────────────────────────────────────
 function updateOfflineBanner() {
   const el = document.getElementById('offline-banner');
-  if (el) el.style.display = isOffline ? 'block' : 'none';
+  if (!el) return;
+  el.style.display = isOffline ? 'block' : 'none';
+  if (isOffline) {
+    idbGetAllQueue().then(items => {
+      if (!isOffline || !el) return;
+      el.textContent = items.length
+        ? `⚡ Offline — ${items.length} item${items.length !== 1 ? 's' : ''} saved locally, will sync when connected`
+        : '⚡ Offline — data will sync when connected';
+    }).catch(() => {});
+  }
 }
 
 window.addEventListener('offline', () => {
@@ -251,6 +278,7 @@ function resolveIds(payload, idMap) {
 async function syncQueue() {
   const items = await idbGetAllQueue();
   if (!items.length) return;
+  toast(`Syncing ${items.length} item${items.length !== 1 ? 's' : ''}…`, 1500);
 
   const idMap = {};
   let synced = 0, failed = 0, lastSyncErr = '';

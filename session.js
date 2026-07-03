@@ -42,6 +42,7 @@ async function openSession(sessionId) {
   S.checkedSets            = {};
   S.restTimers             = {};
   S._conditioningLogged    = false;
+  S._sessionPRs            = [];
   startSessionTimer();
   acquireWakeLock();
 
@@ -639,6 +640,55 @@ function _rpeOutsideClose(e) {
   closeRpeChips();
 }
 
+// ── Plate calculator ──────────────────────────────────────────────────────────
+function openPlateCalc(key) {
+  let load = null;
+  if (key) {
+    const wrap = document.getElementById(`sets-${key}`);
+    const n = wrap ? wrap.querySelectorAll('.set-row').length : 0;
+    for (let i = 0; i < n; i++) {
+      const v = parseFloat(document.getElementById(`load-${key}-${i}`)?.value);
+      if (v) load = Math.max(load || 0, v);
+    }
+  }
+  if (load) document.getElementById('plate-target').value = load;
+  document.getElementById('plate-overlay').classList.add('open');
+  document.getElementById('plate-sheet').classList.add('open');
+  renderPlateCalc();
+}
+
+function closePlateCalc() {
+  document.getElementById('plate-overlay').classList.remove('open');
+  document.getElementById('plate-sheet').classList.remove('open');
+}
+
+function renderPlateCalc() {
+  const out    = document.getElementById('plate-result');
+  if (!out) return;
+  const target = parseFloat(document.getElementById('plate-target')?.value) || 0;
+  const bar    = parseFloat(document.getElementById('plate-bar')?.value)    || 0;
+  if (!target || target < bar) {
+    out.innerHTML = '<span style="color:var(--muted)">Enter a target load at or above the bar weight.</span>';
+    return;
+  }
+  let perSide  = (target - bar) / 2;
+  const plates = [45, 35, 25, 10, 5, 2.5];
+  const used   = [];
+  plates.forEach(sz => {
+    const c = Math.floor(perSide / sz + 1e-9);
+    if (c > 0) { used.push(`${c} × ${sz}`); perSide -= c * sz; }
+  });
+  perSide = Math.round(perSide * 100) / 100;
+  let html = used.length
+    ? `<strong>Per side:</strong>&nbsp; ${used.join(' &nbsp;+&nbsp; ')}`
+    : '<strong>Per side:</strong>&nbsp; bar only';
+  if (perSide > 0) {
+    const loadable = target - 2 * perSide;
+    html += `<br><span style="color:var(--muted)">${perSide} lb/side can't be made with 2.5s — closest loadable: <strong>${loadable} lb</strong></span>`;
+  }
+  out.innerHTML = html;
+}
+
 // ── Formatting helpers ────────────────────────────────────────────────────────
 function fmtRestRange(minS, maxS) {
   if (minS == null || maxS == null) return null;
@@ -717,7 +767,7 @@ async function renderSessionBody() {
         <div class="set-col-header" id="colhdr-p-${pe.id}">
           <span class="set-col-num">SET</span>
           <div class="set-col-fields">
-            <span class="set-col-field">LB</span>
+            <span class="set-col-field lb-tap" onclick="openPlateCalc('p-${pe.id}')">LB ⚖</span>
             <span class="set-col-field" id="col-reps-lbl-p-${pe.id}">${repsColLbl}</span>
             <span class="set-col-field">RPE</span>
           </div>
@@ -768,7 +818,7 @@ async function renderSessionBody() {
           </div>`;
 
       html += `
-        <div class="ex-card ex-collapsed ${st.skipped ? 'skipped' : ''}" id="ex-card-p-${pe.id}">
+        <div class="ex-card ex-collapsed ${st.skipped ? 'skipped' : ''}${pe.superset_group ? ' ss-' + pe.superset_group.toLowerCase() : ''}" id="ex-card-p-${pe.id}">
           ${groupHtml}
           <div class="ex-header">
             <span class="drag-handle">≡</span>
@@ -838,7 +888,7 @@ async function renderSessionBody() {
         <div class="set-col-header">
           <span class="set-col-num">SET</span>
           <div class="set-col-fields">
-            <span class="set-col-field">LB</span>
+            <span class="set-col-field lb-tap" onclick="openPlateCalc('a-${ae.localId}')">LB ⚖</span>
             <span class="set-col-field" id="col-reps-lbl-${key}">${mt === 'time' ? 'SECS' : mt === 'dist' ? 'YDS' : 'REPS'}</span>
             <span class="set-col-field">RPE</span>
           </div>
@@ -985,7 +1035,7 @@ function buildSavedExCard(key, exName, exId, sets, supersetGroup, swappedFromNam
     ? `<div style="font-size:12px;color:var(--muted);margin-top:6px;font-style:italic">${noteText}</div>` : '';
 
   return `
-    <div class="ex-card saved-card ex-collapsed" id="ex-card-${key}">
+    <div class="ex-card saved-card ex-collapsed${supersetGroup ? ' ss-' + supersetGroup.toLowerCase() : ''}" id="ex-card-${key}">
       ${groupHtml}
       <div class="ex-header">
         <span class="drag-handle">≡</span>
@@ -1087,7 +1137,8 @@ async function saveExercise(peId) {
         })), pe.superset_group);
       }
       expandNextExercise(key);
-      toast('Saved offline ✓');
+      const prOff = checkForPR(exId, rows, st.swappedTo ? st.swappedTo.name : pe.exercise.name);
+      toast(prOff ? `Saved offline ✓ · 🎉 New e1RM PR: ${prOff.e1rm} lb!` : 'Saved offline ✓', prOff ? 4000 : 2500);
       return;
     }
     // Lazy-create completed_session if this is the first save
@@ -1127,7 +1178,8 @@ async function saveExercise(peId) {
       })), pe.superset_group);
     }
     expandNextExercise(key);
-    toast('Saved ✓');
+    const prOn = checkForPR(exId, rows, st.swappedTo ? st.swappedTo.name : pe.exercise.name);
+    toast(prOn ? `🎉 New PR — ${st.swappedTo ? st.swappedTo.name : pe.exercise.name}: e1RM ${prOn.e1rm} lb (prev ${prOn.prev})` : 'Saved ✓', prOn ? 4500 : 2500);
   } catch (err) {
     console.error(err);
     toast('Error saving. Check connection and try again.', 4000);
@@ -1209,7 +1261,8 @@ async function saveAddedExercise(localId) {
         })), null);
       }
       expandNextExercise(key);
-      toast('Saved offline ✓');
+      const prAOff = checkForPR(ae.exId, rows, ae.exName);
+      toast(prAOff ? `Saved offline ✓ · 🎉 New e1RM PR: ${prAOff.e1rm} lb!` : 'Saved offline ✓', prAOff ? 4000 : 2500);
       return;
     }
     if (!S.activeCompletedSession) {
@@ -1248,12 +1301,60 @@ async function saveAddedExercise(localId) {
       })), null);
     }
     expandNextExercise(key);
-    toast('Saved ✓');
+    const prAOn = checkForPR(ae.exId, rows, ae.exName);
+    toast(prAOn ? `🎉 New PR — ${ae.exName}: e1RM ${prAOn.e1rm} lb (prev ${prAOn.prev})` : 'Saved ✓', prAOn ? 4500 : 2500);
   } catch (err) {
     console.error(err);
     toast('Error saving. Check connection and try again.', 4000);
     if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
   }
+}
+
+// ── PR detection ──────────────────────────────────────────────────────────────
+// Compares just-saved rows against the athlete's all-time best e1RM for that
+// exercise (cached by loadLastPerformances). No history -> nothing to beat.
+function checkForPR(exId, rows, exName) {
+  const k    = String(exId);
+  const best = (S._bestE1rm || {})[k];
+  if (best == null) return null;
+  let newBest = 0;
+  (rows || []).forEach(r => {
+    const e = epley(r.actual_load, r.actual_reps);
+    if (e && e > newBest) newBest = e;
+  });
+  if (newBest > best) {
+    S._bestE1rm[k] = newBest;
+    S._sessionPRs  = S._sessionPRs || [];
+    S._sessionPRs.push({ name: exName, e1rm: newBest, prev: best });
+    return { e1rm: newBest, prev: best };
+  }
+  return null;
+}
+
+// ── Session recap (shown on the success screen) ───────────────────────────────
+function buildSessionRecap() {
+  let sets = 0, volume = 0, exCount = 0;
+  Object.values(S.savedExercises || {}).forEach(rows => {
+    const real = (rows || []).filter(r => !r.is_skipped &&
+      (r.actual_load || r.actual_reps || r.actual_value || r.actual_rpe));
+    if (!real.length) return;
+    exCount++;
+    sets += real.length;
+    real.forEach(r => { if (r.actual_load && r.actual_reps) volume += r.actual_load * r.actual_reps; });
+  });
+  if (!exCount) return '';
+  const secs  = S.sessionStartTime ? Math.floor((Date.now() - S.sessionStartTime) / 1000) : 0;
+  const mins  = Math.round(secs / 60);
+  const parts = [];
+  if (mins > 0) parts.push(`⏱ ${mins} min`);
+  parts.push(`${exCount} exercise${exCount !== 1 ? 's' : ''}`);
+  parts.push(`${sets} set${sets !== 1 ? 's' : ''}`);
+  if (volume > 0) parts.push(`${Math.round(volume).toLocaleString()} lb volume`);
+  let html = `<div class="recap-line">${parts.join('  ·  ')}</div>`;
+  (S._sessionPRs || []).forEach(pr => {
+    html += `<div class="recap-pr">🎉 ${pr.name}: new e1RM ${pr.e1rm} lb (prev ${pr.prev})</div>`;
+  });
+  return html;
 }
 
 // ── Inline "last performance" on editable cards ──────────────────────────────
@@ -1293,6 +1394,25 @@ async function loadLastPerformances() {
       .in('completed_session_id', ids)
       .eq('is_skipped', false)
       .gt('set_number', 0);
+    // All-time best e1RM per exercise (for PR detection on save) — single
+    // joined query so we don't have to enumerate every historical session id.
+    try {
+      const { data: allSets } = await db.from('completed_strength_sets')
+        .select('exercise_id,actual_load,actual_reps,completed_sessions!inner(athlete_id,status)')
+        .eq('completed_sessions.athlete_id', S.athlete.id)
+        .eq('completed_sessions.status', 'completed')
+        .in('exercise_id', exIds)
+        .eq('is_skipped', false)
+        .gt('set_number', 0);
+      S._bestE1rm = S._bestE1rm || {};
+      (allSets || []).forEach(s => {
+        const e = epley(s.actual_load, s.actual_reps);
+        if (!e) return;
+        const k = String(s.exercise_id);
+        if (!S._bestE1rm[k] || e > S._bestE1rm[k]) S._bestE1rm[k] = e;
+      });
+    } catch (err) { console.error('best e1RM load:', err); }
+
     if (!sets || !sets.length) return;
 
     // Most recent session per exercise
@@ -1614,6 +1734,7 @@ async function finishSession(force) {
       S.activeCompletedSession        = { id: tid, _isTemp: true, ...sp };
       S.completed[S.activeSession.id] = S.activeCompletedSession;
     }
+    S._lastRecap = buildSessionRecap();
     showSuccess('Session Complete', 'Saved offline — will sync when connected.');
     return;
   }
@@ -1645,6 +1766,7 @@ async function finishSession(force) {
       S.activeCompletedSession        = cs;
       S.completed[S.activeSession.id] = cs;
     }
+    S._lastRecap = buildSessionRecap();
     showPainPrompt(
       () => { openPainSheet(); checkAndPromptConditioning('Session Complete', 'All work saved. Great effort.'); },
       () => { checkAndPromptConditioning('Session Complete', 'All work saved. Great effort.'); }

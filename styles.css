@@ -268,6 +268,29 @@
       border-radius: 16px; padding: 8px 13px; font-size: 14px; cursor: pointer; }
     .rpe-chip:active { border-color: var(--accent); color: var(--accent); }
     .rpe-chip-clear { color: var(--muted); }
+    .pain-prompt-yes.danger { background: var(--danger); }
+
+    /* Plate calculator + superset stripes */
+    .lb-tap { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+    .ex-card.ss-a { border-left: 3px solid #4da3ff; }
+    .ex-card.ss-b { border-left: 3px solid #ffb84d; }
+    .ex-card.ss-c { border-left: 3px solid #7ce38b; }
+    .ex-card.ss-d { border-left: 3px solid #c792ea; }
+
+    /* Session recap on success screen */
+    .success-recap { margin: 16px 0 4px; text-align: center; }
+    .recap-line { font-size: 14px; color: var(--text); margin-bottom: 6px; }
+    .recap-pr { font-size: 14px; color: var(--success); font-weight: 600; margin-top: 4px; }
+
+    /* Week progress strip */
+    .week-progress { margin: 2px 0 14px; }
+    .week-progress-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+    .week-progress-track { height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+    .week-progress-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width .3s; }
+    .today-card { border: 1px solid var(--accent) !important; }
+    .today-chip { font-size: 9px; font-weight: 700; color: var(--accent);
+      border: 1px solid var(--accent); border-radius: 4px; padding: 1px 4px;
+      margin-left: 4px; letter-spacing: .5px; vertical-align: 1px; }
     .btn.success-state { background: #1a3a1a; color: var(--success); }
 
     /* Overall RPE / session notes row */

@@ -520,6 +520,8 @@ function showSuccess(title, sub) {
   if (typeof releaseWakeLock === 'function') releaseWakeLock();
   document.getElementById('success-title').textContent = title;
   document.getElementById('success-sub').textContent   = sub;
+  const recapEl = document.getElementById('success-recap');
+  if (recapEl) { recapEl.innerHTML = S._lastRecap || ''; S._lastRecap = null; }
   showScreen('success');
 }
 
