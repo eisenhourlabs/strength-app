@@ -43,6 +43,7 @@ async function openSession(sessionId) {
   S.restTimers             = {};
   S._conditioningLogged    = false;
   startSessionTimer();
+  acquireWakeLock();
 
   document.getElementById('session-title').textContent = S.activeSession.day_label;
   document.getElementById('session-sub').textContent   = S.activeSession.session_type || '';
@@ -143,7 +144,7 @@ async function openSession(sessionId) {
     S.plannedExercises.forEach(pe => {
       if (!S.savedExercises[pe.id]) {
         const count = pe.target_sets && pe.target_sets > 0 ? pe.target_sets : 1;
-        S.exState[pe.id] = { skipped: false, swappedTo: null, setCount: count, measureType: 'reps' };
+        S.exState[pe.id] = { skipped: false, swappedTo: null, setCount: count, measureType: inferMeasureType(pe) };
       }
     });
     const shouldUseCondForm2 = isCondOnly || (!!S.plannedConditioning && S.plannedExercises.length === 0);
@@ -232,7 +233,7 @@ async function openSession(sessionId) {
   S.plannedExercises.forEach(pe => {
     if (!S.savedExercises[pe.id]) {
       const count = pe.target_sets && pe.target_sets > 0 ? pe.target_sets : 1;
-      S.exState[pe.id] = { skipped: false, swappedTo: null, setCount: count };
+      S.exState[pe.id] = { skipped: false, swappedTo: null, setCount: count, measureType: inferMeasureType(pe) };
     }
   });
 
@@ -434,9 +435,16 @@ function startRestTimer(key) {
   }
 
   S.restTimers[key] = { remaining: targetSeconds, targetSeconds: targetSeconds, intervalId: null };
+  S._activeRestKey  = key;
+  ensureAudio();  // called inside a user gesture — unlocks audio for the completion beep
   updateRestDisplay(key);
+  _startRestInterval(key);
+}
 
-  S.restTimers[key].intervalId = setInterval(function() {
+function _startRestInterval(key) {
+  const t0 = S.restTimers[key];
+  if (!t0 || t0.intervalId) return;
+  t0.intervalId = setInterval(function() {
     const t = S.restTimers[key];
     if (!t) return;
     if (t.remaining <= 0) {
@@ -444,6 +452,15 @@ function startRestTimer(key) {
       t.intervalId = null;
       updateRestDisplay(key);
       if (navigator.vibrate) navigator.vibrate([150, 80, 150]);
+      beep(2);
+      // Auto-hide the sticky bar shortly after completion
+      setTimeout(function() {
+        const cur = S.restTimers[key];
+        if (S._activeRestKey === key && cur && cur.remaining <= 0) {
+          const bar = document.getElementById('rest-sticky');
+          if (bar) bar.style.display = 'none';
+        }
+      }, 6000);
       return;
     }
     t.remaining--;
@@ -452,6 +469,7 @@ function startRestTimer(key) {
 }
 
 function updateRestDisplay(key) {
+  updateRestSticky(key);
   const el = document.getElementById('rest-timer-' + key);
   if (!el) return;
   const t = S.restTimers[key];
@@ -476,6 +494,152 @@ function updateRestDisplay(key) {
   }
 }
 
+// ── Rest-timer audio, sticky bar, and screen wake lock ────────────────────────
+let _audioCtx = null;
+function ensureAudio() {
+  try {
+    if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (_audioCtx.state === 'suspended') _audioCtx.resume();
+  } catch (_) {}
+}
+
+function beep(times) {
+  if (!_audioCtx) return;
+  try {
+    let t = _audioCtx.currentTime;
+    for (let i = 0; i < (times || 2); i++) {
+      const o = _audioCtx.createOscillator();
+      const g = _audioCtx.createGain();
+      o.connect(g); g.connect(_audioCtx.destination);
+      o.type = 'sine'; o.frequency.value = 880;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.4, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.30);
+      o.start(t); o.stop(t + 0.32);
+      t += 0.45;
+    }
+  } catch (_) {}
+}
+
+let _wakeLock = null;
+async function acquireWakeLock() {
+  try {
+    if ('wakeLock' in navigator) _wakeLock = await navigator.wakeLock.request('screen');
+  } catch (_) {}
+}
+function releaseWakeLock() {
+  try { if (_wakeLock) _wakeLock.release(); } catch (_) {}
+  _wakeLock = null;
+}
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'visible' &&
+      document.getElementById('screen-session')?.classList.contains('active')) {
+    acquireWakeLock();
+  }
+});
+
+function updateRestSticky(key) {
+  if (key !== S._activeRestKey) return;
+  const bar = document.getElementById('rest-sticky');
+  const txt = document.getElementById('rest-sticky-text');
+  if (!bar || !txt) return;
+  const t = S.restTimers[key];
+  if (!t) { bar.style.display = 'none'; return; }
+  let name = '';
+  if (key.startsWith('p-')) {
+    const pe = S.plannedExercises.find(function(e) { return 'p-' + e.id === key; });
+    const st = pe && S.exState[pe.id];
+    name = (st && st.swappedTo) ? st.swappedTo.name : (pe && pe.exercise ? pe.exercise.name : '');
+  } else if (key.startsWith('a-')) {
+    const ae = S.addedExercises.find(function(a) { return 'a-' + a.localId === key; });
+    name = ae ? ae.exName : '';
+  }
+  bar.style.display = 'flex';
+  if (t.remaining <= 0) {
+    bar.classList.add('done');
+    txt.textContent = '✓ Rest complete — go!';
+  } else {
+    bar.classList.remove('done');
+    const m = Math.floor(t.remaining / 60), s = t.remaining % 60;
+    txt.textContent = '⏱ ' + m + ':' + String(s).padStart(2, '0') + (name ? '  ·  ' + name : '');
+  }
+}
+
+function restStickyAdd30() {
+  const key = S._activeRestKey;
+  if (!key) return;
+  const t = S.restTimers[key];
+  if (!t) return;
+  t.remaining = Math.max(0, t.remaining) + 30;
+  const bar = document.getElementById('rest-sticky');
+  if (bar) bar.classList.remove('done');
+  _startRestInterval(key);
+  updateRestDisplay(key);
+}
+
+function restStickySkip() {
+  const key = S._activeRestKey;
+  if (!key) return;
+  const t = S.restTimers[key];
+  if (t && t.intervalId) clearInterval(t.intervalId);
+  delete S.restTimers[key];
+  S._activeRestKey = null;
+  updateRestDisplay(key);
+  const bar = document.getElementById('rest-sticky');
+  if (bar) bar.style.display = 'none';
+}
+
+// ── Auto-expand the next unfinished exercise after a save ─────────────────────
+function expandNextExercise(savedKey) {
+  const savedCard = document.getElementById('ex-card-' + savedKey);
+  if (!savedCard) return;
+  let el = savedCard.nextElementSibling;
+  while (el) {
+    if (el.classList && el.classList.contains('ex-card') && !el.classList.contains('saved-card')) {
+      el.classList.remove('ex-collapsed');
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    el = el.nextElementSibling;
+  }
+}
+
+// ── RPE quick-pick chips ──────────────────────────────────────────────────────
+function openRpeChips(key, idx) {
+  closeRpeChips();
+  const row = document.getElementById('setrow-' + key + '-' + idx);
+  if (!row) return;
+  const vals = [5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
+  const bar  = document.createElement('div');
+  bar.className = 'rpe-chipbar';
+  bar.id        = 'rpe-chipbar';
+  bar.innerHTML = vals.map(v =>
+    `<button class="rpe-chip" onclick="pickRpe('${key}',${idx},${v})">${v}</button>`).join('') +
+    `<button class="rpe-chip rpe-chip-clear" onclick="pickRpe('${key}',${idx},null)">✕</button>`;
+  row.insertAdjacentElement('afterend', bar);
+  setTimeout(function() { document.addEventListener('click', _rpeOutsideClose, true); }, 0);
+}
+
+function closeRpeChips() {
+  const bar = document.getElementById('rpe-chipbar');
+  if (bar) bar.remove();
+  document.removeEventListener('click', _rpeOutsideClose, true);
+}
+
+function pickRpe(key, idx, v) {
+  const el = document.getElementById('rpe-' + key + '-' + idx);
+  if (el) el.value = v == null ? '' : v;
+  closeRpeChips();
+}
+
+function _rpeOutsideClose(e) {
+  const bar = document.getElementById('rpe-chipbar');
+  if (!bar) { document.removeEventListener('click', _rpeOutsideClose, true); return; }
+  if (bar.contains(e.target)) return;
+  if (e.target && e.target.id && e.target.id.indexOf('rpe-') === 0) return;
+  closeRpeChips();
+}
+
 // ── Formatting helpers ────────────────────────────────────────────────────────
 function fmtRestRange(minS, maxS) {
   if (minS == null || maxS == null) return null;
@@ -484,6 +648,16 @@ function fmtRestRange(minS, maxS) {
     return lo === hi ? `Rest ${lo} min` : `Rest ${lo}–${hi} min`;
   }
   return `Rest ${minS}–${maxS}s`;
+}
+
+// Infer the logging measure type from how the coach programmed the exercise.
+// "30 sec" / "45s" / "1 min" -> time; "20 yds" / "40 yards" -> dist; else reps.
+function inferMeasureType(pe) {
+  if (pe.measure_type) return pe.measure_type;   // explicit column, if present
+  const t = (pe.reps_display || '').toLowerCase();
+  if (/\b(sec|secs|second|seconds|min|mins|minute|minutes)\b/.test(t) || /\d\s*s\b/.test(t)) return 'time';
+  if (/\b(yd|yds|yard|yards|meter|meters)\b/.test(t) || /\d\s*m\b/.test(t)) return 'dist';
+  return 'reps';
 }
 
 const ROLE_LABELS = {
@@ -609,6 +783,7 @@ async function renderSessionBody() {
           ${swapNoteHtml}
           ${measureRowHtml}
           ${(targetHtml || restHtml) ? `<div class="ex-target">${targetHtml}${restHtml}</div>` : ''}
+          <div class="ex-lastperf" id="lastperf-p-${pe.id}"></div>
           <div class="rest-timer-display" id="rest-timer-p-${pe.id}"></div>
           ${colHdrHtml}
           <div class="sets-wrap" id="sets-p-${pe.id}">${setRowsHtml}</div>
@@ -660,6 +835,7 @@ async function renderSessionBody() {
             <option value="dist"${mt==='dist'?' selected':''}>Distance (yds)</option>
           </select>
         </div>
+        <div class="ex-lastperf" id="lastperf-a-${ae.localId}"></div>
         <div class="set-col-header">
           <span class="set-col-num">SET</span>
           <div class="set-col-fields">
@@ -725,6 +901,13 @@ async function renderSessionBody() {
   });
   Object.keys(S.restTimers || {}).forEach(function(key) { updateRestDisplay(key); });
 
+  // Fetch and show each exercise's most recent logged performance (async, non-blocking)
+  loadLastPerformances();
+
+  // Auto-expand the first exercise that still needs work
+  const firstEditable = document.querySelector('#exercise-list .ex-card:not(.saved-card)');
+  if (firstEditable) firstEditable.classList.remove('ex-collapsed');
+
   // Pre-fill planned load and reps into editable set rows.
   // restoreDraft() runs after this and will overwrite with any values the
   // athlete already entered, so planned values are only the initial default.
@@ -741,7 +924,7 @@ async function renderSessionBody() {
         const el = document.getElementById(`load-${key}-${i}`);
         if (el) el.value = fillLoad;
       }
-      if (fillReps != null && (st.measureType || 'reps') === 'reps') {
+      if (fillReps != null) {
         const el = document.getElementById(`reps-${key}-${i}`);
         if (el) el.value = fillReps;
       }
@@ -899,6 +1082,7 @@ async function saveExercise(peId) {
           actual_rpe: r.actual_rpe, notes: r.notes, is_skipped: r.is_skipped,
         })), pe.superset_group);
       }
+      expandNextExercise(key);
       toast('Saved offline ✓');
       return;
     }
@@ -938,6 +1122,7 @@ async function saveExercise(peId) {
         is_skipped:  r.is_skipped,
       })), pe.superset_group);
     }
+    expandNextExercise(key);
     toast('Saved ✓');
   } catch (err) {
     console.error(err);
@@ -1019,6 +1204,7 @@ async function saveAddedExercise(localId) {
           actual_rpe: r.actual_rpe, notes: r.notes, is_skipped: false,
         })), null);
       }
+      expandNextExercise(key);
       toast('Saved offline ✓');
       return;
     }
@@ -1057,11 +1243,90 @@ async function saveAddedExercise(localId) {
         is_skipped:  false,
       })), null);
     }
+    expandNextExercise(key);
     toast('Saved ✓');
   } catch (err) {
     console.error(err);
     toast('Error saving. Check connection and try again.', 4000);
     if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+  }
+}
+
+// ── Inline "last performance" on editable cards ──────────────────────────────
+async function loadLastPerformances() {
+  if (isOffline) return;
+  const targets = [];
+  (S.plannedExercises || []).forEach(pe => {
+    if (S.savedExercises[pe.id]) return;
+    if (pe.exercise && pe.exercise.exercise_type === 'conditioning') return;
+    const st   = S.exState[pe.id];
+    const exId = st?.swappedTo ? st.swappedTo.id : pe.exercise?.id;
+    if (exId) targets.push({ exId: String(exId), elId: `lastperf-p-${pe.id}` });
+  });
+  (S.addedExercises || []).forEach(ae => {
+    if (S.savedExercises[ae.localId]) return;
+    if (ae.exId) targets.push({ exId: String(ae.exId), elId: `lastperf-a-${ae.localId}` });
+  });
+  if (!targets.length) return;
+
+  try {
+    const { data: recent } = await db.from('completed_sessions')
+      .select('id,session_date')
+      .eq('athlete_id', S.athlete.id)
+      .eq('status', 'completed')
+      .order('session_date', { ascending: false })
+      .limit(30);
+    const curId = S.activeCompletedSession?.id;
+    const ids   = (recent || []).filter(s => s.id !== curId).map(s => s.id);
+    if (!ids.length) return;
+    const dateMap = {};
+    (recent || []).forEach(s => { dateMap[s.id] = s.session_date; });
+
+    const exIds = [...new Set(targets.map(x => x.exId))];
+    const { data: sets } = await db.from('completed_strength_sets')
+      .select('completed_session_id,exercise_id,set_number,actual_load,actual_reps,actual_rpe,actual_value,measure_type')
+      .in('exercise_id', exIds)
+      .in('completed_session_id', ids)
+      .eq('is_skipped', false)
+      .gt('set_number', 0);
+    if (!sets || !sets.length) return;
+
+    // Most recent session per exercise
+    const bestSession = {};
+    sets.forEach(s => {
+      const k   = String(s.exercise_id);
+      const d   = dateMap[s.completed_session_id] || '';
+      const cur = bestSession[k];
+      if (!cur || d > cur.date) bestSession[k] = { date: d, sid: s.completed_session_id, sets: [s] };
+      else if (cur.sid === s.completed_session_id) cur.sets.push(s);
+    });
+
+    targets.forEach(tg => {
+      const el = document.getElementById(tg.elId);
+      const b  = bestSession[tg.exId];
+      if (!el || !b || !b.sets.length) return;
+      // Top set: best e1RM, else heaviest load
+      let top = b.sets[0], topScore = -1;
+      b.sets.forEach(s => {
+        const score = epley(s.actual_load, s.actual_reps) || s.actual_load || 0;
+        if (score > topScore) { topScore = score; top = s; }
+      });
+      const mt   = top.measure_type || 'reps';
+      const val  = mt === 'reps' ? top.actual_reps : top.actual_value;
+      const unit = mt === 'time' ? ' sec' : mt === 'dist' ? ' yds' : '';
+      let perf = '';
+      if (top.actual_load != null && val != null) perf = `${top.actual_load} lb × ${val}${unit}`;
+      else if (val != null)                       perf = `${val}${unit || ' reps'}`;
+      else if (top.actual_load != null)           perf = `${top.actual_load} lb`;
+      if (!perf) return;
+      if (top.actual_rpe != null) perf += ` @ RPE ${top.actual_rpe}`;
+      const d = new Date(b.date + 'T00:00:00');
+      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      el.textContent   = `↺ Last (${dateStr}): ${perf}${b.sets.length > 1 ? ` · ${b.sets.length} sets` : ''}`;
+      el.style.display = 'block';
+    });
+  } catch (err) {
+    console.error('loadLastPerformances:', err);
   }
 }
 
@@ -1258,7 +1523,69 @@ function showPainPrompt(onYes, onNo) {
   document.getElementById('ppNo').onclick  = () => { overlay.remove(); onNo();  };
 }
 
-async function finishSession() {
+// ── Unsaved-work guard ────────────────────────────────────────────────────────
+function exCardHasData(key) {
+  const wrap = document.getElementById(`sets-${key}`);
+  if (!wrap) return false;
+  const n = wrap.querySelectorAll('.set-row').length;
+  for (let i = 0; i < n; i++) {
+    if (document.getElementById(`load-${key}-${i}`)?.value ||
+        document.getElementById(`reps-${key}-${i}`)?.value ||
+        document.getElementById(`rpe-${key}-${i}`)?.value) return true;
+  }
+  return !!(document.getElementById(`notes-${key}`)?.value || '').trim();
+}
+
+function collectUnsavedExercises() {
+  const items = [];
+  (S.plannedExercises || []).forEach(pe => {
+    if (S.savedExercises[pe.id]) return;
+    if (pe.exercise && pe.exercise.exercise_type === 'conditioning') return;
+    const st = S.exState[pe.id];
+    if (!st) return;
+    const name = st.swappedTo ? st.swappedTo.name : (pe.exercise ? pe.exercise.name : 'Exercise');
+    if (st.skipped) { items.push({ kind: 'planned', id: pe.id, name: name + ' (skipped)' }); return; }
+    if (exCardHasData(`p-${pe.id}`)) items.push({ kind: 'planned', id: pe.id, name });
+  });
+  (S.addedExercises || []).forEach(ae => {
+    if (S.savedExercises[ae.localId]) return;
+    if (exCardHasData(`a-${ae.localId}`)) items.push({ kind: 'added', id: ae.localId, name: ae.exName });
+  });
+  return items;
+}
+
+function showUnsavedPrompt(items) {
+  const names = items.map(x => `<strong>${x.name}</strong>`).join(', ');
+  const overlay = document.createElement('div');
+  overlay.className = 'pain-prompt-overlay';
+  overlay.innerHTML = `
+    <div class="pain-prompt-box">
+      <div class="pain-prompt-title">Unsaved work</div>
+      <div class="pain-prompt-sub">${items.length} exercise${items.length !== 1 ? 's have' : ' has'} unsaved data:<br>${names}</div>
+      <div class="pain-prompt-btns" style="flex-direction:column;gap:8px">
+        <button class="pain-prompt-yes" id="usSave">Save all &amp; finish</button>
+        <button class="pain-prompt-no"  id="usSkip">Finish without saving</button>
+        <button class="pain-prompt-no"  id="usCancel" style="opacity:.7">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('usSave').onclick = async () => {
+    overlay.remove();
+    for (const it of items) {
+      if (it.kind === 'planned') await saveExercise(it.id);
+      else await saveAddedExercise(it.id);
+    }
+    finishSession(true);
+  };
+  document.getElementById('usSkip').onclick   = () => { overlay.remove(); finishSession(true); };
+  document.getElementById('usCancel').onclick = () => { overlay.remove(); };
+}
+
+async function finishSession(force) {
+  if (!force) {
+    const unsaved = collectUnsavedExercises();
+    if (unsaved.length) { showUnsavedPrompt(unsaved); return; }
+  }
   const btn          = document.getElementById('submit-btn');
   const overallRpe   = parseFloat(document.getElementById('overall-rpe')?.value)    || null;
   const sessionNotes = (document.getElementById('session-notes')?.value || '').trim() || null;
@@ -1539,8 +1866,6 @@ function initExerciseSort(sessionId) {
     animation:         150,
     forceFallback:     true,
     fallbackTolerance: 3,
-    delay:             150,
-    delayOnTouchOnly:  true,
     supportPointer:    false,
     ghostClass:        'sortable-ghost',
     chosenClass:       'sortable-chosen',
@@ -1562,6 +1887,14 @@ function initExerciseSort(sessionId) {
         S.plannedExercises = newPlanned;
         S.addedExercises   = newAdded;
       }
+      // Persist planned-exercise order to DB so it survives saves,
+      // re-entry, and other devices. (Added exercises keep draft order.)
+      if (!isOffline && newPlanned.length > 1) {
+        newPlanned.forEach((pe, i) => { pe.item_order = i + 1; });
+        Promise.all(newPlanned.map(pe =>
+          db.from('planned_exercises').update({ item_order: pe.item_order }).eq('id', pe.id)
+        )).catch(err => console.error('exercise order save failed:', err));
+      }
     },
   });
 }
@@ -1569,6 +1902,10 @@ function initExerciseSort(sessionId) {
 // Back button for session screen — capture draft before leaving
 async function leaveSession() {
   stopSessionTimer();
+  releaseWakeLock();
+  S._activeRestKey = null;
+  const rbar = document.getElementById('rest-sticky');
+  if (rbar) rbar.style.display = 'none';
   Object.values(S.restTimers || {}).forEach(function(t) {
     if (t && t.intervalId) clearInterval(t.intervalId);
   });
@@ -1613,8 +1950,9 @@ function buildOneSetRow(key, idx, disabled, measureType) {
           <input type="number" inputmode="numeric" id="reps-${key}-${idx}" placeholder="—" ${dis}
             style="font-size:17px;padding:10px 2px"></div>
         <div class="sf">
-          <input type="number" inputmode="decimal" step="0.5" min="1" max="10"
+          <input type="number" inputmode="none" step="0.5" min="1" max="10" readonly
             id="rpe-${key}-${idx}" placeholder="—" ${dis}
+            onclick="openRpeChips('${key}',${idx})"
             style="font-size:17px;padding:10px 2px"></div>
       </div>
       <button class="${cbCls}" id="cb-${key}-${idx}"

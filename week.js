@@ -496,8 +496,6 @@ function initSessionSort() {
     animation:         150,
     forceFallback:     true,
     fallbackTolerance: 3,
-    delay:             150,
-    delayOnTouchOnly:  true,
     supportPointer:    false,
     ghostClass:        'sortable-ghost',
     chosenClass:       'sortable-chosen',
@@ -510,6 +508,13 @@ function initSessionSort() {
       try {
         await idbSet('sessionOrderCache', { cycleId: S.cycle?.id, order: newOrder });
       } catch (_) {}
+      // Persist order to DB so it survives across devices and reinstalls
+      if (!isOffline) {
+        try {
+          await Promise.all(newOrder.map((id, i) =>
+            db.from('planned_sessions').update({ session_order: i + 1 }).eq('id', id)));
+        } catch (err) { console.error('session order save failed:', err); }
+      }
     },
   });
 }

@@ -75,7 +75,7 @@
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
       <button style="background:none;border:none;color:var(--muted);font-size:13px;cursor:pointer"
         onclick="doLogout()">Sign out</button>
-      <span style="font-size:10px;color:var(--muted);opacity:0.5">v2</span>
+      <span style="font-size:10px;color:var(--muted);opacity:0.5">v4</span>
     </div>
   </div>
   <div class="body no-fab" id="week-body">
@@ -95,6 +95,11 @@
   </div>
   <div class="body" id="session-body">
     <div class="spinner">Loading…</div>
+  </div>
+  <div class="rest-sticky" id="rest-sticky" style="display:none">
+    <span class="rest-sticky-text" id="rest-sticky-text">⏱</span>
+    <button class="rest-sticky-btn" onclick="restStickyAdd30()">+30s</button>
+    <button class="rest-sticky-btn" onclick="restStickySkip()">Skip</button>
   </div>
   <div class="submit-bar">
     <button class="btn" id="submit-btn" onclick="handleSubmit()">Finish Session</button>

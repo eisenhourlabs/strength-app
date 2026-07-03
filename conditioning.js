@@ -517,6 +517,7 @@ function skipConditioning() {
 
 
 function showSuccess(title, sub) {
+  if (typeof releaseWakeLock === 'function') releaseWakeLock();
   document.getElementById('success-title').textContent = title;
   document.getElementById('success-sub').textContent   = sub;
   showScreen('success');

@@ -85,10 +85,12 @@
     .sess-del-btn:active { color: var(--danger); }
 
     /* Drag-to-reorder */
-    .drag-handle { color: #666666; font-size: 22px; cursor: grab;
+    .drag-handle { color: #888888; font-size: 24px; cursor: grab;
       flex-shrink: 0; touch-action: none; user-select: none; -webkit-user-select: none;
-      padding: 2px 8px; line-height: 1; font-style: normal; font-variant-emoji: text; }
+      padding: 10px 12px; margin: -8px -4px; line-height: 1; font-style: normal; font-variant-emoji: text; }
     .drag-handle:active { cursor: grabbing; color: var(--muted); }
+    .ex-lastperf { display: none; font-size: 12px; color: var(--muted);
+      margin: 2px 0 6px; }
     .sortable-ghost  { opacity: 0.35; }
     .sortable-chosen { outline: 2px solid var(--accent) !important; border-radius: var(--radius); }
 
@@ -244,6 +246,28 @@
     .btn:disabled { background: var(--border); color: var(--muted); cursor: default; }
     .btn.secondary { background: var(--surface2); color: var(--text); margin-top: 10px; }
     .btn.secondary:active { opacity: .75; }
+
+    /* Sticky rest timer bar (sits above the submit bar) */
+    .rest-sticky { position: fixed; left: 0; right: 0;
+      bottom: calc(var(--safe-bot) + 84px); z-index: 40;
+      display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+      background: var(--surface2); border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      font-size: 15px; font-variant-numeric: tabular-nums; }
+    .rest-sticky.done { border-color: var(--success); }
+    .rest-sticky-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rest-sticky.done .rest-sticky-text { color: var(--success); font-weight: 700; }
+    .rest-sticky-btn { background: var(--surface); border: 1px solid var(--border);
+      color: var(--text); border-radius: 8px; padding: 8px 14px; font-size: 14px;
+      cursor: pointer; flex-shrink: 0; }
+    .rest-sticky-btn:active { border-color: var(--accent); color: var(--accent); }
+
+    /* RPE quick-pick chips */
+    .rpe-chipbar { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 2px 4px; }
+    .rpe-chip { background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+      border-radius: 16px; padding: 8px 13px; font-size: 14px; cursor: pointer; }
+    .rpe-chip:active { border-color: var(--accent); color: var(--accent); }
+    .rpe-chip-clear { color: var(--muted); }
     .btn.success-state { background: #1a3a1a; color: var(--success); }
 
     /* Overall RPE / session notes row */
