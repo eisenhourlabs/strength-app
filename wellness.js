@@ -63,6 +63,109 @@ async function submitReadiness() {
 // ── Pain / Injury sheet ──────────────────────────────────────────────────────
 const PAIN_REGIONS = ['Hip','Elbow','Shoulder','Knee','Low Back','Upper Back','Wrist','Ankle','Neck','Other'];
 
+// ── One-time triage questions (asked on NEW episodes only; all optional) ─────
+// Answer routing (see 07_Documentation/Pain_Triage_Sheet_Design.md):
+//   k:'loc'      -> location_detail        k:'agg' -> aggravators (joined)
+//   k:'yn-agg'   -> appends `yes` text to aggravators when answered Yes
+//   k:'yn-neuro' -> neuro_flag boolean     k:'legsym' -> low-back leg symptoms
+const PAIN_TRIAGE = {
+  'Elbow': [
+    { k:'loc', label:'Where exactly?', opts:['Outside of the elbow','Inside of the elbow','Back of the elbow','Front crease','Not sure'] },
+    { k:'agg', label:'What makes it worse?', opts:['Gripping or pulling','Curls or chin-ups','Pressing or lockout','Most things','Not sure'] },
+    { k:'yn-neuro', label:'Any numbness or tingling into your fingers?' },
+  ],
+  'Shoulder': [
+    { k:'agg', label:'What brings it on?', opts:['Pressing or overhead','Feels weak or uncontrolled','Stiff \u2014 motion limited','Feels like it might slip','Not sure'] },
+    { k:'yn-agg', label:'Pain at night or lying on it?', yes:'night pain' },
+  ],
+  'Hip': [
+    { k:'loc', label:'Where exactly?', opts:['Front of hip or groin','Outside of the hip','Deep in the buttock','Not sure'] },
+    { k:'agg', label:'What makes it worse?', opts:['Deep squats','Lying on that side or stairs','Just stiff','Not sure'] },
+  ],
+  'Knee': [
+    { k:'loc', label:'Where exactly?', opts:['Front, around the kneecap','On the tendon below or above the kneecap','Inside or outside edge','Back of the knee','Not sure'] },
+    { k:'agg', label:'When is it worst?', opts:['Stairs or long sitting','Start of session, warms up','Deep bend + twisting','Not sure'] },
+    { k:'yn-neuro', label:'Any locking, giving way, or swelling?' },
+  ],
+  'Low Back': [
+    { k:'legsym', label:'Any pain, numbness, or tingling down a leg?', opts:['No','Into buttock or thigh','Below the knee'] },
+    { k:'agg', label:'What makes it worse?', opts:['Bending or sitting','Standing or arching','Everything \u2014 it just flared','Not sure'] },
+  ],
+  'Ankle': [
+    { k:'loc', label:'Where exactly?', opts:['On the cord above the heel','At or under the heel','Outside ankle bone','Front of the ankle','Not sure'] },
+    { k:'yn-agg', label:'Did you roll or sprain it recently?', yes:'recent sprain' },
+    { k:'yn-agg', label:'Stiff or painful with first steps in the morning?', yes:'morning stiffness' },
+  ],
+};
+
+let _triageAns = {};   // question index -> selected option text
+
+function renderTriageBlock() {
+  const wrap = document.getElementById('pain-triage');
+  if (!wrap) return;
+  const region = (document.getElementById('pain-region') || {}).value || '';
+  const qs = PAIN_TRIAGE[region];
+  _triageAns = {};
+  if (!qs) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML =
+      '<div style="font-size:12px;color:var(--muted);margin:4px 0 2px">Quick questions \u2014 optional, but they help your coach program around this:</div>'
+    + qs.map(function(q, qi) {
+        const opts  = q.opts || ['Yes','No'];
+        const chips = opts.map(function(o) {
+          return '<button type="button" class="triage-chip" data-q="' + qi + '" data-v="' + o.replace(/"/g, '&quot;') + '"'
+            + ' onclick="setTriageAnswer(' + qi + ', this)">' + o + '</button>';
+        }).join('');
+        return '<div class="triage-q"><div class="triage-label">' + q.label + '</div>'
+          + '<div class="triage-chips">' + chips + '</div></div>';
+      }).join('');
+}
+
+function setTriageAnswer(qi, btn) {
+  const v = btn.dataset.v;
+  if (_triageAns[qi] === v) delete _triageAns[qi]; else _triageAns[qi] = v;
+  document.querySelectorAll('.triage-chip[data-q="' + qi + '"]').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.v === _triageAns[qi]);
+  });
+}
+
+// Compose the triage payload fields from the answered questions.
+function collectTriage(region) {
+  const qs = PAIN_TRIAGE[region];
+  if (!qs) return {};
+  let loc = null, aggs = [], neuro = null;
+  qs.forEach(function(q, qi) {
+    const a = _triageAns[qi];
+    if (a == null) return;
+    if (q.k === 'loc') loc = a;
+    else if (q.k === 'agg') aggs.push(a);
+    else if (q.k === 'yn-agg') { if (a === 'Yes') aggs.push(q.yes); }
+    else if (q.k === 'yn-neuro') neuro = (a === 'Yes');
+    else if (q.k === 'legsym') {
+      if (a === 'Below the knee') neuro = true; else if (neuro == null) neuro = false;
+      if (a !== 'No') loc = 'Leg symptoms: ' + a;
+    }
+  });
+  const out = {};
+  if (loc) out.location_detail = loc;
+  if (aggs.length) out.aggravators = aggs.join('; ');
+  if (neuro != null) out.neuro_flag = neuro;
+  return out;
+}
+
+// Standing pain rules — shown after any pain log with score >= 4.
+function renderPainRulesCard() {
+  document.getElementById('pain-sheet-title').textContent = 'Noted \u2014 protect it this week';
+  document.getElementById('pain-sheet-body').innerHTML =
+      '<div class="pain-rules-card">'
+    + '<div class="prc-title">Until your next program:</div>'
+    + '<ul class="prc-list">'
+    + '<li>Skip or lighten anything that provokes this \u2014 swapping an exercise is always allowed.</li>'
+    + '<li>Don\u2019t push through pain above 3/10, and stop anything that changes how you move.</li>'
+    + '<li>Log whatever you change so your coach can see it.</li>'
+    + '</ul></div>'
+    + '<button class="btn" style="margin-top:12px" onclick="afterPainSave()">Got it</button>';
+}
+
 // Group raw pain rows into open episodes (latest row per injury_id, not resolved).
 function computeOpenInjuries(rows) {
   const byId = {};
@@ -180,6 +283,7 @@ function openInjuryUpdate(injuryId) {
 
 function renderPainForm(prefill) {
   prefill = prefill || {};
+  _triageAns = {};
   const isUpdate = !!prefill.update;
   document.getElementById('pain-sheet-title').textContent =
     isUpdate ? ('Update — ' + prefill.body_region) : 'Log Pain / Injury';
@@ -188,7 +292,7 @@ function renderPainForm(prefill) {
     ? '<input type="hidden" id="pain-region" value="' + prefill.body_region + '">'
       + '<div class="form-field wide"><label>Body Region</label>'
       + '<div style="padding:8px 0;font-weight:600">' + prefill.body_region + '</div></div>'
-    : '<div class="form-field"><label>Body Region</label><select id="pain-region">'
+    : '<div class="form-field"><label>Body Region</label><select id="pain-region" onchange="renderTriageBlock()">'
       + '<option value="">Select…</option>'
       + PAIN_REGIONS.map(function(r){ return '<option>' + r + '</option>'; }).join('')
       + '</select></div>';
@@ -209,6 +313,7 @@ function renderPainForm(prefill) {
     + '<div class="form-grid">'
     + regionField
     + exField
+    + (isUpdate ? '' : '<div class="form-field wide" id="pain-triage"></div>')
     + '<div class="form-field"><label>Pain Score (0–10)</label>'
     + '<input type="number" id="pain-score" min="0" max="10" inputmode="numeric" placeholder="0–10"></div>'
     + '<div class="form-field"><label>Status</label><select id="pain-status">' + statusOpts + '</select></div>'
@@ -250,19 +355,20 @@ async function submitPain() {
     notes:             notes,
     exercise_name:     exerciseName,
   };
+  if (!existingId) Object.assign(payload, collectTriage(region));
 
   if (isOffline) {
     await idbQueueWrite({ op: 'pain', payload: payload });
     applyPainLocally(payload);
     toast('Pain log saved offline ✓');
-    afterPainSave();
+    if ((score || 0) >= 4) renderPainRulesCard(); else afterPainSave();
     return;
   }
   try {
     await db.from('pain_injury_logs').insert(payload);
     toast(existingId ? 'Update saved ✓' : 'Pain log saved ✓');
     await loadOpenInjuries();
-    afterPainSave();
+    if ((score || 0) >= 4) renderPainRulesCard(); else afterPainSave();
   } catch (err) {
     console.error(err);
     toast('Error saving pain log. Try again.', 4000);

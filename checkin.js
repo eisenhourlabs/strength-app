@@ -151,7 +151,21 @@ async function openCheckin() {
     `<option value="${val}"${equipVal === val ? ' selected' : ''}>${lbl}</option>`
   ).join('');
 
+  // Coach follow-up question (optional, set by the weekly program push)
+  const _esc = function(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+  const coachQ = (S.cycle && S.cycle.coach_question) ? _esc(S.cycle.coach_question) : null;
+  const coachQHtml = coachQ ? `
+    <div class="checkin-section" style="border-left:3px solid var(--accent);padding-left:12px">
+      <div class="checkin-section-title">From your coach</div>
+      <div class="ci-coachq-text">“${coachQ}”</div>
+      <textarea id="ci-coach-answer" placeholder="Your answer…"
+        style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+               color:var(--text);font-size:14px;padding:10px 12px;resize:none;min-height:60px"
+      >${_esc(ci.coach_question_answer || '')}</textarea>
+    </div>` : '';
+
   body.innerHTML = `
+    ${coachQHtml}
     <div class="checkin-section">
       <div class="checkin-section-title">Next Week Schedule</div>
       <div style="font-size:13px;color:var(--muted);margin-bottom:4px">Any training days you'll miss?</div>
@@ -316,6 +330,7 @@ async function submitCheckin() {
     schedule_preference_notes: schedNotes,
     general_notes:             generalNotes,
     future_notes:              futureNotes,
+    coach_question_answer:     document.getElementById('ci-coach-answer')?.value.trim() || null,
     resubmitted:               isResubmit,
   };
 

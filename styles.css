@@ -723,3 +723,17 @@
     .ci-inj-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
     .ci-inj-btn.active[data-state="worse"] { background: #ff2712; border-color: #ff2712; }
     .ci-inj-btn.active[data-state="resolved"] { background: var(--success); border-color: var(--success); color: #06240f; }
+
+/* ── Pain triage chips & rules card (2026-07-03) ─────────────────────────── */
+.triage-q     { margin: 10px 0 2px; }
+.triage-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.triage-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.triage-chip  { background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+                border-radius: 999px; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+.triage-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pain-rules-card { background: var(--surface2); border: 1px solid var(--border);
+                   border-left: 3px solid var(--accent); border-radius: 10px; padding: 14px; }
+.prc-title    { font-weight: 700; margin-bottom: 8px; }
+.prc-list     { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.45; }
+.prc-list li  { margin: 6px 0; }
+.ci-coachq-text { font-weight: 600; font-size: 14px; margin: 4px 0 10px; }
