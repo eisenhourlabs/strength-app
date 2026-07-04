@@ -28,9 +28,14 @@ async function renderWeek() {
       <div class="week-progress-track"><div class="week-progress-fill" style="width:${Math.round(doneSess / totalSess * 100)}%"></div></div>
     </div>` : '';
 
-  const sessHtml = !S.cycle
-    ? '<div class="card"><div class="card-title">No active program</div>' +
-      '<div class="card-sub">Your coach hasn\'t pushed a program yet.</div></div>'
+  const emptyStateHtml =
+      '<div class="card"><div class="card-title">No sessions this week</div>'
+    + '<div class="card-sub" style="margin:6px 0 12px">Repeat last week\'s plan, copy sessions from History, or build one with \u2795 New Session below.'
+    + (S.cycle ? '' : ' If you have a coach, their next program will appear here automatically.')
+    + '</div>'
+    + '<button class="btn" style="font-size:14px;padding:12px" onclick="repeatLastWeek()">\u27f3\u00a0 Repeat Last Week</button></div>';
+  const sessHtml = (!S.cycle || S.sessions.length === 0)
+    ? emptyStateHtml
     : S.sessions.map(s => {
     const comp       = S.completed[s.id];
     const isCondOnly = s.session_type === 'Conditioning Only';
@@ -340,7 +345,7 @@ async function loadRecentSessionsForCopy() {
 // Create a blank user-built session with the selected day/type
 async function createUserSession() {
   if (isOffline) { toast('Cannot create sessions offline.'); return; }
-  if (!S.cycle) { toast('No active program — ask your coach to push a program first.', 4000); return; }
+  try { await ensureActiveCycle(); } catch (e) { toast('Could not start a week — check connection.', 4000); return; }
   const sessionType = document.getElementById('new-sess-type').value;
   closeNewSessionSheet();
 
@@ -379,6 +384,7 @@ async function createUserSession() {
 // Copy a previous completed session's exercises into a new session
 async function copyPreviousSession(completedSessionId, sessionType, plannedSessionId) {
   if (isOffline) { toast('Cannot create sessions offline.'); return; }
+  try { await ensureActiveCycle(); } catch (e) { toast('Could not start a week — check connection.', 4000); return; }
   closeNewSessionSheet();
 
   document.getElementById('session-title').textContent = sessionType;
@@ -501,6 +507,134 @@ async function _startNewWeekConfirmed() {
   } catch (err) {
     console.error(err);
     toast('Error starting new week.', 4000);
+  }
+}
+
+// ── Self-programming: cycle bootstrap, session cloning, repeat last week ─────
+
+// Create an active cycle if none exists (pure self-programmed athletes).
+async function ensureActiveCycle() {
+  if (S.cycle && S.cycle.id) return S.cycle;
+  const todayStr = today();
+  const { data: newCycle, error } = await db.from('training_cycles').insert({
+    athlete_id: S.athlete.id,
+    name:       'Week of ' + todayStr,
+    start_date: todayStr,
+    status:     'active',
+  }).select().single();
+  if (error) throw error;
+  S.cycle = newCycle;
+  S.sessions = S.sessions || [];
+  S.completed = S.completed || {};
+  return newCycle;
+}
+
+// Clone a session (planned structure preferred, completed sets as fallback)
+// into the current week. Returns { ps, count }.
+async function cloneSessionIntoCurrentWeek(opts) {
+  await ensureActiveCycle();
+  const { data: ps, error: psErr } = await db.from('planned_sessions').insert({
+    athlete_id:            S.athlete.id,
+    cycle_id:              S.cycle.id,
+    week_of:               S.cycle.start_date || today(),
+    day_label:             opts.dayLabel || null,
+    session_order:         opts.sessionOrder != null ? opts.sessionOrder : null,
+    session_type:          opts.sessionType || 'Session',
+    includes_conditioning: !!opts.includesConditioning,
+    session_notes:         opts.sessionNotes || null,
+  }).select().single();
+  if (psErr) throw psErr;
+
+  let count = 0;
+  if (opts.plannedSessionId) {
+    // Full-fidelity clone: all planned_exercises columns (supersets, rest, adaptation, intent)
+    const { data: srcPEs } = await db.from('planned_exercises')
+      .select('*').eq('session_id', opts.plannedSessionId).order('item_order');
+    if (srcPEs && srcPEs.length) {
+      const rows = srcPEs.map(function(e) {
+        const r = Object.assign({}, e);
+        delete r.id; delete r.created_at;
+        r.session_id = ps.id;
+        return r;
+      });
+      await db.from('planned_exercises').insert(rows);
+      count = rows.length;
+    }
+    const { data: srcCB } = await db.from('planned_conditioning_blocks')
+      .select('*').eq('session_id', opts.plannedSessionId);
+    if (srcCB && srcCB.length) {
+      const cbRows = srcCB.map(function(c) {
+        const r = Object.assign({}, c);
+        delete r.id; delete r.created_at;
+        r.session_id = ps.id;
+        return r;
+      });
+      try { await db.from('planned_conditioning_blocks').insert(cbRows); }
+      catch (e) { console.error('conditioning clone failed (RLS policy missing?):', e); }
+    }
+  }
+
+  if (!count && opts.completedSessionId) {
+    // Fallback: rebuild structure from what was actually logged
+    const { data: sets } = await db.from('completed_strength_sets')
+      .select('exercise_id, set_number, actual_load, actual_reps')
+      .eq('completed_session_id', opts.completedSessionId)
+      .gt('set_number', 0).eq('is_skipped', false).order('set_number');
+    if (sets && sets.length) {
+      const seen = new Set(); const uniq = [];
+      sets.forEach(function(s) {
+        if (s.exercise_id && !seen.has(s.exercise_id)) {
+          seen.add(s.exercise_id);
+          const exSets = sets.filter(function(r){ return r.exercise_id === s.exercise_id; });
+          uniq.push({
+            exercise_id: s.exercise_id,
+            topLoad:     Math.max.apply(null, exSets.map(function(r){ return r.actual_load || 0; })) || null,
+            firstReps:   exSets[0] ? exSets[0].actual_reps : null,
+            setCount:    exSets.length,
+          });
+        }
+      });
+      await db.from('planned_exercises').insert(uniq.map(function(ex, i) {
+        return { session_id: ps.id, exercise_id: ex.exercise_id, item_order: i + 1,
+                 target_load: ex.topLoad, target_sets: ex.setCount, reps_low: ex.firstReps };
+      }));
+      count = uniq.length;
+    }
+  }
+  return { ps: ps, count: count };
+}
+
+// One-tap: clone every planned session from the most recent archived week.
+async function repeatLastWeek() {
+  if (isOffline) { toast('Not available offline.'); return; }
+  toast('Copying last week\u2026', 3000);
+  try {
+    const { data: prevCycles } = await db.from('training_cycles')
+      .select('id, start_date, name')
+      .eq('athlete_id', S.athlete.id)
+      .neq('status', 'active')
+      .order('start_date', { ascending: false })
+      .limit(1);
+    const prev = prevCycles && prevCycles[0];
+    if (!prev) { toast('No previous week found to copy.', 3500); return; }
+    const { data: srcSessions } = await db.from('planned_sessions')
+      .select('*').eq('cycle_id', prev.id).order('session_order');
+    if (!srcSessions || !srcSessions.length) { toast('Previous week has no sessions.', 3500); return; }
+    for (const s of srcSessions) {
+      await cloneSessionIntoCurrentWeek({
+        plannedSessionId:     s.id,
+        sessionType:          s.session_type,
+        dayLabel:             s.day_label,
+        sessionOrder:         s.session_order,
+        includesConditioning: s.includes_conditioning,
+        sessionNotes:         s.session_notes,
+      });
+    }
+    toast('Copied ' + srcSessions.length + ' session' + (srcSessions.length !== 1 ? 's' : '') + ' \u2713');
+    await loadProgram();
+  } catch (err) {
+    console.error('repeatLastWeek:', err);
+    toast('Error copying last week.', 4000);
   }
 }
 

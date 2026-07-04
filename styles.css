@@ -737,3 +737,13 @@
 .prc-list     { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.45; }
 .prc-list li  { margin: 6px 0; }
 .ci-coachq-text { font-weight: 600; font-size: 14px; margin: 4px 0 10px; }
+
+/* ── History week groups (2026-07-03) ────────────────────────────────────── */
+.hist-week-toggle { display: flex; justify-content: space-between; align-items: center;
+                    cursor: pointer; scroll-margin-top: 96px; }
+.hist-week-group  { margin-bottom: 14px; }
+.hist-week-group.hw-collapsed .hist-week-body { display: none; }
+.hist-week-group.hw-collapsed .hist-week-toggle .hist-toggle-icon { transform: rotate(-90deg); }
+.hist-week-toggle .hist-toggle-icon { transition: transform .15s ease; }
+.hist-day-header  { font-size: 12px; color: var(--muted); font-weight: 600;
+                    text-transform: uppercase; letter-spacing: .04em; margin: 12px 0 6px; }

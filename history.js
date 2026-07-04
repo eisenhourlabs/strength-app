@@ -128,7 +128,7 @@ async function loadHistory() {
   const body = document.getElementById('hist-screen-body');
   try {
     const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 30);
+    cutoff.setDate(cutoff.getDate() - 84);
     const cutoffStr = cutoff.toISOString().slice(0, 10);
 
     // 1. Completed sessions in range
@@ -186,164 +186,202 @@ async function loadHistory() {
     const readinessByDate = {};
     (readiness || []).forEach(r => { readinessByDate[r.log_date] = r; });
 
-    // Group sessions by date (YYYY-MM-DD)
-    const dateMap = {};
+    // Group sessions by week (Monday), then by date within each week
+    S._histWeekIndex = {};
+    const weekMap = {};
     sessions.forEach(s => {
-      const d = s.session_date;
-      if (!dateMap[d]) dateMap[d] = [];
-      dateMap[d].push(s);
+      const wk = getWeekMonday(s.session_date);
+      if (!weekMap[wk]) weekMap[wk] = {};
+      if (!weekMap[wk][s.session_date]) weekMap[wk][s.session_date] = [];
+      weekMap[wk][s.session_date].push(s);
     });
+    const weekKeys = Object.keys(weekMap).sort((a, b) => b.localeCompare(a));
 
-    const dateKeys = Object.keys(dateMap).sort((a, b) => b.localeCompare(a));
-
-    // Build sticky day chips
-    const chipsHtml = dateKeys.map(d => {
-      const dt = new Date(d + 'T00:00:00');
+    // Sticky week chips
+    const chipsHtml = weekKeys.map(wk => {
+      const dt = new Date(wk + 'T00:00:00');
       const label = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      return `<span class="hist-day-chip" onclick="histJumpToDay('${d}')">${label}</span>`;
+      return `<span class="hist-day-chip" onclick="histJumpToWeek('${wk}')">${label}</span>`;
     }).join('');
 
-    // Build session cards per day
-    let daysHtml = '';
-    dateKeys.forEach(d => {
-      const dt = new Date(d + 'T00:00:00');
-      const dayHeading = dt.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+    // Build one session card (same layout as before, plus a copy button)
+    const buildSessionCard = (sess) => {
+      const rpeHtml = sess.overall_rpe
+        ? `<span class="hist-sess-rpe">RPE ${sess.overall_rpe}</span>` : '';
+      const safeType = (sess.session_type || 'Session').replace(/'/g, "\\'");
+      const dayName  = new Date(sess.session_date + 'T00:00:00')
+        .toLocaleDateString('en-US', { weekday: 'long' });
+      const copyBtn  = `<button class="hist-ctrl-btn" title="Copy to this week"
+        onclick="event.stopPropagation();histCopySession('${sess.id}','${sess.planned_session_id || ''}','${safeType}','${dayName}')">\u29c9</button>`;
 
-      let sessCardsHtml = '';
-      dateMap[d].forEach(sess => {
-        const rpeHtml = sess.overall_rpe
-          ? `<span class="hist-sess-rpe">RPE ${sess.overall_rpe}</span>` : '';
+      // Readiness strip
+      let readinessHtml = '';
+      const r = readinessByDate[sess.session_date];
+      if (r) {
+        const chips = [
+          r.energy      != null ? `Energy <span>${r.energy}</span>`         : null,
+          r.soreness    != null ? `Soreness <span>${r.soreness}</span>`     : null,
+          r.stress      != null ? `Stress <span>${r.stress}</span>`         : null,
+          r.motivation  != null ? `Motivation <span>${r.motivation}</span>` : null,
+          r.sleep_hours != null ? `Sleep <span>${r.sleep_hours}h</span>`    : null,
+        ].filter(Boolean);
+        if (chips.length) readinessHtml = `
+          <div class="hist-ready-strip">
+            ${chips.map(c => `<span class="hist-ready-chip">${c}</span>`).join('')}
+          </div>`;
+      }
 
-        // Readiness strip
-        let readinessHtml = '';
-        const r = readinessByDate[sess.session_date];
-        if (r) {
-          const chips = [
-            r.energy      != null ? `Energy <span>${r.energy}</span>`         : null,
-            r.soreness    != null ? `Soreness <span>${r.soreness}</span>`     : null,
-            r.stress      != null ? `Stress <span>${r.stress}</span>`         : null,
-            r.motivation  != null ? `Motivation <span>${r.motivation}</span>` : null,
-            r.sleep_hours != null ? `Sleep <span>${r.sleep_hours}h</span>`    : null,
-          ].filter(Boolean);
-          if (chips.length) readinessHtml = `
-            <div class="hist-ready-strip">
-              ${chips.map(c => `<span class="hist-ready-chip">${c}</span>`).join('')}
-            </div>`;
+      // Exercise rows
+      const sessSets = setsBySession[sess.id] || [];
+      const exMap = {};
+      sessSets.forEach(s => {
+        if (!exMap[s.exercise_id]) exMap[s.exercise_id] = {
+          id:             s.exercise_id,
+          name:           s.exercise?.name || '—',
+          itemOrder:      s.pe?.item_order  ?? null,
+          supersetGroup:  s.pe?.superset_group || null,
+          firstCreatedAt: s.created_at,
+          sets:           [],
+        };
+        exMap[s.exercise_id].sets.push(s);
+      });
+
+      const sortedEx = Object.values(exMap).sort((a, b) => {
+        if (a.itemOrder != null && b.itemOrder != null) return a.itemOrder - b.itemOrder;
+        if (a.itemOrder != null) return -1;
+        if (b.itemOrder != null) return 1;
+        return (a.firstCreatedAt || '').localeCompare(b.firstCreatedAt || '');
+      });
+
+      let exHtml = '';
+      let lastSupersetGroup = null;
+      sortedEx.forEach(ex => {
+        let topIdx = 0, topVal = 0;
+        ex.sets.forEach((s, i) => {
+          const mt = s.measure_type || 'reps';
+          const v = (mt === 'reps' ? epley(s.actual_load, s.actual_reps) : null) || s.actual_load || 0;
+          if (v > topVal) { topVal = v; topIdx = i; }
+        });
+
+        const setSpans = ex.sets.map((s, i) => {
+          const mt    = s.measure_type || 'reps';
+          const load  = s.actual_load  != null ? s.actual_load  : '—';
+          const val   = mt === 'reps'
+            ? (s.actual_reps  != null ? s.actual_reps  : '—')
+            : (s.actual_value != null ? s.actual_value : '—');
+          const unit  = mt === 'time' ? 's' : mt === 'dist' ? 'yds' : '';
+          const txt   = unit ? `${load}lb × ${val}${unit}` : `${load}×${val}`;
+          return i === topIdx
+            ? `<span style="color:var(--accent);font-weight:700">${txt}</span>`
+            : txt;
+        }).join(' · ');
+
+        const safeExName = ex.name.replace(/'/g, "\\'");
+
+        if (ex.supersetGroup && ex.supersetGroup !== lastSupersetGroup) {
+          exHtml += `<div class="ex-group" style="margin-top:6px">SUPERSET ${ex.supersetGroup.toUpperCase()}</div>`;
         }
+        lastSupersetGroup = ex.supersetGroup || null;
 
-        // Exercise rows
-        const sessSets = setsBySession[sess.id] || [];
-        const exMap = {};
-        sessSets.forEach(s => {
-          if (!exMap[s.exercise_id]) exMap[s.exercise_id] = {
-            id:             s.exercise_id,
-            name:           s.exercise?.name || '—',
-            itemOrder:      s.pe?.item_order  ?? null,
-            supersetGroup:  s.pe?.superset_group || null,
-            firstCreatedAt: s.created_at,
-            sets:           [],
-          };
-          exMap[s.exercise_id].sets.push(s);
-        });
-
-        const sortedEx = Object.values(exMap).sort((a, b) => {
-          if (a.itemOrder != null && b.itemOrder != null) return a.itemOrder - b.itemOrder;
-          if (a.itemOrder != null) return -1;
-          if (b.itemOrder != null) return 1;
-          return (a.firstCreatedAt || '').localeCompare(b.firstCreatedAt || '');
-        });
-
-        let exHtml = '';
-        let lastSupersetGroup = null;
-        sortedEx.forEach(ex => {
-          let topIdx = 0, topVal = 0;
-          ex.sets.forEach((s, i) => {
-            const mt = s.measure_type || 'reps';
-            const v = (mt === 'reps' ? epley(s.actual_load, s.actual_reps) : null) || s.actual_load || 0;
-            if (v > topVal) { topVal = v; topIdx = i; }
-          });
-
-          const setSpans = ex.sets.map((s, i) => {
-            const mt    = s.measure_type || 'reps';
-            const load  = s.actual_load  != null ? s.actual_load  : '—';
-            const val   = mt === 'reps'
-              ? (s.actual_reps  != null ? s.actual_reps  : '—')
-              : (s.actual_value != null ? s.actual_value : '—');
-            const unit  = mt === 'time' ? 's' : mt === 'dist' ? 'yds' : '';
-            const txt   = unit ? `${load}lb × ${val}${unit}` : `${load}×${val}`;
-            return i === topIdx
-              ? `<span style="color:var(--accent);font-weight:700">${txt}</span>`
-              : txt;
-          }).join(' · ');
-
-          const safeExName = ex.name.replace(/'/g, "\\'");
-
-          if (ex.supersetGroup && ex.supersetGroup !== lastSupersetGroup) {
-            exHtml += `<div class="ex-group" style="margin-top:6px">SUPERSET ${ex.supersetGroup.toUpperCase()}</div>`;
-          }
-          lastSupersetGroup = ex.supersetGroup || null;
-
-          exHtml += `
-            <div class="hist-ex-row">
-              <span class="hist-ex-name" onclick="openExerciseHistory('${ex.id}','${safeExName}')">${ex.name}</span>
-              <span class="hist-ex-sets">${setSpans}</span>
-            </div>`;
-        });
-
-        // Conditioning rows — show all blocks
-        const sessCondsArr = condsBySession[sess.id] || [];
-        let condHtml = '';
-        sessCondsArr.forEach(cond => {
-          let parts;
-          if (cond.modality === 'Circuit Training') {
-            parts = [
-              'Circuit',
-              cond.notes ? cond.notes : null,
-              cond.intervals_completed ? `${cond.intervals_completed} rounds` : null,
-              cond.duration_minutes    ? `${cond.duration_minutes} min`        : null,
-            ].filter(Boolean);
-          } else {
-            parts = [
-              cond.modality,
-              cond.workout_type && cond.workout_type !== cond.modality ? cond.workout_type : null,
-              cond.duration_minutes  ? `${cond.duration_minutes} min`   : null,
-              cond.avg_heart_rate    ? `${cond.avg_heart_rate} bpm avg` : null,
-              cond.rpe               ? `RPE ${cond.rpe}`                : null,
-            ].filter(Boolean);
-          }
-          condHtml += `<div class="hist-cond-row">🚴 ${parts.join(' · ')}</div>`;
-        });
-
-        const notesHtml = sess.session_notes
-          ? `<div style="font-size:12px;color:var(--muted);font-style:italic;margin-top:8px">${sess.session_notes}</div>` : '';
-
-        const emptyHtml = (!exHtml && !sessCondsArr.length)
-          ? `<div style="font-size:13px;color:var(--muted)">No exercises logged</div>` : '';
-
-        sessCardsHtml += `
-          <div class="hist-sess-card collapsed" id="hist-card-${sess.id}">
-            <div class="hist-sess-header" onclick="histToggle('${sess.id}')">
-              <div>
-                <div class="hist-sess-type">${sess.session_type || 'Session'}</div>
-              </div>
-              <div style="display:flex;align-items:center;gap:8px">
-                ${rpeHtml}
-                <span class="hist-toggle-icon" style="color:var(--muted);font-size:18px">⌄</span>
-              </div>
-            </div>
-            <div class="hist-sess-body">
-              ${readinessHtml}
-              ${exHtml}${emptyHtml}
-              ${condHtml}
-              ${notesHtml}
-            </div>
+        exHtml += `
+          <div class="hist-ex-row">
+            <span class="hist-ex-name" onclick="openExerciseHistory('${ex.id}','${safeExName}')">${ex.name}</span>
+            <span class="hist-ex-sets">${setSpans}</span>
           </div>`;
       });
 
-      daysHtml += `
-        <div class="hist-day-group" id="hist-day-${d}">
-          <div class="hist-week-header">${dayHeading}</div>
-          ${sessCardsHtml}
+      // Conditioning rows — show all blocks
+      const sessCondsArr = condsBySession[sess.id] || [];
+      let condHtml = '';
+      sessCondsArr.forEach(cond => {
+        let parts;
+        if (cond.modality === 'Circuit Training') {
+          parts = [
+            'Circuit',
+            cond.notes ? cond.notes : null,
+            cond.intervals_completed ? `${cond.intervals_completed} rounds` : null,
+            cond.duration_minutes    ? `${cond.duration_minutes} min`        : null,
+          ].filter(Boolean);
+        } else {
+          parts = [
+            cond.modality,
+            cond.workout_type && cond.workout_type !== cond.modality ? cond.workout_type : null,
+            cond.duration_minutes  ? `${cond.duration_minutes} min`   : null,
+            cond.avg_heart_rate    ? `${cond.avg_heart_rate} bpm avg` : null,
+            cond.rpe               ? `RPE ${cond.rpe}`                : null,
+          ].filter(Boolean);
+        }
+        condHtml += `<div class="hist-cond-row">🚴 ${parts.join(' · ')}</div>`;
+      });
+
+      const notesHtml = sess.session_notes
+        ? `<div style="font-size:12px;color:var(--muted);font-style:italic;margin-top:8px">${sess.session_notes}</div>` : '';
+
+      const emptyHtml = (!exHtml && !sessCondsArr.length)
+        ? `<div style="font-size:13px;color:var(--muted)">No exercises logged</div>` : '';
+
+      return `
+        <div class="hist-sess-card collapsed" id="hist-card-${sess.id}">
+          <div class="hist-sess-header" onclick="histToggle('${sess.id}')">
+            <div>
+              <div class="hist-sess-type">${sess.session_type || 'Session'}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              ${rpeHtml}
+              ${copyBtn}
+              <span class="hist-toggle-icon" style="color:var(--muted);font-size:18px">⌄</span>
+            </div>
+          </div>
+          <div class="hist-sess-body">
+            ${readinessHtml}
+            ${exHtml}${emptyHtml}
+            ${condHtml}
+            ${notesHtml}
+          </div>
+        </div>`;
+    };
+
+    // Build collapsible week groups (most recent week open by default)
+    let weeksHtml = '';
+    weekKeys.forEach((wk, wi) => {
+      const dateKeys = Object.keys(weekMap[wk]).sort((a, b) => b.localeCompare(a));
+      const wkDt     = new Date(wk + 'T00:00:00');
+      const wkLabel  = 'Week of ' + wkDt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      S._histWeekIndex[wk] = [];
+
+      let sessCount = 0;
+      let daysHtml  = '';
+      dateKeys.forEach(d => {
+        const dt = new Date(d + 'T00:00:00');
+        const dayHeading = dt.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+        let sessCardsHtml = '';
+        weekMap[wk][d].forEach(sess => {
+          sessCount++;
+          S._histWeekIndex[wk].push({
+            completedId: sess.id,
+            plannedId:   sess.planned_session_id || null,
+            sessionType: sess.session_type || 'Session',
+            dayName:     dt.toLocaleDateString('en-US', { weekday: 'long' }),
+          });
+          sessCardsHtml += buildSessionCard(sess);
+        });
+        daysHtml += `
+          <div class="hist-day-group" id="hist-day-${d}">
+            <div class="hist-day-header">${dayHeading}</div>
+            ${sessCardsHtml}
+          </div>`;
+      });
+
+      weeksHtml += `
+        <div class="hist-week-group${wi === 0 ? '' : ' hw-collapsed'}" id="hist-week-${wk}">
+          <div class="hist-week-header hist-week-toggle" onclick="histToggleWeek('${wk}')">
+            <span>${wkLabel} · ${sessCount} session${sessCount !== 1 ? 's' : ''}</span>
+            <span style="display:flex;align-items:center;gap:10px">
+              <button class="hist-ctrl-btn" onclick="event.stopPropagation();histCopyWeek('${wk}')">\u29c9 Copy</button>
+              <span class="hist-toggle-icon" style="color:var(--muted);font-size:18px">⌄</span>
+            </span>
+          </div>
+          <div class="hist-week-body">${daysHtml}</div>
         </div>`;
     });
 
@@ -355,8 +393,7 @@ async function loadHistory() {
       <div class="hist-day-index">
         ${chipsHtml}
       </div>
-      ${daysHtml}`;
-
+      ${weeksHtml}`;
     body.innerHTML = html;
   } catch (err) {
     console.error(err);
@@ -370,26 +407,78 @@ function histToggle(sessId) {
 }
 
 function histExpandAll() {
+  document.querySelectorAll('.hist-week-group.hw-collapsed').forEach(g => g.classList.remove('hw-collapsed'));
   document.querySelectorAll('.hist-sess-card.collapsed').forEach(c => c.classList.remove('collapsed'));
 }
 
 function histCollapseAll() {
   document.querySelectorAll('.hist-sess-card:not(.collapsed)').forEach(c => c.classList.add('collapsed'));
+  document.querySelectorAll('.hist-week-group:not(.hw-collapsed)').forEach(g => g.classList.add('hw-collapsed'));
 }
 
-function histJumpToDay(date) {
-  const group = document.getElementById('hist-day-' + date);
+function histToggleWeek(wk) {
+  const group = document.getElementById('hist-week-' + wk);
+  if (group) group.classList.toggle('hw-collapsed');
+}
+
+function histJumpToWeek(wk) {
+  const group = document.getElementById('hist-week-' + wk);
   if (!group) return;
-  // Expand all cards in this day group
-  group.querySelectorAll('.hist-sess-card.collapsed').forEach(c => c.classList.remove('collapsed'));
-  // Scroll into view (CSS scroll-margin-top handles sticky chip offset)
+  group.classList.remove('hw-collapsed');
   group.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  // Highlight active chip briefly
   document.querySelectorAll('.hist-day-chip').forEach(chip => chip.classList.remove('active'));
-  const chips = document.querySelectorAll('.hist-day-chip');
-  chips.forEach(chip => {
-    if (chip.getAttribute('onclick') === `histJumpToDay('${date}')`) chip.classList.add('active');
+  document.querySelectorAll('.hist-day-chip').forEach(chip => {
+    if (chip.getAttribute('onclick') === `histJumpToWeek('${wk}')`) chip.classList.add('active');
   });
+}
+
+// ── Copy from history into the current week ──────────────────────────────────
+async function histCopySession(completedId, plannedId, sessionType, dayName) {
+  if (isOffline) { toast('Not available offline.'); return; }
+  toast('Copying\u2026', 2000);
+  try {
+    const res = await cloneSessionIntoCurrentWeek({
+      plannedSessionId:   plannedId || null,
+      completedSessionId: completedId,
+      sessionType:        sessionType,
+      dayLabel:           dayName || null,
+    });
+    toast(`Copied to this week (${res.count} exercise${res.count !== 1 ? 's' : ''}) \u2713`);
+    await loadProgram();   // land on the week screen showing the new session
+  } catch (err) {
+    console.error('histCopySession:', err);
+    toast('Error copying session.', 4000);
+  }
+}
+
+async function histCopyWeek(wk) {
+  if (isOffline) { toast('Not available offline.'); return; }
+  const items = (S._histWeekIndex || {})[wk] || [];
+  if (!items.length) { toast('Nothing to copy in that week.'); return; }
+  showConfirm('Copy this week?',
+    `${items.length} session${items.length !== 1 ? 's' : ''} will be added to your current week.`,
+    'Copy', () => _histCopyWeekConfirmed(wk));
+}
+
+async function _histCopyWeekConfirmed(wk) {
+  const items = (S._histWeekIndex || {})[wk] || [];
+  toast('Copying week\u2026', 3000);
+  try {
+    // Oldest first so the new week keeps the original day order
+    for (const it of items.slice().reverse()) {
+      await cloneSessionIntoCurrentWeek({
+        plannedSessionId:   it.plannedId,
+        completedSessionId: it.completedId,
+        sessionType:        it.sessionType,
+        dayLabel:           it.dayName,
+      });
+    }
+    toast(`Copied ${items.length} session${items.length !== 1 ? 's' : ''} \u2713`);
+    await loadProgram();
+  } catch (err) {
+    console.error('histCopyWeek:', err);
+    toast('Error copying week.', 4000);
+  }
 }
 
 // ── Re-edit saved exercise ────────────────────────────────────────────────────
