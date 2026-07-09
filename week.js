@@ -693,6 +693,14 @@ function initSessionSort() {
       toast('Offline — open the app while connected first to enable offline use.', 5000);
       showScreen('login');
     }
+  } else if (AUTH_LINK.type === 'recovery' || AUTH_LINK.type === 'invite') {
+    // Email-link flow (invite accept or password recovery) takes priority over
+    // any existing session — route straight to the set-password screen.
+    await enterPasswordSetup(AUTH_LINK.type);
+  } else if (AUTH_LINK.error) {
+    // Link was invalid or expired (Supabase put an error in the URL hash).
+    showScreen('login');
+    toast(AUTH_LINK.error, 5000);
   } else {
     // Online: normal Supabase auth flow
     const { data: { session } } = await db.auth.getSession();

@@ -339,6 +339,13 @@
       color: var(--text); font-size: 16px; padding: 14px; }
     .field-wrap input:focus { outline: none; border-color: var(--accent); }
     .login-error { color: var(--danger); font-size: 14px; margin-top: 12px; text-align: center; }
+    .login-forgot { margin-top: 18px; text-align: center; }
+    .login-forgot a { color: var(--muted); font-size: 14px; text-decoration: none; }
+    .login-forgot a:active { color: var(--accent); }
+    .setpw-heading { font-size: 20px; font-weight: 700; color: var(--text);
+      margin-bottom: 8px; text-align: center; }
+    .setpw-sub { font-size: 14px; color: var(--muted); margin-bottom: 32px;
+      text-align: center; max-width: 300px; }
 
     /* Movement pattern filter chips */
     .chip-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px;

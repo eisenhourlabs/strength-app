@@ -1,7 +1,25 @@
 // ── Config ────────────────────────────────────────────────────────────────────
 const SUPABASE_URL = 'https://mfqtlgtllocxenrekorg.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_GtJwb3uRDBuXt-qJOlfqKA_A-QSIOtt';
-const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { detectSessionInUrl: false, flowType: 'implicit' },
+});
+
+// Capture email-link auth params synchronously, before anything can clear the URL
+// hash. Invite-accept and password-recovery links use Supabase's implicit flow and
+// arrive as #access_token=…&refresh_token=…&type=invite|recovery. Parsing intent
+// here lets the boot logic route to the set-password screen deterministically,
+// rather than depending on which onAuthStateChange event Supabase emits (invite
+// fires SIGNED_IN, recovery fires PASSWORD_RECOVERY — they are NOT identical).
+const AUTH_LINK = (() => {
+  const p = new URLSearchParams((window.location.hash || '').replace(/^#/, ''));
+  return {
+    type:          p.get('type'),           // 'invite' | 'recovery' | 'magiclink' | 'signup' | null
+    access_token:  p.get('access_token'),
+    refresh_token: p.get('refresh_token'),
+    error:         p.get('error_description') || p.get('error') || null,
+  };
+})();
 
 // Reliable connectivity probe — navigator.onLine lies on mobile (especially iOS)
 async function checkOnline() {
@@ -164,6 +182,87 @@ async function doLogout() {
     exState:{}, addedExercises:[], addedCounter:0, condBlocks:[], condBlockCounter:0,
     exerciseLib:[], sheetMode:null, swapExKey:null, painFlags:{}, checkin:null };
   showScreen('login');
+}
+
+// ── Password setup / reset (invite accept + forgot password) ──────────────────
+// Email links use Supabase's implicit flow: tokens arrive in the URL hash and were
+// captured into AUTH_LINK at load. We establish a session from those tokens, then
+// let the user set a password via updateUser() (which requires an active session).
+// This one screen serves BOTH the invite-accept flow and the forgot-password flow;
+// only the on-screen wording differs.
+async function enterPasswordSetup(mode) {
+  if (AUTH_LINK.access_token && AUTH_LINK.refresh_token) {
+    try {
+      await db.auth.setSession({
+        access_token:  AUTH_LINK.access_token,
+        refresh_token: AUTH_LINK.refresh_token,
+      });
+    } catch (_) {}
+  }
+  // Strip the tokens out of the address bar so they aren't left in browser history.
+  try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch (_) {}
+
+  const h = document.getElementById('setpw-heading');
+  const s = document.getElementById('setpw-sub');
+  if (h) h.textContent = mode === 'invite' ? 'Welcome — set your password' : 'Set a new password';
+  if (s) s.textContent = mode === 'invite'
+    ? 'Create a password to finish setting up your account.'
+    : 'Choose a new password to get back into your account.';
+  const errEl = document.getElementById('setpw-error');
+  if (errEl) errEl.textContent = '';
+  showScreen('setpw');
+}
+
+async function submitNewPassword() {
+  const p1  = document.getElementById('setpw-password').value;
+  const p2  = document.getElementById('setpw-password2').value;
+  const btn = document.getElementById('setpw-btn');
+  const err = document.getElementById('setpw-error');
+  err.textContent = '';
+  if (p1.length < 8) { err.textContent = 'Password must be at least 8 characters.'; return; }
+  if (p1 !== p2)     { err.textContent = 'Passwords do not match.'; return; }
+
+  btn.textContent = 'Saving…';
+  btn.disabled = true;
+
+  // updateUser needs an active session — established above in enterPasswordSetup.
+  const { data: { session } } = await db.auth.getSession();
+  if (!session) {
+    err.textContent = 'This link has expired. Go back to the login screen and tap Forgot password to get a new one.';
+    btn.textContent = 'Save Password';
+    btn.disabled = false;
+    return;
+  }
+
+  const { data, error } = await db.auth.updateUser({ password: p1 });
+  if (error) {
+    err.textContent = error.message;
+    btn.textContent = 'Save Password';
+    btn.disabled = false;
+    return;
+  }
+
+  toast('Password saved ✓');
+  await onLogin(data.user);
+}
+
+async function sendPasswordReset() {
+  const email = document.getElementById('login-email').value.trim();
+  const err   = document.getElementById('login-error');
+  err.textContent = '';
+  if (!email) {
+    err.textContent = 'Enter your email above first, then tap Forgot password.';
+    return;
+  }
+  const link = document.getElementById('forgot-link');
+  const prev = link ? link.textContent : '';
+  if (link) link.textContent = 'Sending…';
+  const { error } = await db.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin + window.location.pathname,
+  });
+  if (link) link.textContent = prev;
+  if (error) { err.textContent = error.message; return; }
+  toast('Check your email for a password reset link.', 4000);
 }
 
 
