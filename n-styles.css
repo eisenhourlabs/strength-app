@@ -1,0 +1,161 @@
+/* ══════════════ Kardia Nutrition — styles (loads after styles.css) ══════════════ */
+/* New file by design: the nutrition app never modifies strength-app files.        */
+
+.n-body { padding-bottom: 84px; }
+
+/* ── Tab bar ── */
+.n-tabbar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 40;
+  display: flex; background: #111; border-top: 1px solid #2a2a2a;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.n-tab {
+  flex: 1; background: none; border: none; color: var(--muted, #888);
+  font-size: 11px; padding: 8px 0 10px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.n-tab.active { color: #ff2712; }
+.n-tab-icon { font-size: 20px; line-height: 1; }
+
+/* ── Budget header ── */
+.n-budget {
+  background: #161616; border: 1px solid #2a2a2a; border-radius: 12px;
+  padding: 14px; margin-bottom: 14px;
+}
+.n-budget-kcal { font-size: 15px; font-weight: 700; color: #fff; display: flex; justify-content: space-between; }
+.n-budget-bar { height: 8px; background: #2a2a2a; border-radius: 4px; margin: 8px 0 6px; overflow: hidden; }
+.n-budget-fill { height: 100%; background: #ff2712; border-radius: 4px; transition: width .3s; }
+.n-budget-fill.over { background: #ffaa00; }
+.n-budget-sub { font-size: 12px; color: var(--muted, #888); display: flex; justify-content: space-between; }
+.n-budget-remaining { margin-top: 8px; font-size: 13px; color: #ddd; }
+.n-budget-hint { margin-top: 6px; font-size: 12px; color: #ffaa00; }
+
+/* ── Prompt cards ── */
+.n-prompt {
+  background: #1a1420; border: 1px solid #4a3a5a; border-radius: 12px;
+  padding: 12px 14px; margin-bottom: 12px;
+}
+.n-prompt-title { font-size: 14px; font-weight: 700; color: #d9c7ff; margin-bottom: 8px; }
+.n-prompt-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.n-prompt-row input {
+  width: 90px; background: #111; border: 1px solid #333; color: #fff;
+  border-radius: 8px; padding: 8px; font-size: 15px;
+}
+.n-prompt-row label { font-size: 12px; color: var(--muted, #888); }
+.n-prompt-dismiss { background: none; border: none; color: var(--muted, #888); font-size: 12px; cursor: pointer; margin-left: auto; }
+
+/* ── Meal cards ── */
+.n-meal {
+  background: #161616; border: 1px solid #2a2a2a; border-radius: 12px;
+  padding: 12px 14px; margin-bottom: 10px;
+}
+.n-meal.done { opacity: .75; border-color: #1e3a1e; }
+.n-meal.skipped { opacity: .55; }
+.n-meal-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.n-meal-slot { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted, #888); }
+.n-meal-kcal { font-size: 12px; color: var(--muted, #888); white-space: nowrap; }
+.n-meal-name { font-size: 15px; font-weight: 700; color: #fff; margin: 3px 0 2px; }
+.n-meal-portion { font-size: 13px; color: #ffb84d; }
+.n-meal-macros { font-size: 12px; color: var(--muted, #888); margin-top: 3px; }
+.n-meal-badges { margin-top: 5px; display: flex; gap: 6px; flex-wrap: wrap; }
+.n-badge {
+  font-size: 11px; padding: 2px 8px; border-radius: 10px;
+  background: #222; color: #bbb; border: 1px solid #333;
+}
+.n-badge.shared { background: #14202a; color: #7db8e8; border-color: #2a4a6a; }
+.n-badge.leftover { background: #241f14; color: #d8b86a; border-color: #4a3f22; }
+.n-badge.status { background: #14240f; color: #8fce7a; border-color: #2c4a22; }
+.n-meal-note { font-size: 12px; color: #999; font-style: italic; margin-top: 5px; }
+.n-meal-actions { display: flex; gap: 6px; margin-top: 10px; }
+.n-act {
+  flex: 1; padding: 9px 4px; border-radius: 9px; border: 1px solid #333;
+  background: #1e1e1e; color: #ddd; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.n-act.primary { background: #2c4a22; border-color: #3f6a30; color: #cfe8c4; }
+.n-act.small { flex: 0 0 auto; padding: 6px 12px; font-size: 12px; }
+.n-portion-chips { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.n-chip {
+  padding: 6px 12px; border-radius: 14px; border: 1px solid #333;
+  background: #1e1e1e; color: #bbb; font-size: 13px; cursor: pointer;
+}
+.n-chip.active { background: #ff2712; border-color: #ff2712; color: #fff; }
+
+/* ── Picker sheet ── */
+.n-sheet-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 60;
+  display: flex; align-items: flex-end;
+}
+.n-sheet {
+  background: #161616; width: 100%; max-height: 86vh; border-radius: 16px 16px 0 0;
+  padding: 14px; display: flex; flex-direction: column;
+}
+.n-sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.n-sheet-title { font-size: 16px; font-weight: 700; color: #fff; }
+.n-sheet-close { background: none; border: none; color: var(--muted, #888); font-size: 18px; cursor: pointer; }
+.n-search {
+  background: #111; border: 1px solid #333; color: #fff; border-radius: 9px;
+  padding: 10px 12px; font-size: 15px; margin-bottom: 10px; width: 100%;
+}
+.n-sheet-list { overflow-y: auto; flex: 1; min-height: 120px; }
+.n-sheet-section {
+  font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+  color: var(--muted, #888); margin: 12px 0 6px;
+}
+.n-opt {
+  width: 100%; text-align: left; background: #1c1c1c; border: 1px solid #2a2a2a;
+  border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; cursor: pointer; color: #eee;
+}
+.n-opt-name { font-size: 14px; font-weight: 600; }
+.n-opt-sub { font-size: 12px; color: var(--muted, #888); margin-top: 2px; }
+.n-opt-delta { font-size: 12px; margin-top: 2px; color: #7db8e8; }
+.n-sheet-custom { border-top: 1px solid #2a2a2a; padding-top: 4px; }
+.n-sheet-custom input {
+  background: #111; border: 1px solid #333; color: #fff; border-radius: 8px;
+  padding: 9px 10px; font-size: 14px; width: 100%; margin-bottom: 6px;
+}
+.n-custom-row { display: flex; gap: 6px; }
+.n-custom-row input { flex: 1; margin-bottom: 0; }
+.n-btn-sm { padding: 9px 14px; font-size: 13px; flex: 0 0 auto; }
+
+/* ── Week screen ── */
+.n-daystrip { display: flex; gap: 6px; margin-bottom: 14px; }
+.n-daychip {
+  flex: 1; background: #161616; border: 1px solid #2a2a2a; border-radius: 10px;
+  padding: 8px 2px; text-align: center; cursor: pointer; color: #bbb;
+}
+.n-daychip.sel { border-color: #ff2712; }
+.n-daychip .d-name { font-size: 11px; text-transform: uppercase; }
+.n-daychip .d-dot { font-size: 9px; margin-top: 3px; }
+.dot-green { color: #6fce5a; } .dot-amber { color: #ffaa00; } .dot-gray { color: #555; }
+.n-panel {
+  background: #161616; border: 1px solid #2a2a2a; border-radius: 12px;
+  padding: 12px 14px; margin-bottom: 12px; font-size: 13px; color: #ccc;
+}
+.n-panel-title { font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted, #888); margin-bottom: 6px; }
+.n-panel pre { white-space: pre-wrap; font-family: inherit; margin: 0; }
+.n-wk-meal { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #222; font-size: 13px; }
+.n-wk-meal:last-child { border-bottom: none; }
+.n-wk-slot { color: var(--muted, #888); font-size: 11px; text-transform: uppercase; width: 76px; flex: 0 0 auto; }
+.n-wk-name { flex: 1; color: #ddd; padding: 0 6px; }
+.n-wk-kcal { color: var(--muted, #888); white-space: nowrap; }
+
+/* ── Grocery ── */
+.n-gcat { font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted, #888); margin: 14px 0 6px; }
+.n-gitem {
+  display: flex; align-items: center; gap: 10px; background: #161616;
+  border: 1px solid #2a2a2a; border-radius: 10px; padding: 10px 12px; margin-bottom: 6px;
+  cursor: pointer;
+}
+.n-gitem.checked { opacity: .45; }
+.n-gitem.checked .n-gname { text-decoration: line-through; }
+.n-gcheck { font-size: 17px; width: 22px; text-align: center; flex: 0 0 auto; }
+.n-gname { font-size: 14px; color: #eee; flex: 1; }
+.n-gqty { font-size: 12px; color: var(--muted, #888); }
+.n-gadd { display: flex; gap: 6px; margin-top: 14px; }
+.n-gadd input {
+  flex: 1; background: #111; border: 1px solid #333; color: #fff;
+  border-radius: 9px; padding: 10px 12px; font-size: 14px;
+}
+.n-gadd select {
+  background: #111; border: 1px solid #333; color: #fff; border-radius: 9px; font-size: 13px; padding: 0 6px;
+}

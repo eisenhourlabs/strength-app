@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="theme-color" content="#000000">
+  <title>Kardia Nutrition</title>
+  <link rel="manifest" href="manifest.json">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="n-styles.css">
+  <script>
+    if ('serviceWorker' in navigator)
+      window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+  </script>
+</head>
+<body>
+
+<div class="offline-banner" id="offline-banner">⚡ Offline — logging is disabled until you reconnect</div>
+<div class="toast" id="toast"></div>
+
+<!-- ══════════════════ LOGIN ══════════════════ -->
+<div class="screen active" id="screen-login">
+  <div class="login-wrap">
+    <div class="login-logo">
+      <svg viewBox="0 0 300 175" xmlns="http://www.w3.org/2000/svg">
+        <text x="150" y="52" text-anchor="middle"
+          font-family="'Arial Black','Arial Bold',Arial,sans-serif"
+          font-size="48" font-weight="900" fill="#ff2712" letter-spacing="6">KARDIA</text>
+        <polyline points="0,70 55,70 68,84 82,38 104,84 118,58 132,84 300,70"
+          fill="none" stroke="#ff2712" stroke-width="2.5"
+          stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="150" y="128" text-anchor="middle"
+          font-family="'Arial Black','Arial Bold',Arial,sans-serif"
+          font-size="40" font-weight="900" fill="#ffffff" letter-spacing="3">NUTRITION</text>
+        <line x1="18" y1="147" x2="88" y2="147" stroke="#555" stroke-width="1"/>
+        <text x="150" y="151" text-anchor="middle"
+          font-family="Arial,sans-serif" font-size="11"
+          fill="#888" letter-spacing="5">ALL HEART</text>
+        <line x1="212" y1="147" x2="282" y2="147" stroke="#555" stroke-width="1"/>
+      </svg>
+    </div>
+    <div class="login-tag">Log in to view your meal plan</div>
+    <div class="field-wrap">
+      <label>Email</label>
+      <input type="email" id="login-email" autocomplete="email" placeholder="you@email.com">
+    </div>
+    <div class="field-wrap">
+      <label>Password</label>
+      <input type="password" id="login-password" autocomplete="current-password" placeholder="••••••••">
+    </div>
+    <div class="login-error" id="login-error"></div>
+    <button class="btn" id="login-btn" style="margin-top:24px" onclick="nDoLogin()">Log In</button>
+  </div>
+</div>
+
+<!-- ══════════════════ TODAY ══════════════════ -->
+<div class="screen" id="screen-today">
+  <div class="header">
+    <div>
+      <div class="header-title" id="today-title">Today</div>
+      <div class="header-sub" id="today-sub"></div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+      <a href="index.html" id="training-link" style="display:none;color:var(--muted);font-size:13px;text-decoration:none">🏋 Training</a>
+      <button style="background:none;border:none;color:var(--muted);font-size:13px;cursor:pointer"
+        onclick="nDoLogout()">Sign out</button>
+    </div>
+  </div>
+  <div class="body n-body" id="today-body">
+    <div class="spinner">Loading…</div>
+  </div>
+</div>
+
+<!-- ══════════════════ WEEK ══════════════════ -->
+<div class="screen" id="screen-nweek">
+  <div class="header">
+    <div>
+      <div class="header-title">This Week</div>
+      <div class="header-sub" id="nweek-sub"></div>
+    </div>
+  </div>
+  <div class="body n-body" id="nweek-body"></div>
+</div>
+
+<!-- ══════════════════ GROCERY ══════════════════ -->
+<div class="screen" id="screen-grocery">
+  <div class="header">
+    <div>
+      <div class="header-title">Grocery</div>
+      <div class="header-sub" id="grocery-sub"></div>
+    </div>
+    <button style="background:none;border:none;color:var(--muted);font-size:13px;cursor:pointer"
+      onclick="groceryResetChecks()">Reset ✓</button>
+  </div>
+  <div class="body n-body" id="grocery-body"></div>
+</div>
+
+<!-- ══════════════════ TAB BAR ══════════════════ -->
+<div class="n-tabbar" id="n-tabbar" style="display:none">
+  <button class="n-tab active" id="tab-today" onclick="nShowTab('today')">
+    <span class="n-tab-icon">🍽</span>Today</button>
+  <button class="n-tab" id="tab-nweek" onclick="nShowTab('nweek')">
+    <span class="n-tab-icon">📅</span>Week</button>
+  <button class="n-tab" id="tab-grocery" onclick="nShowTab('grocery')">
+    <span class="n-tab-icon">🛒</span>Grocery</button>
+</div>
+
+<!-- ══════════════════ FOOD PICKER SHEET (swap / ate-out / add) ══════════════════ -->
+<div class="n-sheet-overlay" id="n-sheet" style="display:none" onclick="if(event.target===this)closeNSheet()">
+  <div class="n-sheet">
+    <div class="n-sheet-head">
+      <div class="n-sheet-title" id="n-sheet-title">Swap meal</div>
+      <button class="n-sheet-close" onclick="closeNSheet()">✕</button>
+    </div>
+    <input type="text" class="n-search" id="n-sheet-search" placeholder="Search…" oninput="renderNSheetList()">
+    <div class="n-sheet-list" id="n-sheet-list"></div>
+    <div class="n-sheet-custom">
+      <div class="n-sheet-section">Something else…</div>
+      <input type="text" id="n-custom-desc" placeholder="What did you eat?">
+      <div class="n-custom-row">
+        <input type="number" id="n-custom-kcal" placeholder="~kcal (optional)">
+        <input type="number" id="n-custom-protein" placeholder="~protein g (optional)">
+        <button class="btn n-btn-sm" onclick="submitCustomFood()">Log it</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="n-core.js"></script>
+<script src="n-today.js"></script>
+<script src="n-grocery.js"></script>
+<script src="n-week.js"></script>
+</body>
+</html>
