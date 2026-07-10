@@ -98,6 +98,19 @@
   <div class="body n-body" id="grocery-body"></div>
 </div>
 
+<!-- ══════════════════ TRENDS ══════════════════ -->
+<div class="screen" id="screen-ntrends">
+  <div class="header">
+    <div>
+      <div class="header-title">Trends</div>
+      <div class="header-sub" id="ntrends-sub"></div>
+    </div>
+    <button style="background:none;border:none;color:var(--muted);font-size:13px;cursor:pointer"
+      onclick="openCheckin()">Check-in</button>
+  </div>
+  <div class="body n-body" id="ntrends-body"><div class="spinner">Loading…</div></div>
+</div>
+
 <!-- ══════════════════ TAB BAR ══════════════════ -->
 <div class="n-tabbar" id="n-tabbar" style="display:none">
   <button class="n-tab active" id="tab-today" onclick="nShowTab('today')">
@@ -106,6 +119,8 @@
     <span class="n-tab-icon">📅</span>Week</button>
   <button class="n-tab" id="tab-grocery" onclick="nShowTab('grocery')">
     <span class="n-tab-icon">🛒</span>Grocery</button>
+  <button class="n-tab" id="tab-ntrends" onclick="nShowTab('ntrends')">
+    <span class="n-tab-icon">📈</span>Trends</button>
 </div>
 
 <!-- ══════════════════ FOOD PICKER SHEET (swap / ate-out / add) ══════════════════ -->
@@ -132,6 +147,8 @@
 <script src="n-core.js"></script>
 <script src="n-today.js"></script>
 <script src="n-grocery.js"></script>
+<script src="n-checkin.js"></script>
+<script src="n-trends.js"></script>
 <script src="n-week.js"></script>
 </body>
 </html>

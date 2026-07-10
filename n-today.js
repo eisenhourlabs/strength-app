@@ -91,6 +91,13 @@ function nMeasurementsDue() {
 }
 function nPromptCardsHtml() {
   let html = '';
+  if (nDayName(nToday(), true) === 'Sun' && !NS.checkin && !NS.dismissed.checkin) {
+    html += `<div class="n-prompt"><div class="n-prompt-title">📝 Weekly check-in day</div>
+      <div class="n-prompt-row">
+        <button class="n-act small primary" onclick="openCheckin()">Open check-in (~1 min)</button>
+        <button class="n-prompt-dismiss" onclick="NS.dismissed.checkin=1;renderToday()">later</button>
+      </div></div>`;
+  }
   if (nWeighInDueToday()) {
     html += `<div class="n-prompt"><div class="n-prompt-title">⚖️ Weigh-in day</div>
       <div class="n-prompt-row">

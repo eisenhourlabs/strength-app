@@ -68,6 +68,7 @@ function nShowTab(name) {
   if (name === 'today') renderToday();
   if (name === 'nweek') renderNWeek();
   if (name === 'grocery') renderGrocery();
+  if (name === 'ntrends') renderNTrends();
 }
 function toast(msg, ms = 2500) {
   const t = document.getElementById('toast');
@@ -188,6 +189,11 @@ async function nLoadAll() {
     if (l.planned_meal_id) NS.logs[l.planned_meal_id] = l;
     else NS.addedLogs.push(l);
   }
+
+  // My check-in for this plan week (drives the Sunday prompt card)
+  const { data: ci } = await ndb.from('nutrition_checkins').select('*')
+    .eq('athlete_id', meId).eq('week_of', wk).maybeSingle();
+  NS.checkin = ci || null;
 
   // Grocery
   NS.grocery = { list: null, items: [] };
