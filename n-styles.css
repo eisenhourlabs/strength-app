@@ -159,3 +159,28 @@
 .n-gadd select {
   background: #111; border: 1px solid #333; color: #fff; border-radius: 9px; font-size: 13px; padding: 0 6px;
 }
+
+/* ── UI batch 1 (2026-07-10) ── */
+.n-sticky { position: sticky; top: 0; z-index: 35; background: #000; padding: 2px 0 6px; }
+.n-budget-fill.ok   { background: #4caf50; }
+.n-budget-fill.warn { background: #ffaa00; }
+.n-budget-fill.bad  { background: #ff2712; }
+.n-budget-fill.idle { background: #555; }
+.n-budget-row2 { font-size: 12px; color: var(--muted, #888); display: flex; justify-content: space-between; margin-top: 7px; }
+.n-bar-slim { height: 5px; background: #2a2a2a; border-radius: 3px; margin: 4px 0 2px; overflow: hidden; }
+.n-bar-slim > div { height: 100%; border-radius: 3px; transition: width .3s; }
+.n-meal.done.compact { padding: 8px 12px; border-left: 3px solid #4caf50; cursor: pointer; }
+.n-meal.done.compact.off { border-left-color: #ffaa00; }
+.n-meal.done.compact.skip { border-left-color: #555; opacity: .55; }
+.n-done-row { display: flex; align-items: baseline; gap: 8px; }
+.n-done-check { color: #4caf50; font-size: 14px; flex: 0 0 auto; }
+.n-done-name { flex: 1; font-size: 14px; font-weight: 600; color: #ddd; }
+.n-done-kcal { font-size: 12px; color: var(--muted, #888); white-space: nowrap; }
+.n-filter-row { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+.n-basket { background: #101a10; border: 1px solid #2c4a22; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+.n-basket-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.n-basket-name { flex: 1; font-size: 13px; color: #eee; }
+.n-basket-qty { width: 58px; background: #111; border: 1px solid #333; color: #fff; border-radius: 7px; padding: 6px; font-size: 14px; text-align: center; }
+.n-basket-x { background: none; border: none; color: #888; font-size: 15px; cursor: pointer; }
+.n-basket-total { font-size: 13px; color: #cfe8c4; margin-top: 4px; }
+.n-basket-delta { font-size: 12px; color: #7db8e8; }

@@ -9,7 +9,9 @@ async function renderNTrends() {
   const meId = NS.me.id;
   const since = nAddDays(nMonday(nToday()), -7 * 11);
 
-  const [wq, sq, tq, mq] = await Promise.all([
+  let wq, sq, tq, mq;
+  try {
+  [wq, sq, tq, mq] = await Promise.all([
     ndb.from('body_metrics').select('log_date,value').eq('athlete_id', meId)
       .eq('metric', 'weight').gte('log_date', since).order('log_date'),
     ndb.from('nutrition_week_summary_view').select('*').eq('athlete_id', meId)
@@ -19,6 +21,14 @@ async function renderNTrends() {
     ndb.from('body_metrics').select('log_date,metric,value,unit').eq('athlete_id', meId)
       .neq('metric', 'weight').order('log_date', { ascending: false }).limit(24),
   ]);
+
+  } catch (e) {
+    body.innerHTML = `<div class="n-panel">Trends failed to load: ${nEsc(e.message || e)}</div>`;
+    return;
+  }
+  for (const [label, q] of [['weight', wq], ['weekly summary', sq], ['targets', tq], ['measurements', mq]]) {
+    if (q.error) { body.innerHTML = `<div class="n-panel">Trends query failed (${label}): ${nEsc(q.error.message)}</div>`; return; }
+  }
 
   let html = '';
   html += nWeightChartHtml(wq.data || []);

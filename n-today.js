@@ -1,10 +1,12 @@
-// ══════════════ Kardia Nutrition — Today screen + logging + picker sheet ══════════════
+// ══════════════ Kardia Nutrition — Today screen + logging + meal builder ══════════════
 
 const N_STATUS_LABEL = {
   as_planned: '✓ ate as planned', swapped: '⇄ swapped', skipped: 'skipped',
   ate_out: '🍴 ate out', added: '+ added',
 };
+const N_STATUS_ICON = { as_planned: '✓', swapped: '⇄', skipped: '✕', ate_out: '🍴', added: '+' };
 const N_PORTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+let N_OPEN = {};   // expanded logged-card ids (session only)
 
 // ── Render ──
 function renderToday() {
@@ -23,12 +25,12 @@ function renderToday() {
       Your plan ${dateStr < NS.weekOf ? 'starts ' + nFmtDate(NS.weekOf) : 'ended ' + nFmtDate(nAddDays(NS.weekOf, 6))}.
       Browse the full week, prep plan, and grocery list in the tabs below — meals appear here day by day once the week begins.</div>`;
   } else {
-    html += nBudgetHtml(dateStr);
+    html += `<div class="n-sticky">${nBudgetHtml(dateStr)}</div>`;
   }
 
   const meals = inWeek ? nMyMeals(dateStr) : [];
   if (!meals.length && inWeek) {
-    html += `<div class="n-panel">No meals planned for today${NS.planWeek ? '' : ' — the week hasn’t been pushed'}.</div>`;
+    html += `<div class="n-panel">No meals planned for today.</div>`;
   }
   for (const m of meals) html += nMealCardHtml(m);
 
@@ -36,47 +38,86 @@ function renderToday() {
   const added = NS.addedLogs.filter(l => l.log_date === dateStr);
   if (added.length) {
     html += `<div class="n-sheet-section" style="margin-top:14px">Added today</div>`;
-    for (const l of added) {
-      html += `<div class="n-meal done"><div class="n-meal-top">
-        <span class="n-meal-slot">extra</span>
-        <span class="n-meal-kcal">${l.actual_kcal ?? '?'} kcal · ${l.actual_protein_g ?? '?'}P</span></div>
-        <div class="n-meal-name">${nEsc(nLogName(l) || 'Added item')}</div></div>`;
-    }
+    for (const l of added) html += nAddedCardHtml(l);
   }
 
   html += `<button class="n-act" style="width:100%;margin-top:10px" onclick="openNSheet('add', null)">+ Add food</button>`;
   body.innerHTML = html;
 }
 
-// ── Budget header ──
+// ── On-track math ──
+// Color compares ACTUAL eaten vs PLANNED-SO-FAR (only meals already logged).
+// One breakfast logged as planned = green, even early in the day.
+function nExpectedSoFar(dateStr) {
+  let expected = 0;
+  for (const m of nMyMeals(dateStr)) if (NS.logs[m.id]) expected += m.planned_kcal;
+  return expected;
+}
+function nTrackClass(actual, expected) {
+  if (!expected && !actual) return 'idle';
+  const diff = Math.abs(actual - expected);
+  if (diff <= Math.max(100, 0.10 * expected)) return 'ok';
+  if (diff <= Math.max(250, 0.20 * expected)) return 'warn';
+  return 'bad';
+}
+function nWeekStats() {
+  let actual = 0, expected = 0, approx = false;
+  for (const m of NS.meals) {
+    if (m.athlete_id !== NS.me.id) continue;
+    const l = NS.logs[m.id];
+    if (!l) continue;
+    expected += m.planned_kcal;
+    if (l.actual_kcal == null && l.status !== 'skipped') { approx = true; continue; }
+    actual += l.actual_kcal || 0;
+  }
+  for (const l of NS.addedLogs) {
+    if (l.actual_kcal == null) { approx = true; continue; }
+    actual += l.actual_kcal || 0;
+  }
+  return { actual: Math.round(actual), expected: Math.round(expected), approx };
+}
+
+// ── Budget header (sticky, day + week bars) ──
 function nBudgetHtml(dateStr) {
   const t = NS.target;
   if (!t) return `<div class="n-panel">No targets pushed for this week yet.</div>`;
   const { kcal, protein, approx } = nDayTotals(dateStr);
-  const pct = Math.min(100, Math.round(100 * kcal / t.kcal_target));
-  const over = kcal > t.kcal_target;
+  const expected = nExpectedSoFar(dateStr);
+  const dayCls = nTrackClass(kcal, expected);
+  const dayPct = Math.min(100, Math.round(100 * kcal / t.kcal_target));
   const remaining = t.kcal_target - kcal;
   const pRemain = Math.max(0, t.protein_g_low - protein);
   const tilde = approx ? '~' : '';
+
+  const wk = nWeekStats();
+  const wkTarget = t.kcal_target * 7;
+  const wkCls = nTrackClass(wk.actual, wk.expected);
+  const wkPct = Math.min(100, Math.round(100 * wk.actual / wkTarget));
+  const wkLeft = wkTarget - wk.actual;
+
   let hint = '';
-  if (over && remaining < -150)
-    hint = `<div class="n-budget-hint">running ~${-remaining} over — go lighter on the next meal, then back to plan (no compensating)</div>`;
-  return `<div class="n-budget">
-    <div class="n-budget-kcal"><span>${tilde}${kcal.toLocaleString()} / ${t.kcal_target.toLocaleString()} kcal</span>
-      <span>${NS.me.name}</span></div>
-    <div class="n-budget-bar"><div class="n-budget-fill${over ? ' over' : ''}" style="width:${pct}%"></div></div>
-    <div class="n-budget-sub"><span>Protein ${tilde}${protein} / ${t.protein_g_low}–${t.protein_g_high} g</span>
-      <span>${nEsc(t.notes || '')}</span></div>
+  const dayDiff = kcal - expected;
+  if (dayCls === 'bad' && dayDiff > 0)
+    hint = `<div class="n-budget-hint">~${dayDiff} over planned-so-far — go lighter on the next meal, then back to plan (no compensating)</div>`;
+  else if (dayCls === 'bad' && expected > 0)
+    hint = `<div class="n-budget-hint">~${-dayDiff} under planned-so-far — under-eating isn't a win in this phase; eat your meals</div>`;
+
+  return `<div class="n-budget" style="margin-bottom:10px">
+    <div class="n-budget-kcal"><span>Today ${tilde}${kcal.toLocaleString()} / ${t.kcal_target.toLocaleString()}</span>
+      <span style="font-size:12px;font-weight:400;color:var(--muted,#888)">P ${tilde}${protein} / ${t.protein_g_low}–${t.protein_g_high}g</span></div>
+    <div class="n-budget-bar"><div class="n-budget-fill ${dayCls}" style="width:${dayPct}%"></div></div>
+    <div class="n-budget-row2"><span>Week ${wk.approx ? '~' : ''}${wk.actual.toLocaleString()} / ${wkTarget.toLocaleString()}</span>
+      <span>${wkLeft > 0 ? '~' + wkLeft.toLocaleString() + ' left this week' : 'week budget spent'}</span></div>
+    <div class="n-bar-slim"><div class="n-budget-fill ${wkCls}" style="width:${wkPct}%"></div></div>
     <div class="n-budget-remaining">Remaining today: <b>${remaining > 0 ? '~' + remaining.toLocaleString() + ' kcal' : 'at target'}</b>
-      ${pRemain > 0 ? ` · ~${pRemain} g protein to floor` : ' · protein floor met ✓'}</div>
+      ${pRemain > 0 ? ` · ~${pRemain}g protein to floor` : ' · protein floor met ✓'}</div>
     ${hint}</div>`;
 }
 
-// ── Prompt cards (weigh-in / measurements) ──
+// ── Prompt cards ──
 function nWeighInDueToday() {
   const days = NS.settings?.weigh_in_days || [];
-  const short = nDayName(nToday(), true);   // e.g. "Mon"
-  return days.includes(short) && NS.metricsToday.weight == null && !NS.dismissed.weight;
+  return days.includes(nDayName(nToday(), true)) && NS.metricsToday.weight == null && !NS.dismissed.weight;
 }
 function nMeasurementsDue() {
   const s = NS.settings;
@@ -91,12 +132,18 @@ function nMeasurementsDue() {
 }
 function nPromptCardsHtml() {
   let html = '';
-  if (nDayName(nToday(), true) === 'Sun' && !NS.checkin && !NS.dismissed.checkin) {
+  const day = nDayName(nToday(), true);
+  if (day === 'Sun' && !NS.checkin && !NS.dismissed.checkin) {
     html += `<div class="n-prompt"><div class="n-prompt-title">📝 Weekly check-in day</div>
       <div class="n-prompt-row">
         <button class="n-act small primary" onclick="openCheckin()">Open check-in (~1 min)</button>
         <button class="n-prompt-dismiss" onclick="NS.dismissed.checkin=1;renderToday()">later</button>
       </div></div>`;
+  }
+  if ((day === 'Sun' || day === 'Wed') && NS.planWeek?.prep_plan && !NS.dismissed.prep) {
+    html += `<div class="n-prompt"><div class="n-prompt-title">🔪 Prep night
+      <button class="n-prompt-dismiss" onclick="NS.dismissed.prep=1;renderToday()">done</button></div>
+      <div style="font-size:13px;color:#ccc;white-space:pre-wrap">${nEsc(NS.planWeek.prep_plan)}</div></div>`;
   }
   if (nWeighInDueToday()) {
     html += `<div class="n-prompt"><div class="n-prompt-title">⚖️ Weigh-in day</div>
@@ -132,6 +179,8 @@ async function submitMeasurement(metric) {
 }
 
 // ── Meal cards ──
+function nToggleCard(id) { N_OPEN[id] = !N_OPEN[id]; renderToday(); }
+
 function nMealCardHtml(m) {
   const log = NS.logs[m.id];
   const name = nMealName(m);
@@ -144,19 +193,31 @@ function nMealCardHtml(m) {
 
   if (log) {
     const ate = nLogName(log);
-    const statusTxt = N_STATUS_LABEL[log.status] || log.status;
-    const kcalTxt = log.actual_kcal != null ? `${log.actual_kcal} kcal · ${log.actual_protein_g}P` : 'not quantified';
+    const icon = N_STATUS_ICON[log.status] || '✓';
+    const cls = log.status === 'skipped' ? 'skip' : (log.status === 'ate_out' ? 'off' : '');
+    const kcalTxt = log.actual_kcal != null
+      ? `${log.actual_kcal} · ${log.actual_protein_g}P${log.portion_modifier !== 1 ? ` · ${log.portion_modifier}×` : ''}`
+      : 'not quantified';
+    const label = log.status === 'swapped' && ate ? `${nEsc(name)} → ${nEsc(ate)}` : nEsc(name);
+
+    if (!N_OPEN[m.id]) {
+      return `<div class="n-meal done compact ${cls}" onclick="nToggleCard('${m.id}')">
+        <div class="n-done-row"><span class="n-done-check">${icon}</span>
+          <span class="n-done-name">${label}</span>
+          <span class="n-done-kcal">${kcalTxt}</span></div></div>`;
+    }
     const showChips = log.status !== 'skipped';
-    return `<div class="n-meal ${log.status === 'skipped' ? 'skipped' : 'done'}">
-      <div class="n-meal-top"><span class="n-meal-slot">${slotLabel}</span>
+    return `<div class="n-meal done">
+      <div class="n-meal-top" onclick="nToggleCard('${m.id}')" style="cursor:pointer">
+        <span class="n-meal-slot">${slotLabel} ▾</span>
         <span class="n-meal-kcal">${kcalTxt}</span></div>
-      <div class="n-meal-name">${nEsc(name)}</div>
-      ${ate && log.status !== 'as_planned' ? `<div class="n-meal-portion">→ ${nEsc(ate)}</div>` : ''}
-      <div class="n-meal-badges"><span class="n-badge status">${statusTxt}${log.portion_modifier !== 1 ? ` · ${log.portion_modifier}×` : ''}</span>${badges}</div>
+      <div class="n-meal-name">${label}</div>
+      <div class="n-meal-badges"><span class="n-badge status">${N_STATUS_LABEL[log.status] || log.status}</span>${badges}</div>
       ${showChips ? `<div class="n-portion-chips">${N_PORTIONS.map(p =>
         `<button class="n-chip${log.portion_modifier === p ? ' active' : ''}" onclick="pickPortion('${m.id}',${p})">${p}×</button>`).join('')}</div>` : ''}
       <div class="n-meal-actions" style="margin-top:8px">
-        <button class="n-act small" onclick="reopenMeal('${m.id}')">Edit</button>
+        <button class="n-act small" onclick="reopenMeal('${m.id}')">Re-log</button>
+        <button class="n-act small" onclick="nToggleCard('${m.id}')">Collapse</button>
       </div></div>`;
   }
 
@@ -173,6 +234,51 @@ function nMealCardHtml(m) {
       <button class="n-act" onclick="quickSkip('${m.id}')">Skip</button>
       <button class="n-act" onclick="openNSheet('ate_out','${m.id}')">Out</button>
     </div></div>`;
+}
+
+// ── Added (unplanned) item cards: portion + delete ──
+function nAddedCardHtml(l) {
+  const name = nLogName(l) || 'Added item';
+  const kcalTxt = l.actual_kcal != null
+    ? `${l.actual_kcal} · ${l.actual_protein_g ?? 0}P${l.portion_modifier !== 1 ? ` · ${l.portion_modifier}×` : ''}`
+    : 'not quantified';
+  if (!N_OPEN[l.id]) {
+    return `<div class="n-meal done compact" onclick="nToggleCard('${l.id}')">
+      <div class="n-done-row"><span class="n-done-check">+</span>
+        <span class="n-done-name">${nEsc(name)}</span>
+        <span class="n-done-kcal">${kcalTxt}</span></div></div>`;
+  }
+  return `<div class="n-meal done">
+    <div class="n-meal-top" onclick="nToggleCard('${l.id}')" style="cursor:pointer">
+      <span class="n-meal-slot">extra ▾</span><span class="n-meal-kcal">${kcalTxt}</span></div>
+    <div class="n-meal-name">${nEsc(name)}</div>
+    ${l.actual_kcal != null ? `<div class="n-portion-chips">${N_PORTIONS.map(p =>
+      `<button class="n-chip${l.portion_modifier === p ? ' active' : ''}" onclick="nAddedPortion('${l.id}',${p})">${p}×</button>`).join('')}</div>` : ''}
+    <div class="n-meal-actions" style="margin-top:8px">
+      <button class="n-act small" onclick="nRemoveAdded('${l.id}')">Remove</button>
+      <button class="n-act small" onclick="nToggleCard('${l.id}')">Collapse</button>
+    </div></div>`;
+}
+async function nAddedPortion(logId, p) {
+  const l = NS.addedLogs.find(x => x.id === logId);
+  if (!l) return;
+  const prev = l.portion_modifier || 1.0;
+  const scale = v => v == null ? null : nRound((v / prev) * p);
+  const row = { portion_modifier: p, actual_kcal: scale(l.actual_kcal),
+    actual_protein_g: scale(l.actual_protein_g), actual_carbs_g: scale(l.actual_carbs_g),
+    actual_fat_g: scale(l.actual_fat_g) };
+  try {
+    const saved = await nWriteLog(row, l.id);
+    NS.addedLogs = NS.addedLogs.map(x => x.id === logId ? saved : x);
+    renderToday();
+  } catch (e) { toast('Save failed', 3000); }
+}
+async function nRemoveAdded(logId) {
+  const { error } = await ndb.from('meal_logs').delete().eq('id', logId);
+  if (error) { toast('Remove failed: ' + error.message, 3500); return; }
+  NS.addedLogs = NS.addedLogs.filter(x => x.id !== logId);
+  toast('Removed');
+  renderToday();
 }
 
 function nFindMeal(id) { return NS.meals.find(m => m.id === id); }
@@ -199,12 +305,18 @@ async function reopenMeal(mealId) {
   const { error } = await ndb.from('meal_logs').delete().eq('id', l.id);
   if (error) { toast('Could not re-open: ' + error.message, 3500); return; }
   delete NS.logs[m.id];
+  delete N_OPEN[m.id];
   renderToday();
 }
 
-// ── Picker sheet (swap / ate_out / add) ──
+// ══════════════ Meal builder sheet (swap / ate-out / add) ══════════════
+// Tap items to add to the basket, set quantities, log once.
+// "6 eggs instead of steak & eggs" = Swap → Foods → Egg → qty 6 → Log.
+
 function openNSheet(mode, mealId) {
-  NS.sheet = { mode, meal: mealId ? nFindMeal(mealId) : null };
+  const meal = mealId ? nFindMeal(mealId) : null;
+  NS.sheet = { mode, meal, basket: [],
+    filter: mode === 'ate_out' ? 'restaurants' : 'all' };
   document.getElementById('n-sheet-title').textContent =
     mode === 'swap' ? 'Swap meal' : mode === 'ate_out' ? 'Ate out — what was it?' : 'Add food';
   document.getElementById('n-sheet-search').value = '';
@@ -218,92 +330,168 @@ function closeNSheet() {
   document.getElementById('n-sheet').style.display = 'none';
   NS.sheet = null;
 }
+function nSetFilter(f) { NS.sheet.filter = f; renderNSheetList(); }
 
-function nDeltaHtml(kcal, protein) {
-  const m = NS.sheet?.meal;
-  if (!m) return '';
-  const dk = Math.round(kcal - m.planned_kcal);
-  const dp = Math.round(protein - m.planned_protein_g);
-  return `<div class="n-opt-delta">${dk >= 0 ? '+' : ''}${dk} kcal · ${dp >= 0 ? '+' : ''}${dp}P vs planned</div>`;
+// ── Basket ──
+function nBasketAdd(kind, id) {
+  const b = NS.sheet.basket;
+  const existing = b.find(x => x.srcKind === kind && x.srcId === id);
+  if (existing) { existing.qty += 1; renderNSheetList(); return; }
+  let item = null;
+  if (kind === 'r') {
+    const r = NS.recipes.find(x => x.id === id);
+    if (r) item = { srcKind: 'r', srcId: id, kind: 'r', id, name: r.name, qty: 1,
+      kcal: r.kcal_per_serving, protein_g: r.protein_g_per_serving,
+      carbs_g: r.carbs_g_per_serving, fat_g: r.fat_g_per_serving, unit: 'serving' };
+  } else if (kind === 'f') {
+    const f = NS.foods.find(x => x.id === id);
+    if (f) item = { srcKind: 'f', srcId: id, kind: 'f', id, name: f.name, qty: 1,
+      kcal: f.kcal, protein_g: f.protein_g, carbs_g: f.carbs_g, fat_g: f.fat_g,
+      unit: f.serving_desc };
+  } else if (kind === 'a') {
+    const alts = NS.alternates[NS.sheet.meal?.id] || [];
+    const a = alts.find(x => x.id === id);
+    if (a) {
+      const nm = a.recipe_id ? (NS.recipes.find(r => r.id === a.recipe_id)?.name || 'Recipe')
+                             : (NS.foods.find(f => f.id === a.food_item_id)?.name || 'Food');
+      item = { srcKind: 'a', srcId: id, kind: a.recipe_id ? 'r' : 'f',
+        id: a.recipe_id || a.food_item_id, name: nm, qty: 1,
+        kcal: a.kcal, protein_g: a.protein_g, carbs_g: a.carbs_g, fat_g: a.fat_g,
+        unit: `${a.servings} srv (coach portion)` };
+    }
+  }
+  if (item) { b.push(item); renderNSheetList(); }
 }
-function nOptHtml(arg, name, sub, kcal, protein) {
-  return `<button class="n-opt" onclick='pickNOption(${JSON.stringify(arg)})'>
-    <div class="n-opt-name">${nEsc(name)}</div>
-    <div class="n-opt-sub">${nEsc(sub)}</div>
-    ${nDeltaHtml(kcal, protein)}</button>`;
+function nBasketQty(idx, val) {
+  const q = parseFloat(val);
+  if (!q || q <= 0) return;
+  NS.sheet.basket[idx].qty = q;
+  renderNSheetList();
+}
+function nBasketRemove(idx) { NS.sheet.basket.splice(idx, 1); renderNSheetList(); }
+function nBasketTotals() {
+  const t = { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+  for (const it of NS.sheet.basket) {
+    t.kcal += it.kcal * it.qty; t.protein_g += it.protein_g * it.qty;
+    t.carbs_g += it.carbs_g * it.qty; t.fat_g += it.fat_g * it.qty;
+  }
+  for (const k of Object.keys(t)) t[k] = Math.round(t[k]);
+  return t;
+}
+
+async function submitBasket() {
+  const { mode, meal, basket } = NS.sheet || {};
+  if (!basket || !basket.length) return;
+  const tot = nBasketTotals();
+  const multi = basket.length > 1;
+  const first = basket[0];
+  const qtyDesc = basket.map(it => `${it.qty}× ${it.name}`).join('; ');
+  const src = {
+    recipe_id: (!multi && first.kind === 'r') ? first.id : null,
+    food_item_id: (!multi && first.kind === 'f') ? first.id : null,
+    desc: (multi || first.qty !== 1) ? qtyDesc : null,
+    kcal: tot.kcal, protein_g: tot.protein_g, carbs_g: tot.carbs_g, fat_g: tot.fat_g,
+  };
+  try {
+    if (mode === 'add' || !meal) await nLogAdded(nToday(), src);
+    else await nLogMeal(meal, mode === 'ate_out' ? 'ate_out' : 'swapped', src, 1.0);
+    closeNSheet(); toast('Logged ✓'); renderToday();
+  } catch (e) { if (e.message !== 'offline') toast('Save failed: ' + e.message, 4000); }
+}
+
+// ── Sheet rendering ──
+function nOptHtml(kind, id, star, name, sub) {
+  return `<button class="n-opt" onclick="nBasketAdd('${kind}','${id}')">
+    <div class="n-opt-name">${star ? '★ ' : ''}${nEsc(name)}</div>
+    <div class="n-opt-sub">${nEsc(sub)} — tap to add</div></button>`;
 }
 
 function renderNSheetList() {
   const q = document.getElementById('n-sheet-search').value.trim().toLowerCase();
-  const { mode, meal } = NS.sheet || {};
+  const { mode, meal, filter, basket } = NS.sheet || {};
   const slot = meal?.meal_slot;
   let html = '';
 
-  // 1. Coach alternates (swap mode only)
-  if (mode === 'swap' && meal && (NS.alternates[meal.id] || []).length) {
+  // Basket panel
+  if (basket && basket.length) {
+    const tot = nBasketTotals();
+    const rows = basket.map((it, i) => `<div class="n-basket-row">
+      <span class="n-basket-name">${nEsc(it.name)} <span style="color:#888;font-size:11px">(${nEsc(String(it.unit))})</span></span>
+      <input type="number" class="n-basket-qty" inputmode="decimal" step="0.25" min="0.25"
+        value="${it.qty}" onchange="nBasketQty(${i}, this.value)">
+      <button class="n-basket-x" onclick="nBasketRemove(${i})">✕</button></div>`).join('');
+    let delta = '';
+    if (meal) {
+      const dk = Math.round(tot.kcal - meal.planned_kcal);
+      const dp = Math.round(tot.protein_g - meal.planned_protein_g);
+      delta = `<div class="n-basket-delta">${dk >= 0 ? '+' : ''}${dk} kcal · ${dp >= 0 ? '+' : ''}${dp}P vs planned meal</div>`;
+    }
+    html += `<div class="n-basket">${rows}
+      <div class="n-basket-total">Total: ${tot.kcal} kcal · ${tot.protein_g}P · ${tot.carbs_g}C · ${tot.fat_g}F</div>
+      ${delta}
+      <button class="btn" style="margin-top:8px;width:100%" onclick="submitBasket()">Log ${basket.length > 1 ? basket.length + ' items' : 'it'}</button></div>`;
+  }
+
+  // Filter chips
+  const hasAlts = mode === 'swap' && meal && (NS.alternates[meal.id] || []).length;
+  const filters = [['all', 'All']];
+  if (hasAlts) filters.push(['alts', '★ Coach picks']);
+  filters.push(['recipes', 'Recipes'], ['foods', 'Foods'], ['restaurants', 'Restaurants']);
+  html += `<div class="n-filter-row">${filters.map(([f, l]) =>
+    `<button class="n-chip${filter === f ? ' active' : ''}" onclick="nSetFilter('${f}')">${l}</button>`).join('')}</div>`;
+
+  const show = s => filter === 'all' || filter === s;
+
+  // ★ Coach alternates
+  if (hasAlts && show('alts')) {
     html += `<div class="n-sheet-section">★ Coach alternates</div>`;
     for (const a of NS.alternates[meal.id]) {
-      const name = a.recipe_id ? (NS.recipes.find(r => r.id === a.recipe_id)?.name || 'Recipe')
-                               : (NS.foods.find(f => f.id === a.food_item_id)?.name || 'Food');
-      if (q && !name.toLowerCase().includes(q)) continue;
-      html += nOptHtml(
-        { recipe_id: a.recipe_id, food_item_id: a.food_item_id, kcal: a.kcal, protein_g: a.protein_g, carbs_g: a.carbs_g, fat_g: a.fat_g },
-        `★ ${name}`, `${Math.round(a.kcal)} kcal · ${Math.round(a.protein_g)}P${a.note ? ' — ' + a.note : ''}`,
-        a.kcal, a.protein_g);
+      const nm = a.recipe_id ? (NS.recipes.find(r => r.id === a.recipe_id)?.name || 'Recipe')
+                             : (NS.foods.find(f => f.id === a.food_item_id)?.name || 'Food');
+      if (q && !nm.toLowerCase().includes(q)) continue;
+      html += nOptHtml('a', a.id, true, nm,
+        `${Math.round(a.kcal)} kcal · ${Math.round(a.protein_g)}P${a.note ? ' — ' + a.note : ''}`);
     }
   }
 
-  // 2. Library (recipes + non-restaurant foods), slot-filtered unless searching
-  if (mode !== 'ate_out') {
-    html += `<div class="n-sheet-section">From the library</div>`;
+  // Recipes
+  if (show('recipes')) {
     const recs = NS.recipes.filter(r =>
-      (q ? r.name.toLowerCase().includes(q) : (!slot || (r.best_meal_slots || []).includes(slot))));
-    const fds = NS.foods.filter(f => f.item_type !== 'restaurant' &&
-      (q ? f.name.toLowerCase().includes(q) : (!slot || (f.default_meal_slots || []).includes(slot))));
-    for (const r of recs.slice(0, 30))
-      html += nOptHtml(
-        { recipe_id: r.id, kcal: r.kcal_per_serving, protein_g: r.protein_g_per_serving, carbs_g: r.carbs_g_per_serving, fat_g: r.fat_g_per_serving },
-        r.name, `${Math.round(r.kcal_per_serving)} kcal · ${Math.round(r.protein_g_per_serving)}P per serving`,
-        r.kcal_per_serving, r.protein_g_per_serving);
-    for (const f of fds.slice(0, 30))
-      html += nOptHtml(
-        { food_item_id: f.id, kcal: f.kcal, protein_g: f.protein_g, carbs_g: f.carbs_g, fat_g: f.fat_g },
-        f.name, `${Math.round(f.kcal)} kcal · ${Math.round(f.protein_g)}P — ${f.serving_desc}`,
-        f.kcal, f.protein_g);
+      q ? r.name.toLowerCase().includes(q)
+        : (filter === 'recipes' || !slot || (r.best_meal_slots || []).includes(slot)));
+    if (recs.length) html += `<div class="n-sheet-section">Recipes</div>`;
+    for (const r of recs.slice(0, 40))
+      html += nOptHtml('r', r.id, false, r.name,
+        `${Math.round(r.kcal_per_serving)} kcal · ${Math.round(r.protein_g_per_serving)}P per serving`);
   }
 
-  // 3. Restaurants, grouped
-  const rests = NS.foods.filter(f => f.item_type === 'restaurant' &&
-    (!q || f.name.toLowerCase().includes(q) || (f.restaurant_name || '').toLowerCase().includes(q)));
-  if (rests.length) {
+  // Foods (raw ingredients / packaged / simple meals)
+  if (show('foods')) {
+    const fds = NS.foods.filter(f => f.item_type !== 'restaurant' &&
+      (q ? f.name.toLowerCase().includes(q)
+         : (filter === 'foods' || !slot || (f.default_meal_slots || []).includes(slot))));
+    if (fds.length) html += `<div class="n-sheet-section">Foods & ingredients</div>`;
+    for (const f of fds.slice(0, 50))
+      html += nOptHtml('f', f.id, false, f.name,
+        `${Math.round(f.kcal)} kcal · ${Math.round(f.protein_g)}P per ${f.serving_desc}`);
+  }
+
+  // Restaurants, grouped
+  if (show('restaurants')) {
+    const rests = NS.foods.filter(f => f.item_type === 'restaurant' &&
+      (!q || f.name.toLowerCase().includes(q) || (f.restaurant_name || '').toLowerCase().includes(q)));
     const groups = {};
     for (const f of rests) (groups[f.restaurant_name || 'Restaurants'] ||= []).push(f);
     for (const [rn, items] of Object.entries(groups)) {
       html += `<div class="n-sheet-section">🍴 ${nEsc(rn)}</div>`;
-      for (const f of items) {
-        const rec = (f.tags || []).includes('recommended');
-        html += nOptHtml(
-          { food_item_id: f.id, kcal: f.kcal, protein_g: f.protein_g, carbs_g: f.carbs_g, fat_g: f.fat_g },
-          `${rec ? '✦ ' : ''}${f.name}`, `${Math.round(f.kcal)} kcal · ${Math.round(f.protein_g)}P — ${f.serving_desc}`,
-          f.kcal, f.protein_g);
-      }
+      for (const f of items)
+        html += nOptHtml('f', f.id, (f.tags || []).includes('recommended'), f.name,
+          `${Math.round(f.kcal)} kcal · ${Math.round(f.protein_g)}P — ${f.serving_desc}`);
     }
   }
 
-  document.getElementById('n-sheet-list').innerHTML = html || '<div class="n-opt-sub" style="padding:12px">No matches.</div>';
-}
-
-async function pickNOption(src) {
-  const { mode, meal } = NS.sheet || {};
-  try {
-    if (mode === 'add' || !meal) {
-      await nLogAdded(nToday(), src);
-    } else {
-      const status = mode === 'ate_out' ? 'ate_out' : 'swapped';
-      await nLogMeal(meal, status, src, 1.0);
-    }
-    closeNSheet(); toast('Logged ✓'); renderToday();
-  } catch (e) { if (e.message !== 'offline') toast('Save failed: ' + e.message, 4000); }
+  document.getElementById('n-sheet-list').innerHTML =
+    html || '<div class="n-opt-sub" style="padding:12px">No matches.</div>';
 }
 
 async function submitCustomFood() {
