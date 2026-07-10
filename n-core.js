@@ -131,8 +131,13 @@ async function nInit(user) {
     NS.weekOf = nMonday(nToday());
     try {
       const { data: aw } = await ndb.from('meal_plan_weeks').select('week_of')
-        .eq('status', 'active').order('week_of', { ascending: false }).limit(1);
-      if (aw && aw.length) NS.weekOf = aw[0].week_of;
+        .eq('status', 'active').order('week_of');
+      if (aw && aw.length) {
+        const t = nToday();
+        const containing = aw.find(w => t >= w.week_of && t <= nAddDays(w.week_of, 6));
+        const upcoming   = aw.find(w => w.week_of > t);
+        NS.weekOf = (containing || upcoming || aw[aw.length - 1]).week_of;
+      }
     } catch (_) {}
     await nLoadAll();
     nShowTab('today');
@@ -186,7 +191,10 @@ async function nLoadAll() {
 
   // Grocery
   NS.grocery = { list: null, items: [] };
-  const { data: gl } = await ndb.from('grocery_lists').select('*').eq('week_of', wk).maybeSingle();
+  // Grocery always shows the LATEST list — you shop for the upcoming week
+  const { data: gls } = await ndb.from('grocery_lists').select('*')
+    .eq('status', 'active').order('week_of', { ascending: false }).limit(1);
+  const gl = gls && gls.length ? gls[0] : null;
   if (gl) {
     NS.grocery.list = gl;
     const { data: gi } = await ndb.from('grocery_items').select('*')

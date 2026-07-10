@@ -5,7 +5,7 @@ const N_GCATS = ['protein', 'produce', 'starch', 'dairy', 'pantry', 'frozen', 't
 function renderGrocery() {
   const body = document.getElementById('grocery-body');
   const { list, items } = NS.grocery;
-  document.getElementById('grocery-sub').textContent = `week of ${NS.weekOf} · shared list`;
+  document.getElementById('grocery-sub').textContent = `week of ${NS.grocery.list ? NS.grocery.list.week_of : NS.weekOf} · shared list`;
   if (!list) {
     body.innerHTML = `<div class="n-panel">No grocery list for this week yet.</div>`;
     return;
