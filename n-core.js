@@ -126,7 +126,14 @@ async function nInit(user) {
       NS.household = hh || [me];
     } else NS.household = [me];
 
+    // Use the household's active plan week if one exists (plans are pushed
+    // for upcoming weeks); fall back to the calendar week.
     NS.weekOf = nMonday(nToday());
+    try {
+      const { data: aw } = await ndb.from('meal_plan_weeks').select('week_of')
+        .eq('status', 'active').order('week_of', { ascending: false }).limit(1);
+      if (aw && aw.length) NS.weekOf = aw[0].week_of;
+    } catch (_) {}
     await nLoadAll();
     nShowTab('today');
   } catch (e) {

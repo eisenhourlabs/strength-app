@@ -143,10 +143,21 @@ async function onLogin(user) {
   try {
     if (isOffline || !(await checkOnline())) throw new Error('offline');
     const { data: athlete, error: aErr } = await db.from('athletes')
-      .select('id,name,email,available_days').eq('email', user.email).single();
+      .select('id,name,email,available_days,household_id,training_active,nutrition_active').eq('email', user.email).single();
     if (aErr) throw aErr;
     if (!athlete) { toast('Athlete record not found. Contact your coach.'); doLogout(); return; }
     S.athlete = athlete;
+
+    // Nutrition-only users (training_active=false) go straight to the nutrition app
+    if (athlete.nutrition_active && athlete.training_active === false) {
+      window.location.href = 'nutrition.html';
+      return;
+    }
+    // Dual users get the header link to the nutrition side
+    if (athlete.nutrition_active) {
+      const nl = document.getElementById('nutrition-link');
+      if (nl) nl.style.display = 'inline';
+    }
 
     const { data: lib } = await db.from('exercise_library')
       .select('id,name,movement_pattern,exercise_type,equipment,skill_level').order('name');
@@ -163,6 +174,10 @@ async function onLogin(user) {
     if (cached && cached.email === user.email) {
       S.athlete     = cached.athlete;
       S.exerciseLib = cached.exerciseLib || [];
+      if (cached.athlete && cached.athlete.nutrition_active) {
+        const nl = document.getElementById('nutrition-link');
+        if (nl) nl.style.display = 'inline';
+      }
       toast('Offline — loading from cache…', 2000);
       await loadProgram();
     } else {

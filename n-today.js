@@ -16,10 +16,18 @@ function renderToday() {
   const body = document.getElementById('today-body');
   let html = '';
   html += nPromptCardsHtml();
-  html += nBudgetHtml(dateStr);
 
-  const meals = nMyMeals(dateStr);
-  if (!meals.length) {
+  const inWeek = dateStr >= NS.weekOf && dateStr <= nAddDays(NS.weekOf, 6);
+  if (!inWeek) {
+    html += `<div class="n-panel"><div class="n-panel-title">Plan week of ${NS.weekOf}</div>
+      Your plan ${dateStr < NS.weekOf ? 'starts ' + nFmtDate(NS.weekOf) : 'ended ' + nFmtDate(nAddDays(NS.weekOf, 6))}.
+      Browse the full week, prep plan, and grocery list in the tabs below — meals appear here day by day once the week begins.</div>`;
+  } else {
+    html += nBudgetHtml(dateStr);
+  }
+
+  const meals = inWeek ? nMyMeals(dateStr) : [];
+  if (!meals.length && inWeek) {
     html += `<div class="n-panel">No meals planned for today${NS.planWeek ? '' : ' — the week hasn’t been pushed'}.</div>`;
   }
   for (const m of meals) html += nMealCardHtml(m);

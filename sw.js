@@ -1,10 +1,12 @@
-const CACHE = 'strength-v13';
+const CACHE = 'strength-v14';
 const ASSETS = [
   './index.html', './manifest.json',
   './styles.css',
   './core.js', './week.js', './session.js', './exercises.js',
   './conditioning.js', './wellness.js', './tests.js',
   './history.js', './trends.js', './checkin.js',
+  './nutrition.html', './n-styles.css',
+  './n-core.js', './n-today.js', './n-grocery.js', './n-week.js',
   'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js',
   'https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js'
 ];
