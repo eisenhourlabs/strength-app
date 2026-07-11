@@ -1,23 +1,27 @@
-// ══════════════ Kardia Nutrition — Weekly check-in sheet ══════════════
-// Sunday prompt on Today; also opens from the Trends header. Upserts
-// nutrition_checkins on (athlete_id, week_of). Under 60 seconds to complete.
+// ══════════════ Kardia Nutrition — Weekly check-in sheet (v2) ══════════════
+// Only asks what the logged data CANNOT tell the coach:
+//   1. unlogged eating (honesty signal — calibrates intake data + TDEE)
+//   2. subjective state (hunger/cravings/energy/digestion)
+//   3. meals to not repeat (the "why" behind swaps/skips)
+//   4. notes + next week's logistics
+// Compliance %, intake vs plan, and restaurant counts are computed from logs.
 
-let NCI = null;   // working copy of the form state
+let NCI = null;
 
-const NCI_ADHERENCE_HELP = {
-  5: 'excellent — followed very closely', 4: 'good — minor deviations',
-  3: 'mixed — several deviations', 2: 'poor — frequently off plan',
-  1: "very poor — don't judge the target by this week",
-};
+const NCI_UNLOGGED = [
+  ['none', 'Nothing', 'everything I ate is in the app'],
+  ['some', 'A little', 'bites, tastes, a splash of oil — maybe 100–200 kcal/day'],
+  ['lots', 'A fair amount', 'meals or snacks went unlogged — treat my numbers as low'],
+];
 
 function openCheckin() {
   const c = NS.checkin || {};
   NCI = {
-    adherence_score: c.adherence_score ?? null,
-    intake_modifier: c.intake_modifier ?? null,
+    unlogged_eating: c.unlogged_eating ?? null,
     hunger: c.hunger ?? null, cravings: c.cravings ?? null,
     energy: c.energy ?? null, digestion: c.digestion ?? null,
-    restaurant_meals_count: c.restaurant_meals_count ?? null,
+    water_retention_context: c.water_retention_context ?? null,
+    meals_to_change: new Set((c.meals_to_change || '').split(';').map(s => s.trim()).filter(Boolean)),
     general_notes: c.general_notes ?? '', next_week_notes: c.next_week_notes ?? '',
   };
   let ov = document.getElementById('nci-overlay');
@@ -36,41 +40,59 @@ function closeCheckin() {
   if (ov) ov.style.display = 'none';
 }
 
-function nciChips(field, max, labels) {
+function nciChips(field, max) {
   let h = '<div class="n-portion-chips">';
   for (let v = 1; v <= max; v++)
     h += `<button class="n-chip${NCI[field] === v ? ' active' : ''}" onclick="nciSet('${field}',${v})">${v}</button>`;
-  h += '</div>';
-  if (labels && NCI[field]) h += `<div class="n-opt-sub" style="margin-top:3px">${labels[NCI[field]] || ''}</div>`;
-  return h;
+  return h + '</div>';
 }
 function nciSet(field, v) { NCI[field] = (NCI[field] === v ? null : v); renderCheckinSheet(); }
-function nciSetMod(v) { NCI.intake_modifier = v; renderCheckinSheet(); }
+function nciSetUnlogged(v) { NCI.unlogged_eating = v; renderCheckinSheet(); }
+function nciSetWater(v) { NCI.water_retention_context = (NCI.water_retention_context === v ? null : v); renderCheckinSheet(); }
+function nciToggleMeal(name) {
+  if (NCI.meals_to_change.has(name)) NCI.meals_to_change.delete(name);
+  else NCI.meals_to_change.add(name);
+  renderCheckinSheet();
+}
+
+function nciWeekMealNames() {
+  const names = new Set();
+  for (const m of NS.meals) {
+    if (m.athlete_id !== NS.me.id || m.custom_name) continue;
+    names.add(nMealName(m));
+  }
+  return [...names].sort();
+}
 
 function renderCheckinSheet() {
   const ov = document.getElementById('nci-overlay');
-  const wk = NS.weekOf;
-  const mods = [['about_right', 'About right'], ['ate_more', 'Ate more'], ['ate_less', 'Ate less']];
+  const mealNames = nciWeekMealNames();
   ov.innerHTML = `<div class="n-sheet" onclick="event.stopPropagation()">
     <div class="n-sheet-head">
-      <div class="n-sheet-title">Weekly check-in — week of ${wk}</div>
+      <div class="n-sheet-title">Weekly check-in — week of ${NS.weekOf}</div>
       <button class="n-sheet-close" onclick="closeCheckin()">✕</button>
     </div>
     <div class="n-sheet-list">
-      <div class="n-sheet-section">How closely did you follow the plan? (1–5)</div>
-      ${nciChips('adherence_score', 5, NCI_ADHERENCE_HELP)}
-      <div class="n-sheet-section">Overall intake vs plan</div>
-      <div class="n-portion-chips">${mods.map(([v, l]) =>
-        `<button class="n-chip${NCI.intake_modifier === v ? ' active' : ''}" onclick="nciSetMod('${v}')">${l}</button>`).join('')}</div>
-      <div class="n-sheet-section">Optional (1–5, tap to skip/unset)</div>
+      <div class="n-sheet-section">Anything eaten that didn't get logged?</div>
+      ${NCI_UNLOGGED.map(([v, l, sub]) =>
+        `<button class="n-opt${NCI.unlogged_eating === v ? '' : ''}" style="${NCI.unlogged_eating === v ? 'border-color:#ff2712' : ''}"
+          onclick="nciSetUnlogged('${v}')">
+          <div class="n-opt-name">${NCI.unlogged_eating === v ? '● ' : ''}${l}</div>
+          <div class="n-opt-sub">${sub}</div></button>`).join('')}
+      <div class="n-sheet-section">How did you feel? (1 = great · 5 = rough — optional, tap to unset)</div>
       <div class="n-opt-sub">Hunger</div>${nciChips('hunger', 5)}
       <div class="n-opt-sub">Cravings</div>${nciChips('cravings', 5)}
-      <div class="n-opt-sub">Energy</div>${nciChips('energy', 5)}
+      <div class="n-opt-sub">Energy (1 = high)</div>${nciChips('energy', 5)}
       <div class="n-opt-sub">Digestion</div>${nciChips('digestion', 5)}
-      <div class="n-sheet-section">Restaurant meals this week</div>
-      <input type="number" inputmode="numeric" id="nci-rest" class="n-search" style="width:90px"
-        value="${NCI.restaurant_meals_count ?? ''}" placeholder="#">
-      <div class="n-sheet-section">Notes (meals that didn't work, hunger patterns, anything)</div>
+      ${NS.settings?.track_cycle_context ? `
+      <div class="n-sheet-section">Anything that might make the scale read high this week? (optional — helps the coach read your weight trend, never shared beyond it)</div>
+      <div class="n-portion-chips">${[['none', 'No'], ['cycle', 'Cycle-related'], ['other', 'Sodium / travel / poor sleep'], ['unsure', 'Not sure']].map(([v, l]) =>
+        `<button class="n-chip${NCI.water_retention_context === v ? ' active' : ''}" onclick="nciSetWater('${v}')">${l}</button>`).join('')}</div>` : ''}
+      ${mealNames.length ? `<div class="n-sheet-section">Any meals you DON'T want again? (tap to flag)</div>
+      <div class="n-portion-chips">${mealNames.map(n =>
+        `<button class="n-chip${NCI.meals_to_change.has(n) ? ' active' : ''}"
+          onclick="nciToggleMeal('${n.replace(/'/g, "\\'")}')">${nEsc(n)}</button>`).join('')}</div>` : ''}
+      <div class="n-sheet-section">Notes (why a meal didn't work, hunger patterns, anything)</div>
       <textarea id="nci-notes" class="n-search" rows="3" style="resize:vertical">${nEsc(NCI.general_notes)}</textarea>
       <div class="n-sheet-section">Next week (travel, events, schedule, requests)</div>
       <textarea id="nci-next" class="n-search" rows="2" style="resize:vertical">${nEsc(NCI.next_week_notes)}</textarea>
@@ -81,17 +103,15 @@ function renderCheckinSheet() {
 
 async function submitNCheckin() {
   if (nOffline) { toast('Offline — reconnect to submit.', 3000); return; }
-  if (!NCI.adherence_score) { toast('Pick an adherence score (1–5)'); return; }
-  if (!NCI.intake_modifier) { toast('Pick an intake option'); return; }
-  const restEl = document.getElementById('nci-rest');
+  if (!NCI.unlogged_eating) { toast('Answer the unlogged-eating question — it calibrates everything else'); return; }
   const row = {
     athlete_id: NS.me.id,
     week_of: NS.weekOf,
-    adherence_score: NCI.adherence_score,
-    intake_modifier: NCI.intake_modifier,
+    unlogged_eating: NCI.unlogged_eating,
     hunger: NCI.hunger, cravings: NCI.cravings,
     energy: NCI.energy, digestion: NCI.digestion,
-    restaurant_meals_count: restEl.value === '' ? null : parseInt(restEl.value, 10),
+    water_retention_context: NCI.water_retention_context,
+    meals_to_change: [...NCI.meals_to_change].join('; ') || null,
     general_notes: document.getElementById('nci-notes').value.trim() || null,
     next_week_notes: document.getElementById('nci-next').value.trim() || null,
     resubmitted: !!NS.checkin,
