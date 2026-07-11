@@ -330,7 +330,7 @@ function openNSheet(mode, mealId) {
   document.getElementById('n-custom-carbs').value = '';
   document.getElementById('n-custom-fat').value = '';
   document.getElementById('n-custom-serving').value = '';
-  document.getElementById('n-custom-serving').style.display = 'none';
+  document.getElementById('n-custom-serving-row').style.display = 'none';
   document.getElementById('n-custom-save').classList.remove('active');
   document.getElementById('n-sheet').style.display = 'flex';
   renderNSheetList();
@@ -525,7 +525,8 @@ function renderNSheetList() {
 function toggleCustomSave() {
   const btn = document.getElementById('n-custom-save');
   const on = btn.classList.toggle('active');
-  document.getElementById('n-custom-serving').style.display = on ? 'block' : 'none';
+  document.getElementById('n-custom-serving-row').style.display = on ? 'block' : 'none';
+  if (on) document.getElementById('n-custom-serving').focus();
 }
 
 async function submitCustomFood() {

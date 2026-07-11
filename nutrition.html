@@ -140,8 +140,11 @@
       </div>
       <div class="n-custom-row" style="margin-top:6px">
         <button class="n-chip" id="n-custom-save" onclick="toggleCustomSave()">💾 Save to my foods</button>
-        <input type="text" id="n-custom-serving" placeholder="serving — e.g. 1 bar" style="display:none;flex:1">
-        <button class="btn n-btn-sm" onclick="submitCustomFood()">Log it</button>
+        <button class="btn n-btn-sm" style="margin-left:auto" onclick="submitCustomFood()">Log it</button>
+      </div>
+      <div id="n-custom-serving-row" style="display:none;margin-top:8px">
+        <div class="n-opt-sub" style="margin-bottom:4px"><b>Serving size</b> the numbers above describe — e.g. "1 bar", "1 scoop", "6 oz"</div>
+        <input type="text" id="n-custom-serving" placeholder="1 bar">
       </div>
       <div class="n-opt-sub" style="margin:4px 0 8px">One-off: name is enough, kcal + protein make it count. Saving for reuse needs name, serving, kcal, protein.</div>
     </div>
