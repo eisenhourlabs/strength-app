@@ -330,7 +330,9 @@ function openNSheet(mode, mealId) {
   document.getElementById('n-custom-carbs').value = '';
   document.getElementById('n-custom-fat').value = '';
   document.getElementById('n-custom-serving').value = '';
-  document.getElementById('n-custom-serving-row').style.display = 'none';
+  const srvRow = document.getElementById('n-custom-serving-row');
+  if (srvRow) srvRow.style.display = 'none';
+  else document.getElementById('n-custom-serving').style.display = 'none';
   document.getElementById('n-custom-save').classList.remove('active');
   document.getElementById('n-sheet').style.display = 'flex';
   renderNSheetList();
@@ -525,8 +527,12 @@ function renderNSheetList() {
 function toggleCustomSave() {
   const btn = document.getElementById('n-custom-save');
   const on = btn.classList.toggle('active');
-  document.getElementById('n-custom-serving-row').style.display = on ? 'block' : 'none';
-  if (on) document.getElementById('n-custom-serving').focus();
+  // Defensive: works with either markup version (wrapper row or bare input)
+  const row = document.getElementById('n-custom-serving-row');
+  const inp = document.getElementById('n-custom-serving');
+  if (row) row.style.display = on ? 'block' : 'none';
+  else if (inp) inp.style.display = on ? 'block' : 'none';
+  if (on && inp) inp.focus();
 }
 
 async function submitCustomFood() {
