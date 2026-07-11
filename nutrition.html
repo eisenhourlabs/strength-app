@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="theme-color" content="#f4f4f1">
   <title>Kardia Nutrition</title>
   <link rel="manifest" href="manifest.json">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -34,12 +34,12 @@
           stroke-linecap="round" stroke-linejoin="round"/>
         <text x="150" y="128" text-anchor="middle"
           font-family="'Arial Black','Arial Bold',Arial,sans-serif"
-          font-size="40" font-weight="900" fill="#ffffff" letter-spacing="3">NUTRITION</text>
-        <line x1="18" y1="147" x2="88" y2="147" stroke="#555" stroke-width="1"/>
+          font-size="40" font-weight="900" fill="#1c1c1c" letter-spacing="3">NUTRITION</text>
+        <line x1="18" y1="147" x2="88" y2="147" stroke="#bbb" stroke-width="1"/>
         <text x="150" y="151" text-anchor="middle"
           font-family="Arial,sans-serif" font-size="11"
           fill="#888" letter-spacing="5">ALL HEART</text>
-        <line x1="212" y1="147" x2="282" y2="147" stroke="#555" stroke-width="1"/>
+        <line x1="212" y1="147" x2="282" y2="147" stroke="#bbb" stroke-width="1"/>
       </svg>
     </div>
     <div class="login-tag">Log in to view your meal plan</div>
@@ -63,11 +63,8 @@
       <div class="header-title" id="today-title">Today</div>
       <div class="header-sub" id="today-sub"></div>
     </div>
-    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-      <a href="index.html" id="training-link" style="display:none;color:var(--muted);font-size:13px;text-decoration:none">🏋 Training</a>
-      <button style="background:none;border:none;color:var(--muted);font-size:13px;cursor:pointer"
-        onclick="nDoLogout()">Sign out</button>
-    </div>
+    <a href="index.html" id="training-link" class="n-switch" style="display:none">🏋 Training</a>
+    <button class="n-signout" onclick="nDoLogout()">Sign out</button>
   </div>
   <div class="body n-body" id="today-body">
     <div class="spinner">Loading…</div>

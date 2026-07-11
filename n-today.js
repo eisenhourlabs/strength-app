@@ -105,7 +105,7 @@ function nBudgetHtml(dateStr) {
 
   return `<div class="n-budget" style="margin-bottom:10px">
     <div class="n-budget-kcal"><span>Today ${tilde}${kcal.toLocaleString()} / ${t.kcal_target.toLocaleString()}</span>
-      <span style="font-size:12px;font-weight:400;color:var(--muted,#888)">P ${tilde}${protein} / ${t.protein_g_low}–${t.protein_g_high}g</span></div>
+      <span style="font-size:12px;font-weight:400;color:var(--n-muted)">P ${tilde}${protein} / ${t.protein_g_low}–${t.protein_g_high}g</span></div>
     <div class="n-budget-bar"><div class="n-budget-fill ${dayCls}" style="width:${dayPct}%"></div></div>
     <div class="n-budget-row2"><span>Week ${wk.approx ? '~' : ''}${wk.actual.toLocaleString()} / ${wkTarget.toLocaleString()}</span>
       <span>${wkLeft > 0 ? '~' + wkLeft.toLocaleString() + ' left this week' : 'week budget spent'}</span></div>
@@ -144,7 +144,7 @@ function nPromptCardsHtml() {
   if ((day === 'Sun' || day === 'Wed') && NS.planWeek?.prep_plan && !NS.dismissed.prep) {
     html += `<div class="n-prompt"><div class="n-prompt-title">🔪 Prep night
       <button class="n-prompt-dismiss" onclick="NS.dismissed.prep=1;renderToday()">done</button></div>
-      <div style="font-size:13px;color:#ccc;white-space:pre-wrap">${nEsc(NS.planWeek.prep_plan)}</div></div>`;
+      <div style="font-size:13px;color:var(--n-text);white-space:pre-wrap">${nEsc(NS.planWeek.prep_plan)}</div></div>`;
   }
   if (nWeighInDueToday()) {
     html += `<div class="n-prompt"><div class="n-prompt-title">⚖️ Weigh-in day</div>
@@ -416,7 +416,7 @@ function renderNSheetList() {
   if (basket && basket.length) {
     const tot = nBasketTotals();
     const rows = basket.map((it, i) => `<div class="n-basket-row">
-      <span class="n-basket-name">${nEsc(it.name)} <span style="color:#888;font-size:11px">(${nEsc(String(it.unit))})</span></span>
+      <span class="n-basket-name">${nEsc(it.name)} <span style="color:var(--n-muted);font-size:11px">(${nEsc(String(it.unit))})</span></span>
       <input type="number" class="n-basket-qty" inputmode="decimal" step="0.25" min="0.25"
         value="${it.qty}" onchange="nBasketQty(${i}, this.value)">
       <button class="n-basket-x" onclick="nBasketRemove(${i})">✕</button></div>`).join('');
@@ -547,7 +547,7 @@ function nActivityCardHtml() {
     : 'Log workouts here so they show in your trends.';
 
   return `<div class="n-panel" style="margin-top:14px"><div class="n-panel-title">⚡ Activity today</div>
-    ${summary.length ? `<div style="font-size:13px;color:#ccc;margin-bottom:8px">${summary.join(' · ')}</div>` : ''}
+    ${summary.length ? `<div style="font-size:13px;color:var(--n-text);margin-bottom:8px">${summary.join(' · ')}</div>` : ''}
     <div class="n-prompt-row" style="margin-bottom:8px">
       <input type="number" inputmode="numeric" id="na-steps" placeholder="steps" value="${steps ?? ''}">
       <button class="n-act small primary" onclick="submitSteps()">Save steps</button></div>
@@ -556,7 +556,7 @@ function nActivityCardHtml() {
       ${Object.keys(N_WORKOUT_KCAL_MIN).map(k =>
         `<button class="n-chip${wType === k ? ' active' : ''}" onclick="submitWorkout('${k}')">${k}</button>`).join('')}
     </div>
-    <div style="font-size:11px;color:var(--muted,#888);margin-top:6px">${hint} Estimates are rough — they inform trends, not your calorie target.</div></div>`;
+    <div style="font-size:11px;color:var(--n-muted);margin-top:6px">${hint} Estimates are rough — they inform trends, not your calorie target.</div></div>`;
 }
 async function submitSteps() {
   const v = parseInt(document.getElementById('na-steps').value, 10);

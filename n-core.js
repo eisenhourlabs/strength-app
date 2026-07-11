@@ -119,7 +119,7 @@ async function nInit(user) {
     }
     NS.me = me;
     const tl = document.getElementById('training-link');
-    if (tl) tl.style.display = me.training_active ? 'inline' : 'none';
+    if (tl) tl.style.display = me.training_active ? 'inline-block' : 'none';
 
     if (me.household_id) {
       const { data: hh } = await ndb.from('athletes')

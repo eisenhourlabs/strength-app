@@ -47,7 +47,7 @@ function renderNWeek() {
       <span class="n-wk-kcal">${Math.round(m.planned_kcal)}</span></div>`;
   }
   const dayTotal = meals.reduce((s, m) => s + m.planned_kcal, 0);
-  html += `<div class="n-wk-meal" style="border-top:1px solid #333"><span class="n-wk-slot">planned</span>
+  html += `<div class="n-wk-meal" style="border-top:1px solid var(--n-border)"><span class="n-wk-slot">planned</span>
     <span class="n-wk-name"></span><span class="n-wk-kcal"><b>${Math.round(dayTotal)} kcal</b></span></div></div>`;
 
   // Prep plan + notes (household)

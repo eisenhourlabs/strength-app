@@ -156,7 +156,7 @@ async function onLogin(user) {
     // Dual users get the header link to the nutrition side
     if (athlete.nutrition_active) {
       const nl = document.getElementById('nutrition-link');
-      if (nl) nl.style.display = 'inline';
+      if (nl) nl.style.display = 'inline-block';
     }
 
     const { data: lib } = await db.from('exercise_library')
@@ -176,7 +176,7 @@ async function onLogin(user) {
       S.exerciseLib = cached.exerciseLib || [];
       if (cached.athlete && cached.athlete.nutrition_active) {
         const nl = document.getElementById('nutrition-link');
-        if (nl) nl.style.display = 'inline';
+        if (nl) nl.style.display = 'inline-block';
       }
       toast('Offline — loading from cache…', 2000);
       await loadProgram();

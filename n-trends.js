@@ -203,7 +203,7 @@ function nWeightChartHtml(rows, D) {
       <path d="${line}" fill="none" stroke="#ff2712" stroke-width="2.5"/>
       ${avgDots}
     </svg>
-    <div style="font-size:13px;color:#ccc">This week's avg: <b>${latest.v.toFixed(1)} lb</b> (${byWeek[latest.w].length} readings)
+    <div style="font-size:13px;color:var(--n-text)">This week's avg: <b>${latest.v.toFixed(1)} lb</b> (${byWeek[latest.w].length} readings)
     ${delta != null ? ` · ${delta >= 0 ? '+' : ''}${delta.toFixed(1)} lb vs last week` : ''}</div></div>`;
 }
 
@@ -246,7 +246,7 @@ function nActivityWeekHtml(ACT) {
       <span class="n-wk-kcal">${bits.join(' · ')}</span></div>`;
   }
   return `<div class="n-panel"><div class="n-panel-title">⚡ Activity (manual logs)</div>${rows}
-    <div style="font-size:11px;color:var(--muted,#888);margin-top:4px">Context only — activity is already
+    <div style="font-size:11px;color:var(--n-muted);margin-top:4px">Context only — activity is already
     baked into the scale-based TDEE above, so it isn't added again (that would double-count).</div></div>`;
 }
 
@@ -261,16 +261,16 @@ function nEnergyBalanceHtml(D, ACT) {
   let phaseRows = '';
   if (ph) {
     const est = ph.maintenance_estimate_kcal
-      ? `<div style="font-size:12px;color:var(--muted,#888)">Coach's working estimate: ${ph.maintenance_estimate_kcal.toLocaleString()} kcal —
+      ? `<div style="font-size:12px;color:var(--n-muted)">Coach's working estimate: ${ph.maintenance_estimate_kcal.toLocaleString()} kcal —
          ${Math.abs(D.tdeeNow - ph.maintenance_estimate_kcal) <= 100 ? 'matching well' : 'the coach reconciles these at phase review'}</div>` : '';
     let cum = '';
     if (ph.cumKcal != null) {
       const pred = ph.predictedLb;
       const act = ph.actualLb;
-      cum = `<div style="font-size:13px;color:#ccc;margin-top:6px">This phase: est. balance
+      cum = `<div style="font-size:13px;color:var(--n-text);margin-top:6px">This phase: est. balance
         <b>${ph.cumKcal >= 0 ? '+' : ''}${ph.cumKcal.toLocaleString()} kcal</b>
         ≈ ${pred >= 0 ? '+' : ''}${pred.toFixed(1)} lb predicted${act != null ? ` · scale says ${act >= 0 ? '+' : ''}${act.toFixed(1)} lb` : ''}</div>
-        <div style="font-size:11px;color:var(--muted,#888)">These two rarely match exactly — water, sodium, and logging estimates all wiggle. Direction agreement is what matters.</div>`;
+        <div style="font-size:11px;color:var(--n-muted)">These two rarely match exactly — water, sodium, and logging estimates all wiggle. Direction agreement is what matters.</div>`;
     }
     phaseRows = est + cum;
   }
@@ -279,12 +279,12 @@ function nEnergyBalanceHtml(D, ACT) {
     const bits = [];
     if (ACT.last.avgSteps != null) bits.push(`~${ACT.last.avgSteps.toLocaleString()} steps/day`);
     if (ACT.last.wMin) bits.push(`${ACT.last.wMin} min workouts`);
-    actLine = `<div style="font-size:12px;color:var(--muted,#888);margin-top:4px">Activity context last wk: ${bits.join(' + ')}
+    actLine = `<div style="font-size:12px;color:var(--n-muted);margin-top:4px">Activity context last wk: ${bits.join(' + ')}
       (≈${ACT.last.estKcal.toLocaleString()} kcal) — already reflected in this TDEE. A quieter activity week usually means a lower true TDEE that week.</div>`;
   }
   return `<div class="n-panel">${title}
-    <div style="font-size:15px;color:#fff">Est. TDEE: <b>~${D.tdeeNow.toLocaleString()} kcal/day</b>
-      <span style="font-size:11px;color:var(--muted,#888)">(from ${D.nEst} week-pair${D.nEst > 1 ? 's' : ''} of your logs + scale)</span></div>
+    <div style="font-size:15px;color:var(--n-text)">Est. TDEE: <b>~${D.tdeeNow.toLocaleString()} kcal/day</b>
+      <span style="font-size:11px;color:var(--n-muted)">(from ${D.nEst} week-pair${D.nEst > 1 ? 's' : ''} of your logs + scale)</span></div>
     ${phaseRows}${actLine}</div>`;
 }
 
@@ -305,13 +305,13 @@ function nGreenDaysHtml(D) {
     else counting = false;
     if (!counting) break;
   }
-  const color = { green: '#4caf50', amber: '#ffaa00', gray: '#333' };
+  const color = { green: '#2e9e3e', amber: '#e8940a', gray: '#dcdcd7' };
   const dots = cells.map(c => `<div title="${c.dt}" style="flex:1;height:16px;border-radius:4px;background:${color[c.cls]}"></div>`).join('');
   const greens = cells.filter(c => c.cls === 'green').length;
   return `<div class="n-panel"><div class="n-panel-title">🟩 Last 14 days — green = logged &amp; on plan</div>
     <div style="display:flex;gap:3px">${dots}</div>
-    <div style="font-size:12px;color:var(--muted,#888);margin-top:6px">${greens} green day${greens !== 1 ? 's' : ''} ·
-      logging streak: <b style="color:#ccc">${streak} day${streak !== 1 ? 's' : ''}</b></div></div>`;
+    <div style="font-size:12px;color:var(--n-muted);margin-top:6px">${greens} green day${greens !== 1 ? 's' : ''} ·
+      logging streak: <b style="color:var(--n-text)">${streak} day${streak !== 1 ? 's' : ''}</b></div></div>`;
 }
 
 // ── Macro split by week ──
@@ -333,12 +333,12 @@ function nMacroSplitHtml(D) {
     if (kc <= 0) continue;
     const pp = Math.round(400 * t.p / kc), pc = Math.round(400 * t.c / kc), pf = 100 - pp - pc;
     rows += `<div style="margin-bottom:8px">
-      <div style="display:flex;justify-content:space-between;font-size:12px;color:#ddd">
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--n-text)">
         <span>wk ${w}</span><span>${pp}P / ${pc}C / ${pf}F %</span></div>
       <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;margin-top:3px">
-        <div style="width:${pp}%;background:#4caf50"></div>
-        <div style="width:${pc}%;background:#4a90d9"></div>
-        <div style="width:${pf}%;background:#ffaa00"></div></div></div>`;
+        <div style="width:${pp}%;background:#2e9e3e"></div>
+        <div style="width:${pc}%;background:#2a6fb0"></div>
+        <div style="width:${pf}%;background:#e8940a"></div></div></div>`;
   }
   return `<div class="n-panel"><div class="n-panel-title">🥩 Macro split — % of calories
     (<span style="color:#4caf50">protein</span> / <span style="color:#4a90d9">carbs</span> / <span style="color:#ffaa00">fat</span>)</div>${rows}</div>`;
@@ -370,10 +370,10 @@ function nWeekSummaryHtml(rows, targets, D) {
     }
     const pct = Math.min(100, r.compliance_pct || 0);
     items += `<div style="margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;font-size:13px;color:#ddd">
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--n-text)">
         <span>wk ${r.week_of}</span><span>${comp} on plan</span></div>
       <div class="n-budget-bar" style="margin:4px 0"><div class="n-budget-fill ok" style="width:${pct}%"></div></div>
-      <div style="font-size:12px;color:var(--muted,#888)">${kTxt}${pHit}
+      <div style="font-size:12px;color:var(--n-muted)">${kTxt}${pHit}
         · ${r.swapped || 0} swaps · ${r.skipped || 0} skips · ${r.ate_out || 0} out</div></div>`;
   }
   return `<div class="n-panel"><div class="n-panel-title">📋 Weekly compliance & intake</div>${items}</div>`;
@@ -401,7 +401,7 @@ function nTrainingWeekHtml(sessions, conditioning) {
       <span class="n-wk-kcal">${wk[w].lifts} session${wk[w].lifts !== 1 ? 's' : ''} · ${Math.round(wk[w].condMin)} min conditioning</span></div>`;
   }
   return `<div class="n-panel"><div class="n-panel-title">🏋 Training context (from the strength app)</div>${rows}
-    <div style="font-size:11px;color:var(--muted,#888);margin-top:4px">Higher training weeks justify the higher end of your calorie target — the coach factors this in weekly.</div></div>`;
+    <div style="font-size:11px;color:var(--n-muted);margin-top:4px">Higher training weeks justify the higher end of your calorie target — the coach factors this in weekly.</div></div>`;
 }
 
 // ── Measurements: latest + delta + sparkline when 3+ points ──
@@ -423,7 +423,7 @@ function nMeasurementsHtml(rows) {
       const X = i => 2 + 76 * (i / (vals.length - 1));
       const path = vals.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
       spark = `<svg viewBox="0 0 80 16" style="width:80px;height:16px;flex:0 0 auto">
-        <path d="${path}" fill="none" stroke="#7db8e8" stroke-width="1.5"/></svg>`;
+        <path d="${path}" fill="none" stroke="#1f5e93" stroke-width="1.5"/></svg>`;
     }
     html += `<div class="n-wk-meal" style="align-items:center;gap:8px">
       <span class="n-wk-name">${label[metric] || metric}</span>${spark}
