@@ -327,6 +327,11 @@ function openNSheet(mode, mealId) {
   document.getElementById('n-custom-desc').value = '';
   document.getElementById('n-custom-kcal').value = '';
   document.getElementById('n-custom-protein').value = '';
+  document.getElementById('n-custom-carbs').value = '';
+  document.getElementById('n-custom-fat').value = '';
+  document.getElementById('n-custom-serving').value = '';
+  document.getElementById('n-custom-serving').style.display = 'none';
+  document.getElementById('n-custom-save').classList.remove('active');
   document.getElementById('n-sheet').style.display = 'flex';
   renderNSheetList();
 }
@@ -495,7 +500,8 @@ function renderNSheetList() {
     if (fds.length) html += `<div class="n-sheet-section">Foods & ingredients</div>`;
     for (const f of fds.slice(0, 50))
       html += nOptHtml('f', f.id, false, f.name,
-        `${Math.round(f.kcal)} kcal · ${Math.round(f.protein_g)}P per ${f.serving_desc}`);
+        `${Math.round(f.kcal)} kcal · ${Math.round(f.protein_g)}P per ${f.serving_desc}` +
+        (f.approval_status === 'pending' ? ' · ⏳ pending review' : ''));
   }
 
   // Restaurants, grouped
@@ -516,17 +522,50 @@ function renderNSheetList() {
     html || '<div class="n-opt-sub" style="padding:12px">No matches.</div>';
 }
 
+function toggleCustomSave() {
+  const btn = document.getElementById('n-custom-save');
+  const on = btn.classList.toggle('active');
+  document.getElementById('n-custom-serving').style.display = on ? 'block' : 'none';
+}
+
 async function submitCustomFood() {
   const desc = document.getElementById('n-custom-desc').value.trim();
-  if (!desc) { toast('Describe what you ate'); return; }
+  if (!desc) { toast('Name what you ate'); return; }
   const kcal = parseFloat(document.getElementById('n-custom-kcal').value) || null;
   const protein = parseFloat(document.getElementById('n-custom-protein').value) || null;
-  const src = { desc, kcal, protein_g: protein, carbs_g: null, fat_g: null };
+  const carbs = parseFloat(document.getElementById('n-custom-carbs').value) || null;
+  const fat = parseFloat(document.getElementById('n-custom-fat').value) || null;
+  const saveIt = document.getElementById('n-custom-save').classList.contains('active');
   const { mode, meal } = NS.sheet || {};
+
+  let src = { desc, kcal, protein_g: protein, carbs_g: carbs, fat_g: fat };
+
+  // Save-for-reuse path: becomes a real, searchable food_item (tagged user_added;
+  // the coach reviews these weekly and promotes keepers into the curated library)
+  if (saveIt) {
+    const serving = document.getElementById('n-custom-serving').value.trim();
+    if (!serving || kcal == null || protein == null) {
+      toast('Saving for reuse needs serving + kcal + protein'); return;
+    }
+    const { data: nf, error } = await ndb.from('food_items').insert({
+      name: desc, serving_desc: serving, item_type: 'packaged',
+      kcal, protein_g: protein, carbs_g: carbs ?? 0, fat_g: fat ?? 0,
+      tags: ['user_added'], default_meal_slots: ['snack'],
+      approval_status: 'pending',
+    }).select().single();
+    if (error) {
+      toast(error.code === '23505' ? 'That name already exists — search for it instead' : 'Save failed: ' + error.message, 4000);
+      return;
+    }
+    NS.foods.push(nf);
+    src = { food_item_id: nf.id, kcal, protein_g: protein, carbs_g: carbs ?? 0, fat_g: fat ?? 0 };
+  }
+
   try {
     if (mode === 'add' || !meal) await nLogAdded(nToday(), src);
     else await nLogMeal(meal, 'swapped', kcal != null ? src : { ...src, kcal: null }, 1.0);
-    closeNSheet(); toast(kcal != null ? 'Logged ✓' : 'Logged (unquantified) — day totals show ~', 3000);
+    closeNSheet();
+    toast(saveIt ? 'Saved to your foods + logged ✓' : (kcal != null ? 'Logged ✓' : 'Logged (unquantified) — day totals show ~'), 3000);
     renderToday();
   } catch (e) { if (e.message !== 'offline') toast('Save failed: ' + e.message, 4000); }
 }

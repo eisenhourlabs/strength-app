@@ -130,13 +130,20 @@
     <input type="text" class="n-search" id="n-sheet-search" placeholder="Search…" oninput="renderNSheetList()">
     <div class="n-sheet-list" id="n-sheet-list"></div>
     <div class="n-sheet-custom">
-      <div class="n-sheet-section">Something else…</div>
-      <input type="text" id="n-custom-desc" placeholder="What did you eat?">
+      <div class="n-sheet-section">Something else… (not in the database)</div>
+      <input type="text" id="n-custom-desc" placeholder="Name it — e.g. Kirkland protein bar">
       <div class="n-custom-row">
-        <input type="number" id="n-custom-kcal" placeholder="~kcal (optional)">
-        <input type="number" id="n-custom-protein" placeholder="~protein g (optional)">
+        <input type="number" inputmode="numeric" id="n-custom-kcal" placeholder="kcal">
+        <input type="number" inputmode="numeric" id="n-custom-protein" placeholder="P g">
+        <input type="number" inputmode="numeric" id="n-custom-carbs" placeholder="C g">
+        <input type="number" inputmode="numeric" id="n-custom-fat" placeholder="F g">
+      </div>
+      <div class="n-custom-row" style="margin-top:6px">
+        <button class="n-chip" id="n-custom-save" onclick="toggleCustomSave()">💾 Save to my foods</button>
+        <input type="text" id="n-custom-serving" placeholder="serving — e.g. 1 bar" style="display:none;flex:1">
         <button class="btn n-btn-sm" onclick="submitCustomFood()">Log it</button>
       </div>
+      <div class="n-opt-sub" style="margin:4px 0 8px">One-off: name is enough, kcal + protein make it count. Saving for reuse needs name, serving, kcal, protein.</div>
     </div>
   </div>
 </div>

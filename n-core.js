@@ -167,7 +167,7 @@ async function nLoadAll() {
     ndb.from('nutrition_settings').select('*').eq('athlete_id', meId).maybeSingle(),
     ndb.from('recipes').select('id,name,kcal_per_serving,protein_g_per_serving,carbs_g_per_serving,fat_g_per_serving,best_meal_slots,tags,portion_notes')
       .eq('is_active', true).order('name'),
-    ndb.from('food_items').select('id,name,item_type,restaurant_name,serving_desc,kcal,protein_g,carbs_g,fat_g,default_meal_slots,tags')
+    ndb.from('food_items').select('id,name,item_type,restaurant_name,serving_desc,kcal,protein_g,carbs_g,fat_g,default_meal_slots,tags,approval_status')
       .eq('is_active', true).order('name'),
   ]);
   NS.target   = targetQ.data || null;
