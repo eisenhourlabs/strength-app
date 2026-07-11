@@ -599,6 +599,9 @@ function nActivityCardHtml() {
 
   return `<div class="n-panel" style="margin-top:14px"><div class="n-panel-title">⚡ Activity today</div>
     ${summary.length ? `<div style="font-size:13px;color:var(--n-text);margin-bottom:8px">${summary.join(' · ')}</div>` : ''}
+    ${!NS.me.training_active ? `<div class="n-prompt-row" style="margin-bottom:8px">
+      <input type="number" step="0.5" inputmode="decimal" id="na-sleep" placeholder="sleep last night (hrs)" value="${NS.sleepToday ?? ''}">
+      <button class="n-act small primary" onclick="submitSleep()">Save sleep</button></div>` : ''}
     <div class="n-prompt-row" style="margin-bottom:8px">
       <input type="number" inputmode="numeric" id="na-steps" placeholder="steps" value="${steps ?? ''}">
       <button class="n-act small primary" onclick="submitSteps()">Save steps</button></div>
@@ -626,6 +629,19 @@ async function submitWorkout(type) {
   NS.metricsToday.workout_min = min;
   (NS.metricsTodayNotes ||= {}).workout_min = type;
   toast(`${type} logged ✓`);
+  renderToday();
+}
+
+async function submitSleep() {
+  const v = parseFloat(document.getElementById('na-sleep').value);
+  if (!v || v < 1 || v > 14) { toast('Enter hours slept (1–14)'); return; }
+  if (nOffline) { toast('Offline — reconnect to log.', 3000); return; }
+  const { error } = await ndb.from('readiness_logs').upsert({
+    athlete_id: NS.me.id, log_date: nToday(), sleep_hours: v,
+  }, { onConflict: 'athlete_id,log_date' });
+  if (error) { toast('Save failed: ' + error.message, 4000); return; }
+  NS.sleepToday = v;
+  toast('Sleep saved ✓');
   renderToday();
 }
 

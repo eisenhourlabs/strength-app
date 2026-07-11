@@ -228,6 +228,13 @@ async function nLoadAll() {
     NS.metricsToday[r.metric] = r.value;
     NS.metricsTodayNotes[r.metric] = r.notes;
   }
+
+  // Today's sleep (canonical: readiness_logs.sleep_hours). Troy writes it via the
+  // strength readiness form; nutrition-only users write it in the Activity panel.
+  NS.sleepToday = null;
+  const { data: slpRows } = await ndb.from('readiness_logs').select('sleep_hours')
+    .eq('athlete_id', meId).eq('log_date', nToday()).limit(1);
+  if (slpRows && slpRows.length && slpRows[0].sleep_hours != null) NS.sleepToday = slpRows[0].sleep_hours;
   const { data: lastW } = await ndb.from('body_metrics').select('value')
     .eq('athlete_id', meId).eq('metric', 'weight')
     .order('log_date', { ascending: false }).limit(1);
