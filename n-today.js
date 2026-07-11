@@ -432,12 +432,15 @@ function renderNSheetList() {
       <button class="btn" style="margin-top:8px;width:100%" onclick="submitBasket()">Log ${basket.length > 1 ? basket.length + ' items' : 'it'}</button></div>`;
   }
 
-  // Tweak: start the basket from the planned meal's own ingredients
+  // Tweak: start the basket from the planned meal's own ingredients.
+  // Works for recipe meals (itemized components) AND single-food meals (the food
+  // itself, so quantity is adjustable). Custom meals have nothing to decompose.
   const comps = (mode === 'swap' && meal && meal.recipe_id) ? (NS.components || {})[meal.recipe_id] : null;
-  if (comps && comps.length && (!basket || !basket.length)) {
+  const tweakable = (comps && comps.length) || (mode === 'swap' && meal && meal.food_item_id);
+  if (tweakable && (!basket || !basket.length)) {
     html += `<button class="n-opt" style="border-color:#3f6a30" onclick="nTweakSeed()">
       <div class="n-opt-name">🔧 Tweak this meal</div>
-      <div class="n-opt-sub">Start from its ingredients — drop the steak, change the eggs, double the butter…</div></button>`;
+      <div class="n-opt-sub">Start from what's planned — change amounts, drop or add items</div></button>`;
   }
 
   // Filter chips
@@ -578,16 +581,24 @@ async function submitWorkout(type) {
 // ── Tweak + macro classification helpers ──
 function nTweakSeed() {
   const { meal } = NS.sheet || {};
-  const comps = meal && meal.recipe_id ? (NS.components || {})[meal.recipe_id] : null;
-  if (!comps) return;
+  if (!meal) return;
   NS.sheet.basket = [];
-  for (const c of comps) {
-    const f = NS.foods.find(x => x.id === c.food_item_id);
-    if (!f) continue;
-    const qty = Math.round(c.qty * (meal.planned_servings || 1) * 100) / 100;
-    NS.sheet.basket.push({ srcKind: 'f', srcId: f.id, kind: 'f', id: f.id, name: f.name,
-      qty, kcal: f.kcal, protein_g: f.protein_g, carbs_g: f.carbs_g, fat_g: f.fat_g,
-      unit: f.serving_desc, rest: false });
+  const comps = meal.recipe_id ? (NS.components || {})[meal.recipe_id] : null;
+  if (comps && comps.length) {
+    for (const c of comps) {
+      const f = NS.foods.find(x => x.id === c.food_item_id);
+      if (!f) continue;
+      const qty = Math.round(c.qty * (meal.planned_servings || 1) * 100) / 100;
+      NS.sheet.basket.push({ srcKind: 'f', srcId: f.id, kind: 'f', id: f.id, name: f.name,
+        qty, kcal: f.kcal, protein_g: f.protein_g, carbs_g: f.carbs_g, fat_g: f.fat_g,
+        unit: f.serving_desc, rest: false });
+    }
+  } else if (meal.food_item_id) {
+    const f = NS.foods.find(x => x.id === meal.food_item_id);
+    if (f) NS.sheet.basket.push({ srcKind: 'f', srcId: f.id, kind: 'f', id: f.id, name: f.name,
+      qty: meal.planned_servings || 1, kcal: f.kcal, protein_g: f.protein_g,
+      carbs_g: f.carbs_g, fat_g: f.fat_g, unit: f.serving_desc,
+      rest: f.item_type === 'restaurant' });
   }
   renderNSheetList();
 }
