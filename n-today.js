@@ -41,6 +41,7 @@ function renderToday() {
     for (const l of added) html += nAddedCardHtml(l);
   }
 
+  html += nActivityCardHtml();
   html += `<button class="n-act" style="width:100%;margin-top:10px" onclick="openNSheet('add', null)">+ Add food</button>`;
   body.innerHTML = html;
 }
@@ -232,7 +233,6 @@ function nMealCardHtml(m) {
       <button class="n-act primary" onclick="quickLog('${m.id}')">✓ Ate it</button>
       <button class="n-act" onclick="openNSheet('swap','${m.id}')">⇄ Swap</button>
       <button class="n-act" onclick="quickSkip('${m.id}')">Skip</button>
-      <button class="n-act" onclick="openNSheet('ate_out','${m.id}')">Out</button>
     </div></div>`;
 }
 
@@ -315,10 +315,9 @@ async function reopenMeal(mealId) {
 
 function openNSheet(mode, mealId) {
   const meal = mealId ? nFindMeal(mealId) : null;
-  NS.sheet = { mode, meal, basket: [],
-    filter: mode === 'ate_out' ? 'restaurants' : 'all' };
+  NS.sheet = { mode, meal, basket: [], filter: 'all', mf: 'all' };
   document.getElementById('n-sheet-title').textContent =
-    mode === 'swap' ? 'Swap meal' : mode === 'ate_out' ? 'Ate out — what was it?' : 'Add food';
+    mode === 'swap' ? 'Swap / adjust meal' : 'Add food';
   document.getElementById('n-sheet-search').value = '';
   document.getElementById('n-custom-desc').value = '';
   document.getElementById('n-custom-kcal').value = '';
@@ -347,7 +346,7 @@ function nBasketAdd(kind, id) {
     const f = NS.foods.find(x => x.id === id);
     if (f) item = { srcKind: 'f', srcId: id, kind: 'f', id, name: f.name, qty: 1,
       kcal: f.kcal, protein_g: f.protein_g, carbs_g: f.carbs_g, fat_g: f.fat_g,
-      unit: f.serving_desc };
+      unit: f.serving_desc, rest: f.item_type === 'restaurant' };
   } else if (kind === 'a') {
     const alts = NS.alternates[NS.sheet.meal?.id] || [];
     const a = alts.find(x => x.id === id);
@@ -393,8 +392,9 @@ async function submitBasket() {
     kcal: tot.kcal, protein_g: tot.protein_g, carbs_g: tot.carbs_g, fat_g: tot.fat_g,
   };
   try {
+    const status = basket.every(it => it.rest) ? 'ate_out' : 'swapped';
     if (mode === 'add' || !meal) await nLogAdded(nToday(), src);
-    else await nLogMeal(meal, mode === 'ate_out' ? 'ate_out' : 'swapped', src, 1.0);
+    else await nLogMeal(meal, status, src, 1.0);
     closeNSheet(); toast('Logged ✓'); renderToday();
   } catch (e) { if (e.message !== 'offline') toast('Save failed: ' + e.message, 4000); }
 }
@@ -432,6 +432,14 @@ function renderNSheetList() {
       <button class="btn" style="margin-top:8px;width:100%" onclick="submitBasket()">Log ${basket.length > 1 ? basket.length + ' items' : 'it'}</button></div>`;
   }
 
+  // Tweak: start the basket from the planned meal's own ingredients
+  const comps = (mode === 'swap' && meal && meal.recipe_id) ? (NS.components || {})[meal.recipe_id] : null;
+  if (comps && comps.length && (!basket || !basket.length)) {
+    html += `<button class="n-opt" style="border-color:#3f6a30" onclick="nTweakSeed()">
+      <div class="n-opt-name">🔧 Tweak this meal</div>
+      <div class="n-opt-sub">Start from its ingredients — drop the steak, change the eggs, double the butter…</div></button>`;
+  }
+
   // Filter chips
   const hasAlts = mode === 'swap' && meal && (NS.alternates[meal.id] || []).length;
   const filters = [['all', 'All']];
@@ -467,9 +475,15 @@ function renderNSheetList() {
 
   // Foods (raw ingredients / packaged / simple meals)
   if (show('foods')) {
-    const fds = NS.foods.filter(f => f.item_type !== 'restaurant' &&
+    let fds = NS.foods.filter(f => f.item_type !== 'restaurant' &&
       (q ? f.name.toLowerCase().includes(q)
          : (filter === 'foods' || !slot || (f.default_meal_slots || []).includes(slot))));
+    if (filter === 'foods') {
+      const mf = NS.sheet.mf || 'all';
+      html += `<div class="n-filter-row" style="margin:2px 0 6px">${[['all', 'All'], ['protein', '🥩 Protein'], ['carbs', '🍚 Carbs'], ['fats', '🥑 Fats']].map(([f2, l]) =>
+        `<button class="n-chip${mf === f2 ? ' active' : ''}" onclick="NS.sheet.mf='${f2}';renderNSheetList()">${l}</button>`).join('')}</div>`;
+      if (mf !== 'all') fds = fds.filter(f => nMacroClass(f) === mf);
+    }
     if (fds.length) html += `<div class="n-sheet-section">Foods & ingredients</div>`;
     for (const f of fds.slice(0, 50))
       html += nOptHtml('f', f.id, false, f.name,
@@ -503,8 +517,84 @@ async function submitCustomFood() {
   const { mode, meal } = NS.sheet || {};
   try {
     if (mode === 'add' || !meal) await nLogAdded(nToday(), src);
-    else await nLogMeal(meal, mode === 'swap' ? 'swapped' : 'ate_out', kcal != null ? src : { ...src, kcal: null }, 1.0);
+    else await nLogMeal(meal, 'swapped', kcal != null ? src : { ...src, kcal: null }, 1.0);
     closeNSheet(); toast(kcal != null ? 'Logged ✓' : 'Logged (unquantified) — day totals show ~', 3000);
     renderToday();
   } catch (e) { if (e.message !== 'offline') toast('Save failed: ' + e.message, 4000); }
+}
+
+// ── Activity (steps + non-system workouts) ──
+// Stored in body_metrics: metric 'steps' (value = count) and 'workout_min'
+// (value = minutes, notes = type). Context for TDEE — NOT added to it
+// (the scale-based TDEE already contains all activity; adding would double-count).
+const N_WORKOUT_KCAL_MIN = { Lift: 0.025, 'WOD/HIIT': 0.045, Cardio: 0.035, Other: 0.03 };
+function nBw() { return NS.lastWeight || NS.metricsToday.weight || 165; }
+function nStepsKcal(steps) { return Math.round(steps * nBw() * 0.00023); }
+function nWorkoutKcal(min, type) { return Math.round(min * (N_WORKOUT_KCAL_MIN[type] || 0.03) * nBw()); }
+
+function nActivityCardHtml() {
+  const steps = NS.metricsToday.steps;
+  const wMin = NS.metricsToday.workout_min;
+  const wType = (NS.metricsTodayNotes || {}).workout_min || '';
+  let summary = [];
+  if (steps != null) summary.push(`👟 ${Number(steps).toLocaleString()} steps (~${nStepsKcal(steps)} kcal)`);
+  if (wMin != null) summary.push(`💪 ${wMin} min ${nEsc(wType)} (~${nWorkoutKcal(wMin, wType)} kcal)`);
+  const hint = NS.me.training_active
+    ? 'Gym sessions from the strength app sync automatically — log only extra activity here.'
+    : 'Log workouts here so they show in your trends.';
+
+  return `<div class="n-panel" style="margin-top:14px"><div class="n-panel-title">⚡ Activity today</div>
+    ${summary.length ? `<div style="font-size:13px;color:#ccc;margin-bottom:8px">${summary.join(' · ')}</div>` : ''}
+    <div class="n-prompt-row" style="margin-bottom:8px">
+      <input type="number" inputmode="numeric" id="na-steps" placeholder="steps" value="${steps ?? ''}">
+      <button class="n-act small primary" onclick="submitSteps()">Save steps</button></div>
+    <div class="n-prompt-row">
+      <input type="number" inputmode="numeric" id="na-wmin" placeholder="min" style="width:64px" value="${wMin ?? ''}">
+      ${Object.keys(N_WORKOUT_KCAL_MIN).map(k =>
+        `<button class="n-chip${wType === k ? ' active' : ''}" onclick="submitWorkout('${k}')">${k}</button>`).join('')}
+    </div>
+    <div style="font-size:11px;color:var(--muted,#888);margin-top:6px">${hint} Estimates are rough — they inform trends, not your calorie target.</div></div>`;
+}
+async function submitSteps() {
+  const v = parseInt(document.getElementById('na-steps').value, 10);
+  if (!v || v < 0 || v > 100000) { toast('Enter today\'s step count'); return; }
+  if (await nSaveMetric('steps', v, 'steps')) { toast('Steps saved ✓'); renderToday(); }
+}
+async function submitWorkout(type) {
+  const min = parseInt(document.getElementById('na-wmin').value, 10);
+  if (!min || min <= 0 || min > 600) { toast('Enter workout minutes first'); return; }
+  if (nOffline) { toast('Offline — reconnect to log.', 3000); return; }
+  const { error } = await ndb.from('body_metrics').upsert({
+    athlete_id: NS.me.id, log_date: nToday(), metric: 'workout_min',
+    value: min, unit: 'min', notes: type,
+  }, { onConflict: 'athlete_id,log_date,metric' });
+  if (error) { toast('Save failed: ' + error.message, 4000); return; }
+  NS.metricsToday.workout_min = min;
+  (NS.metricsTodayNotes ||= {}).workout_min = type;
+  toast(`${type} logged ✓`);
+  renderToday();
+}
+
+// ── Tweak + macro classification helpers ──
+function nTweakSeed() {
+  const { meal } = NS.sheet || {};
+  const comps = meal && meal.recipe_id ? (NS.components || {})[meal.recipe_id] : null;
+  if (!comps) return;
+  NS.sheet.basket = [];
+  for (const c of comps) {
+    const f = NS.foods.find(x => x.id === c.food_item_id);
+    if (!f) continue;
+    const qty = Math.round(c.qty * (meal.planned_servings || 1) * 100) / 100;
+    NS.sheet.basket.push({ srcKind: 'f', srcId: f.id, kind: 'f', id: f.id, name: f.name,
+      qty, kcal: f.kcal, protein_g: f.protein_g, carbs_g: f.carbs_g, fat_g: f.fat_g,
+      unit: f.serving_desc, rest: false });
+  }
+  renderNSheetList();
+}
+// Dominant calorie source: protein / carbs / fats (computed, nothing to maintain)
+function nMacroClass(f) {
+  const pk = 4 * (f.protein_g || 0), ck = 4 * (f.carbs_g || 0), fk = 9 * (f.fat_g || 0);
+  if (pk >= ck && pk >= fk) return 'protein';
+  if (ck >= fk) return 'carbs';
+  return 'fats';
 }

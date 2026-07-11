@@ -190,6 +190,13 @@ async function nLoadAll() {
     else NS.addedLogs.push(l);
   }
 
+  // Recipe components (per-ingredient Tweak feature) — tolerate missing table
+  NS.components = {};
+  try {
+    const { data: comps } = await ndb.from('recipe_components').select('recipe_id,food_item_id,qty');
+    for (const c of (comps || [])) (NS.components[c.recipe_id] ||= []).push(c);
+  } catch (_) {}
+
   // My check-in for this plan week (drives the Sunday prompt card)
   const { data: ci } = await ndb.from('nutrition_checkins').select('*')
     .eq('athlete_id', meId).eq('week_of', wk).maybeSingle();
@@ -210,9 +217,17 @@ async function nLoadAll() {
 
   // Body metrics: today's entries + last date per metric (for prompts)
   NS.metricsToday = {}; NS.lastMetricDates = {};
-  const { data: bmToday } = await ndb.from('body_metrics').select('metric,value')
+  const { data: bmToday } = await ndb.from('body_metrics').select('metric,value,notes')
     .eq('athlete_id', meId).eq('log_date', nToday());
-  for (const r of (bmToday || [])) NS.metricsToday[r.metric] = r.value;
+  NS.metricsTodayNotes = {};
+  for (const r of (bmToday || [])) {
+    NS.metricsToday[r.metric] = r.value;
+    NS.metricsTodayNotes[r.metric] = r.notes;
+  }
+  const { data: lastW } = await ndb.from('body_metrics').select('value')
+    .eq('athlete_id', meId).eq('metric', 'weight')
+    .order('log_date', { ascending: false }).limit(1);
+  NS.lastWeight = lastW && lastW.length ? parseFloat(lastW[0].value) : null;
   const watch = ['weight', ...(NS.settings?.measurement_metrics || [])];
   for (const metric of watch) {
     const { data: last } = await ndb.from('body_metrics').select('log_date')
