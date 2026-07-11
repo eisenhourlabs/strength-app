@@ -79,7 +79,11 @@ let S = {
   checkin: null,
 };
 
-function today() { return new Date().toISOString().split('T')[0]; }
+function today() {
+  // Local date — toISOString() is UTC and rolls to tomorrow after ~6-7pm CT
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 // ── Pattern filter state ──────────────────────────────────────────────────────
 let isOffline = !navigator.onLine;

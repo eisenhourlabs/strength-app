@@ -85,16 +85,20 @@ function nBudgetHtml(dateStr) {
   const { kcal, protein, approx } = nDayTotals(dateStr);
   const expected = nExpectedSoFar(dateStr);
   const dayCls = nTrackClass(kcal, expected);
-  const dayPct = Math.min(100, Math.round(100 * kcal / t.kcal_target));
-  const remaining = t.kcal_target - kcal;
+  // The bar runs against what's PLANNED for the day; the target is context.
+  // Planned days intentionally land within ~±100 kcal of target, not exactly on it.
+  const plannedToday = Math.round(nMyMeals(dateStr).reduce((s, m) => s + m.planned_kcal, 0)) || t.kcal_target;
+  const dayPct = Math.min(100, Math.round(100 * kcal / plannedToday));
+  const remaining = plannedToday - kcal;
   const pRemain = Math.max(0, t.protein_g_low - protein);
   const tilde = approx ? '~' : '';
 
   const wk = nWeekStats();
-  const wkTarget = t.kcal_target * 7;
+  const wkPlanned = Math.round(NS.meals.filter(m => m.athlete_id === NS.me.id)
+    .reduce((s, m) => s + m.planned_kcal, 0)) || t.kcal_target * 7;
   const wkCls = nTrackClass(wk.actual, wk.expected);
-  const wkPct = Math.min(100, Math.round(100 * wk.actual / wkTarget));
-  const wkLeft = wkTarget - wk.actual;
+  const wkPct = Math.min(100, Math.round(100 * wk.actual / wkPlanned));
+  const wkLeft = wkPlanned - wk.actual;
 
   let hint = '';
   const dayDiff = kcal - expected;
@@ -104,13 +108,14 @@ function nBudgetHtml(dateStr) {
     hint = `<div class="n-budget-hint">~${-dayDiff} under planned-so-far — under-eating isn't a win in this phase; eat your meals</div>`;
 
   return `<div class="n-budget" style="margin-bottom:10px">
-    <div class="n-budget-kcal"><span>Today ${tilde}${kcal.toLocaleString()} / ${t.kcal_target.toLocaleString()}</span>
+    <div class="n-budget-kcal"><span>Today ${tilde}${kcal.toLocaleString()} / ${plannedToday.toLocaleString()} planned</span>
       <span style="font-size:12px;font-weight:400;color:var(--n-muted)">P ${tilde}${protein} / ${t.protein_g_low}–${t.protein_g_high}g</span></div>
     <div class="n-budget-bar"><div class="n-budget-fill ${dayCls}" style="width:${dayPct}%"></div></div>
-    <div class="n-budget-row2"><span>Week ${wk.approx ? '~' : ''}${wk.actual.toLocaleString()} / ${wkTarget.toLocaleString()}</span>
-      <span>${wkLeft > 0 ? '~' + wkLeft.toLocaleString() + ' left this week' : 'week budget spent'}</span></div>
+    <div class="n-budget-row2"><span>Week ${wk.approx ? '~' : ''}${wk.actual.toLocaleString()} / ${wkPlanned.toLocaleString()} planned</span>
+      <span>${wkLeft > 0 ? '~' + wkLeft.toLocaleString() + ' left this week' : 'week plan complete'}</span></div>
     <div class="n-bar-slim"><div class="n-budget-fill ${wkCls}" style="width:${wkPct}%"></div></div>
-    <div class="n-budget-remaining">Remaining today: <b>${remaining > 0 ? '~' + remaining.toLocaleString() + ' kcal' : 'at target'}</b>
+    <div class="n-budget-remaining">Remaining today: <b>${remaining > 0 ? '~' + remaining.toLocaleString() + ' kcal' : 'plan complete ✓'}</b>
+      · day target ${t.kcal_target.toLocaleString()}
       ${pRemain > 0 ? ` · ~${pRemain}g protein to floor` : ' · protein floor met ✓'}</div>
     ${hint}</div>`;
 }

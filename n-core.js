@@ -33,17 +33,21 @@ let NS = {
   selDay: null,        // week screen selected day
 };
 
-// ── Date helpers ──
-function nToday() { return new Date().toISOString().split('T')[0]; }
+// ── Date helpers — LOCAL time throughout (toISOString is UTC and rolls the
+//    date forward in the evening for US timezones; see 2026-07-10 bug) ──
+function nYMD(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function nToday() { return nYMD(new Date()); }
 function nMonday(dstr) {
   const d = new Date(dstr + 'T12:00:00');
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-  return d.toISOString().split('T')[0];
+  return nYMD(d);
 }
 function nAddDays(dstr, n) {
   const d = new Date(dstr + 'T12:00:00');
   d.setDate(d.getDate() + n);
-  return d.toISOString().split('T')[0];
+  return nYMD(d);
 }
 function nDayName(dstr, short) {
   const d = new Date(dstr + 'T12:00:00');
