@@ -138,6 +138,7 @@ function nMeasurementsDue() {
 }
 function nPromptCardsHtml() {
   let html = '';
+  html += nFreezerCardsHtml();   // 🧊 freezer pulls first — most time-sensitive
   const day = nDayName(nToday(), true);
   if (day === 'Sun' && !NS.checkin && !NS.dismissed.checkin) {
     html += `<div class="n-prompt"><div class="n-prompt-title">📝 Weekly check-in day</div>

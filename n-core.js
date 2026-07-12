@@ -26,6 +26,7 @@ let NS = {
   recipes: [],         // active recipes
   foods: [],           // active food_items
   grocery: { list: null, items: [] },
+  freezerPulls: [],   // household-shared thaw nudges (n-freezer.js)
   metricsToday: {},    // metric -> value logged today (me)
   lastMetricDates: {}, // metric -> last log date (me)
   dismissed: {},       // prompt-card session dismissals
@@ -218,6 +219,15 @@ async function nLoadAll() {
       .eq('list_id', gl.id).order('category').order('sort_order');
     NS.grocery.items = gi || [];
   }
+
+  // Freezer pulls: household-shared thaw nudges. Tolerate a missing table so the
+  // app still runs before the 2026-07-11_freezer_pulls migration is applied.
+  NS.freezerPulls = [];
+  try {
+    const { data: fps } = await ndb.from('freezer_pulls').select('*')
+      .eq('household_id', NS.me.household_id).eq('is_checked', false).order('prep_date');
+    NS.freezerPulls = fps || [];
+  } catch (_) {}
 
   // Body metrics: today's entries + last date per metric (for prompts)
   NS.metricsToday = {}; NS.lastMetricDates = {};
