@@ -231,3 +231,12 @@ body { background: var(--n-bg) !important; color: var(--n-text); }
 .n-rec-pull { display:flex; justify-content:space-between; gap:10px; font-size:13px; padding:5px 0; border-bottom:1px dashed var(--n-border); }
 .n-rec-pullqty { color:var(--n-text); font-weight:600; white-space:nowrap; }
 .n-rec-pullnote { font-size:12px; color:var(--n-muted); margin-top:6px; }
+
+/* ── Freezer inventory ── */
+.n-inv-person { display:flex; justify-content:space-between; align-items:baseline; margin:8px 0 4px; font-size:14px; color:var(--n-text); }
+.n-inv-count { font-size:12px; color:var(--n-muted); }
+.n-inv-empty { font-size:12px; color:var(--n-muted); padding:2px 0 4px; }
+.n-inv-item { display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px dashed var(--n-border); }
+.n-inv-qty { font-weight:700; color:var(--n-text); font-size:13px; min-width:28px; }
+.n-inv-name { flex:1; font-size:14px; color:var(--n-text); min-width:0; }
+.n-inv-sub { color:var(--n-muted); font-size:12px; }

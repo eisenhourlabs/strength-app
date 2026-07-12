@@ -54,6 +54,7 @@ function renderNWeek() {
   if (NS.planWeek?.prep_plan)
     html += `<div class="n-panel"><div class="n-panel-title">🔪 Prep plan</div><pre>${nEsc(NS.planWeek.prep_plan)}</pre></div>`;
   html += nFreezerWeekHtml();
+  html += nInvWeekHtml();
   if (NS.planWeek?.week_notes)
     html += `<div class="n-panel"><div class="n-panel-title">📌 This week</div><pre>${nEsc(NS.planWeek.week_notes)}</pre></div>`;
   if (NS.planWeek?.coach_notes)

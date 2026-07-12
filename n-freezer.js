@@ -5,7 +5,7 @@
 // show_date through its prep_date. Loaded in nLoadAll (n-core.js), rendered at the
 // top of the Today card stack (n-today.js) and read-only on the Week screen.
 
-const N_FP_BLOCK_LABEL = { wed: 'Wednesday prep', sun: 'Sunday prep' };
+const N_FP_BLOCK_LABEL = { wed: 'Wednesday prep', sun: 'Sunday prep', salmon_tue: 'Tuesday salmon', salmon_fri: 'Friday salmon', salmon_sat: 'Saturday salmon' };
 
 // Rows to surface today: not yet checked, and today is within [show_date, prep_date].
 function nFreezerDue() {

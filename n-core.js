@@ -27,6 +27,7 @@ let NS = {
   foods: [],           // active food_items
   grocery: { list: null, items: [] },
   freezerPulls: [],   // household-shared thaw nudges (n-freezer.js)
+  freezerInventory: [], // household-shared backup dinners (n-inventory.js)
   metricsToday: {},    // metric -> value logged today (me)
   lastMetricDates: {}, // metric -> last log date (me)
   dismissed: {},       // prompt-card session dismissals
@@ -228,6 +229,15 @@ async function nLoadAll() {
     const { data: fps } = await ndb.from('freezer_pulls').select('*')
       .eq('household_id', NS.me.household_id).eq('is_checked', false).order('prep_date');
     NS.freezerPulls = fps || [];
+  } catch (_) {}
+
+  // Freezer inventory: per-person backup dinners (n-inventory.js). Tolerate a
+  // missing table so the app runs before the 2026-07-12_freezer_inventory migration.
+  NS.freezerInventory = [];
+  try {
+    const { data: inv } = await ndb.from('freezer_inventory').select('*')
+      .eq('household_id', NS.me.household_id).gt('portions', 0).order('frozen_on');
+    NS.freezerInventory = inv || [];
   } catch (_) {}
 
   // Body metrics: today's entries + last date per metric (for prompts)

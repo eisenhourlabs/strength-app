@@ -42,6 +42,7 @@ function renderToday() {
   }
 
   html += nActivityCardHtml();
+  html += nInvPanelHtml(true);
   html += `<button class="n-act" style="width:100%;margin-top:10px" onclick="openNSheet('add', null)">+ Add food</button>`;
   body.innerHTML = html;
 }
@@ -139,6 +140,7 @@ function nMeasurementsDue() {
 function nPromptCardsHtml() {
   let html = '';
   html += nFreezerCardsHtml();   // 🧊 freezer pulls first — most time-sensitive
+  html += nFreezerStockCardsHtml();  // 🧊 prep-night 'set aside to freeze' confirms
   const day = nDayName(nToday(), true);
   if (day === 'Sun' && !NS.checkin && !NS.dismissed.checkin) {
     html += `<div class="n-prompt"><div class="n-prompt-title">📝 Weekly check-in day</div>
