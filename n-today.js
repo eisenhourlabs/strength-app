@@ -234,7 +234,7 @@ function nMealCardHtml(m) {
   return `<div class="n-meal">
     <div class="n-meal-top"><span class="n-meal-slot">${slotLabel}</span>
       <span class="n-meal-kcal">${Math.round(m.planned_kcal)} kcal · ${Math.round(m.planned_protein_g)}P · ${Math.round(m.planned_carbs_g)}C · ${Math.round(m.planned_fat_g)}F</span></div>
-    <div class="n-meal-name">${nEsc(name)}</div>
+    <div class="n-meal-name">${m.recipe_id ? `<span class="n-rec-linkable" onclick="event.stopPropagation();nOpenRecipe('${m.recipe_id}')">${nEsc(name)} <span class="n-rec-linkicon">📖</span></span>` : nEsc(name)}</div>
     ${m.portion_note ? `<div class="n-meal-portion">${nEsc(m.portion_note)}</div>` : ''}
     ${badges ? `<div class="n-meal-badges">${badges}</div>` : ''}
     ${m.coach_note ? `<div class="n-meal-note">${nEsc(m.coach_note)}</div>` : ''}

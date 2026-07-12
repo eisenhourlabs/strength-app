@@ -5,6 +5,7 @@
 
 let N_REC_SEL = null;   // selected recipe id (detail view) or null (list)
 let N_REC_Q = '';       // list search query
+let N_REC_FILTER = ''; // '', breakfast, lunch, dinner, keeper
 
 function nRecById(id) { return (NS.recipes || []).find(r => r.id === id) || null; }
 function nFoodById(id) { return (NS.foods || []).find(f => f.id === id) || null; }
@@ -36,7 +37,19 @@ function nScaleServing(desc, factor) {
 // "Pull / cook this much" list for the current week's batch of a recipe.
 function nRecipeBatchHtml(r) {
   const { total, byDate } = nRecipeWeekServings(r.id);
-  if (!total) {
+  // Freeze extras planned for this recipe this week, expressed in recipe-servings
+  // via each portion's kcal ÷ the recipe's per-serving kcal (honest for 60/40 sizes).
+  const stock = Array.isArray(NS.planWeek && NS.planWeek.freezer_stock) ? NS.planWeek.freezer_stock : [];
+  const perServ = Number(r.kcal_per_serving) || 0;
+  let freezePortions = 0, freezeServings = 0;
+  for (const e of stock) {
+    if (e.recipe !== r.name) continue;
+    const n = Number(e.portions) || 0;
+    freezePortions += n;
+    freezeServings += perServ ? n * ((Number(e.kcal) || perServ) / perServ) : n;
+  }
+  const grand = total + freezeServings;
+  if (!grand) {
     return `<div class="n-panel"><div class="n-panel-title">📦 This week's batch</div>
       <div style="font-size:13px;color:var(--n-muted)">Not on this week's plan.</div></div>`;
   }
@@ -45,16 +58,19 @@ function nRecipeBatchHtml(r) {
   for (const c of comps) {
     const f = nFoodById(c.food_item_id);
     if (!f) continue;
-    const amount = nScaleServing(f.serving_desc, total * (Number(c.qty) || 0));
+    const amount = nScaleServing(f.serving_desc, grand * (Number(c.qty) || 0));
     pulls += `<div class="n-rec-pull"><span>${nEsc(f.name)}</span><span class="n-rec-pullqty">${nEsc(amount)}</span></div>`;
   }
   const dates = Object.keys(byDate).sort()
     .map(d => `${nDayName(d, true)} (${Math.round(byDate[d] * 100) / 100}×)`).join(' · ');
+  const breakdown = freezePortions
+    ? `${Math.round(total * 100) / 100} for dinners${dates ? ' (' + dates + ')' : ''} + ${freezePortions} to freeze`
+    : (dates || 'this week');
   return `<div class="n-panel"><div class="n-panel-title">📦 This week's batch</div>
-    <div class="n-rec-batchline">Cooking <b>${Math.round(total * 100) / 100} servings</b> — ${nEsc(dates)}</div>
+    <div class="n-rec-batchline">Cooking <b>${Math.round(grand * 100) / 100} servings</b> — ${nEsc(breakdown)}</div>
     ${pulls ? `<div class="n-rec-pulls">${pulls}</div>`
             : `<div style="font-size:12px;color:var(--n-muted)">Add a <code>Components:</code> line to this recipe for an exact pull list.</div>`}
-    <div class="n-rec-pullnote">Scaled from the plan's servings — add any extras to freeze on top of this.</div></div>`;
+    <div class="n-rec-pullnote">Pull list includes the portions you're freezing this block.</div></div>`;
 }
 
 function nRecipeDetailHtml(r) {
@@ -83,6 +99,8 @@ function nRecipeRowsHtml() {
     r.name.toLowerCase().includes(q) ||
     (r.tags || []).some(t => String(t).toLowerCase().includes(q)) ||
     (r.best_meal_slots || []).some(s => String(s).toLowerCase().includes(q)));
+  if (N_REC_FILTER === 'keeper') recs = recs.filter(r => r.is_keeper);
+  else if (N_REC_FILTER) recs = recs.filter(r => (r.best_meal_slots || []).includes(N_REC_FILTER));
   if (!recs.length) return `<div class="n-panel">No recipes match “${nEsc(N_REC_Q)}”.</div>`;
   return recs.map(r => {
     const slots = (r.best_meal_slots || []).join(', ');
@@ -95,10 +113,14 @@ function nRecipeRowsHtml() {
 }
 
 function nRecipeListHtml() {
+  const chips = [['', 'All'], ['breakfast', 'Breakfast'], ['lunch', 'Lunch'], ['dinner', 'Dinner'], ['keeper', 'Keepers']]
+    .map(([v, l]) => `<button class="n-chip${N_REC_FILTER === v ? ' active' : ''}" onclick="nRecipeSetFilter('${v}')">${l}</button>`).join('');
   return `<input type="text" class="n-search" placeholder="Search recipes…" value="${nEsc(N_REC_Q)}"
       oninput="N_REC_Q=this.value;nRecipeListRender()">
+    <div class="n-rec-chips">${chips}</div>
     <div id="n-rec-list">${nRecipeRowsHtml()}</div>`;
 }
+function nRecipeSetFilter(v) { N_REC_FILTER = v; renderRecipes(); }
 
 // Re-render only the list so the search box keeps focus between keystrokes.
 function nRecipeListRender() {
@@ -117,6 +139,13 @@ function renderRecipes() {
     N_REC_SEL = null;
   }
   body.innerHTML = nRecipeListHtml();
+}
+
+// Deep-link helper: open a recipe by id (used by tappable meal names).
+function nOpenRecipe(id) {
+  nShowTab('recipes');
+  N_REC_SEL = id;
+  renderRecipes();
 }
 
 // Deep-link helper: open a recipe by exact library name (used by prep links).

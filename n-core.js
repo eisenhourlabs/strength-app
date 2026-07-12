@@ -15,7 +15,7 @@ let NS = {
   user: null,
   me: null,            // my athletes row
   household: [],       // all athletes rows in my household (incl. me)
-  weekOf: null,        // Monday of current week (YYYY-MM-DD)
+  weekOf: null,        // Wednesday = start of nutrition week (Wed->Tue)
   target: null,        // my nutrition_targets row for this week
   planWeek: null,      // meal_plan_weeks row
   meals: [],           // planned_meals, whole household, whole week
@@ -44,6 +44,12 @@ function nToday() { return nYMD(new Date()); }
 function nMonday(dstr) {
   const d = new Date(dstr + 'T12:00:00');
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return nYMD(d);
+}
+// Nutrition week starts Wednesday (Wed->Tue). Anchor = most recent Wed on/before dstr.
+function nWednesday(dstr) {
+  const d = new Date(dstr + 'T12:00:00');
+  d.setDate(d.getDate() - ((d.getDay() + 4) % 7));
   return nYMD(d);
 }
 function nAddDays(dstr, n) {
@@ -136,7 +142,7 @@ async function nInit(user) {
 
     // Use the household's active plan week if one exists (plans are pushed
     // for upcoming weeks); fall back to the calendar week.
-    NS.weekOf = nMonday(nToday());
+    NS.weekOf = nWednesday(nToday());
     try {
       const { data: aw } = await ndb.from('meal_plan_weeks').select('week_of')
         .eq('status', 'active').order('week_of');

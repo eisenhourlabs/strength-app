@@ -17,7 +17,12 @@ function nInvCount(aid) { return nInvForAthlete(aid).reduce((s, r) => s + (r.por
 // The inventory panel. interactive=true shows "Use" on the current user's own rows.
 function nInvPanelHtml(interactive) {
   const anyRows = nInvRows().length;
-  if (!anyRows && !interactive) return '';
+  if (!anyRows) {
+    if (!interactive) return '';
+    const summary = (NS.household || []).map(a => `${nEsc(a.name)} ${nInvCount(a.id)}/${N_INV_TARGET}`).join(' · ');
+    return `<div class="n-panel"><div class="n-panel-title">🧊 Freezer inventory</div>
+      <div class="n-inv-empty">Building up backup dinners — target ${N_INV_TARGET} each. ${summary}</div></div>`;
+  }
   let body = '';
   for (const a of (NS.household || [])) {
     const mine = a.id === NS.me.id;
