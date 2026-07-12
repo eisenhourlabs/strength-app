@@ -150,7 +150,8 @@ function nPromptCardsHtml() {
   if ((day === 'Sun' || day === 'Wed') && NS.planWeek?.prep_plan && !NS.dismissed.prep) {
     html += `<div class="n-prompt"><div class="n-prompt-title">🔪 Prep night
       <button class="n-prompt-dismiss" onclick="NS.dismissed.prep=1;renderToday()">done</button></div>
-      <div style="font-size:13px;color:var(--n-text);white-space:pre-wrap">${nEsc(NS.planWeek.prep_plan)}</div></div>`;
+      <div style="font-size:13px;color:var(--n-text);white-space:pre-wrap">${nEsc(NS.planWeek.prep_plan)}</div>
+      <div class="n-prompt-row" style="margin-top:8px"><button class="n-act small" onclick="nShowTab('recipes')">📖 Open Recipe Book</button></div></div>`;
   }
   if (nWeighInDueToday()) {
     html += `<div class="n-prompt"><div class="n-prompt-title">⚖️ Weigh-in day</div>

@@ -108,12 +108,25 @@
   <div class="body n-body" id="ntrends-body"><div class="spinner">Loading…</div></div>
 </div>
 
+<!-- ══════════════════ RECIPES ══════════════════ -->
+<div class="screen" id="screen-recipes">
+  <div class="header">
+    <div>
+      <div class="header-title">Recipes</div>
+      <div class="header-sub" id="recipes-sub"></div>
+    </div>
+  </div>
+  <div class="body n-body" id="recipes-body"><div class="spinner">Loading…</div></div>
+</div>
+
 <!-- ══════════════════ TAB BAR ══════════════════ -->
 <div class="n-tabbar" id="n-tabbar" style="display:none">
   <button class="n-tab active" id="tab-today" onclick="nShowTab('today')">
     <span class="n-tab-icon">🍽</span>Today</button>
   <button class="n-tab" id="tab-nweek" onclick="nShowTab('nweek')">
     <span class="n-tab-icon">📅</span>Week</button>
+  <button class="n-tab" id="tab-recipes" onclick="nShowTab('recipes')">
+    <span class="n-tab-icon">📖</span>Recipes</button>
   <button class="n-tab" id="tab-grocery" onclick="nShowTab('grocery')">
     <span class="n-tab-icon">🛒</span>Grocery</button>
   <button class="n-tab" id="tab-ntrends" onclick="nShowTab('ntrends')">
@@ -157,6 +170,7 @@
 <script src="n-checkin.js"></script>
 <script src="n-trends.js"></script>
 <script src="n-freezer.js"></script>
+<script src="n-recipes.js"></script>
 <script src="n-week.js"></script>
 </body>
 </html>
