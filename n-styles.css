@@ -211,6 +211,17 @@ body { background: var(--n-bg) !important; color: var(--n-text); }
 .n-gcheck { font-size: 17px; width: 22px; text-align: center; flex: 0 0 auto; }
 .n-gname { font-size: 14px; color: var(--n-text); flex: 1; }
 .n-gqty { font-size: 12px; color: var(--n-muted); }
+.n-gsection { font-size: 13px; letter-spacing: 1.5px; font-weight: 800; color: var(--n-text); margin: 18px 0 2px; display: flex; align-items: baseline; gap: 8px; }
+.n-gsection:first-child { margin-top: 4px; }
+.n-gprog { font-size: 11px; font-weight: 600; letter-spacing: 0; color: var(--n-muted); }
+.n-ghint { font-size: 11.5px; color: var(--n-muted); margin: 2px 0 6px; }
+.n-gstock { gap: 8px; }
+.n-guse { display: block; font-size: 11.5px; color: var(--n-muted); font-weight: 400; }
+.n-gbtn { border: 1px solid var(--n-border); background: #fff; border-radius: 9px; padding: 7px 10px; font-size: 12.5px; font-weight: 600; cursor: pointer; flex: 0 0 auto; }
+.n-gbtn.have { color: #1a7f37; border-color: #1a7f3755; }
+.n-gbtn.need { color: #b35900; border-color: #b3590055; }
+.n-gstock.decided { opacity: .55; }
+.n-gstock.decided.have .n-gname { text-decoration: line-through; }
 .n-gadd { display: flex; gap: 6px; margin-top: 14px; }
 .n-gadd input { flex: 1; background: #fff; border: 1px solid var(--n-border); color: var(--n-text); border-radius: 9px; padding: 10px 12px; font-size: 14px; }
 .n-gadd select { background: #fff; border: 1px solid var(--n-border); color: var(--n-text); border-radius: 9px; font-size: 13px; padding: 0 6px; }
