@@ -434,3 +434,65 @@ function nUpdateOffline() {
 }
 window.addEventListener('offline', () => { nOffline = true; nUpdateOffline(); });
 window.addEventListener('online',  () => { nOffline = false; nUpdateOffline(); });
+// ══════════════ Prep plan parsing + persistent dismissals (prep UX phase 1) ══════════════
+// prep_plan text convention: blocks separated by blank lines; a block whose first
+// line contains a date like "7/15" is pinned to that date in the plan week.
+// Undated sections (e.g. the salmon note) are shown as a footer on every prep card.
+function nPrepBlocks() {
+  const txt = NS.planWeek?.prep_plan;
+  if (!txt) return { dated: [], notes: [] };
+  const dated = [], notes = [];
+  for (const sec of txt.split(/\n\s*\n/)) {
+    const lines = sec.split('\n').map(s => s.trim()).filter(Boolean);
+    if (!lines.length) continue;
+    const m = lines[0].match(/(\d{1,2})\/(\d{1,2})/);
+    let date = null;
+    if (m) {
+      const yr = +NS.weekOf.slice(0, 4);
+      for (const y of [yr, yr + 1]) {
+        const d = `${y}-${String(+m[1]).padStart(2, '0')}-${String(+m[2]).padStart(2, '0')}`;
+        if (d >= NS.weekOf && d <= nAddDays(NS.weekOf, 6)) { date = d; break; }
+      }
+    }
+    if (date) dated.push({ date, head: lines[0], steps: lines.slice(1) });
+    else notes.push(lines.join('\n'));
+  }
+  dated.sort((a, b) => a.date.localeCompare(b.date));
+  return { dated, notes };
+}
+
+// Persistent dismissal — survives reloads; scoped to plan week.
+function nDismissedLS(key) {
+  try { return localStorage.getItem(`n_dismiss_${NS.weekOf}_${key}`) === '1'; } catch (e) { return false; }
+}
+function nDismissLS(key) {
+  try { localStorage.setItem(`n_dismiss_${NS.weekOf}_${key}`, '1'); } catch (e) {}
+}
+
+// One prep step line -> html row. Bolds the leading "when —" / "label:" prefix.
+function nPrepStepHtml(line) {
+  let cut = line.indexOf('—'), sep = ' —';
+  if (cut < 0 || cut > 28) { cut = line.indexOf(':'); sep = ':'; }
+  let inner;
+  if (cut > 0 && cut <= 28)
+    inner = `<b>${nEsc(line.slice(0, cut).trim())}${sep}</b> ${nEsc(line.slice(cut + 1).trim())}`;
+  else inner = nEsc(line);
+  return `<div class="n-prep-step">${inner}</div>`;
+}
+
+// Recipe deep-link buttons for any exact library names mentioned in the block.
+function nPrepRecipeLinks(block) {
+  const txt = (block.head + '\n' + block.steps.join('\n')).toLowerCase();
+  const hits = (NS.recipes || []).filter(r => r.name && txt.includes(r.name.toLowerCase()));
+  if (!hits.length) return '';
+  return `<div class="n-prompt-row" style="margin-top:8px">` +
+    hits.map(r => `<button class="n-act small" onclick="nOpenRecipe('${r.id}')">📖 ${nEsc(r.name)}</button>`).join(' ') + `</div>`;
+}
+
+// Full prep-block card body (head + steps + shared notes + recipe links).
+function nPrepBlockBodyHtml(blk, notes) {
+  return `<div class="n-prep-head">${nEsc(blk.head)}</div>` +
+    blk.steps.map(nPrepStepHtml).join('') +
+    (notes || []).map(n => `<div class="n-prep-note">${nEsc(n)}</div>`).join('') +
+    nPrepRecipeLinks(blk);
+}

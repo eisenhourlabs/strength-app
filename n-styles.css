@@ -256,3 +256,9 @@ body { background: var(--n-bg) !important; color: var(--n-text); }
 .n-rec-chips { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0; }
 .n-rec-linkable { cursor:pointer; }
 .n-rec-linkicon { font-size:12px; opacity:0.65; }
+/* ── Prep plan cards (prep UX phase 1) ── */
+.n-prep-head { font-weight: 700; font-size: 14px; margin: 2px 0 6px; color: var(--n-text); }
+.n-prep-step { font-size: 14px; line-height: 1.45; padding: 3px 0; color: var(--n-text); }
+.n-prep-step b { font-weight: 600; }
+.n-prep-note { font-size: 13px; color: var(--n-muted); margin-top: 8px; white-space: pre-wrap; }
+.n-prep-next { cursor: pointer; font-size: 13px; }

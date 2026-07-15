@@ -50,9 +50,22 @@ function renderNWeek() {
   html += `<div class="n-wk-meal" style="border-top:1px solid var(--n-border)"><span class="n-wk-slot">planned</span>
     <span class="n-wk-name"></span><span class="n-wk-kcal"><b>${Math.round(dayTotal)} kcal</b></span></div></div>`;
 
-  // Prep plan + notes (household)
-  if (NS.planWeek?.prep_plan)
-    html += `<div class="n-panel"><div class="n-panel-title">🔪 Prep plan</div><pre>${nEsc(NS.planWeek.prep_plan)}</pre></div>`;
+  // Prep plan (household) — full card only when the selected day is a prep day;
+  // otherwise a one-line pointer to the next prep day. Legacy text falls back
+  // to the old always-on panel only on Sun/Wed.
+  if (NS.planWeek?.prep_plan) {
+    const { dated, notes } = nPrepBlocks();
+    const blk = dated.find(b => b.date === NS.selDay);
+    if (blk) {
+      html += `<div class="n-panel"><div class="n-panel-title">🔪 Prep plan</div>${nPrepBlockBodyHtml(blk, notes)}</div>`;
+    } else if (dated.length) {
+      const next = dated.find(b => b.date >= nToday()) || dated[dated.length - 1];
+      const label = next.date >= nToday() ? 'Next prep' : 'Last prep';
+      html += `<div class="n-panel n-prep-next" onclick="NS.selDay='${next.date}';renderNWeek()">🔪 ${label}: <b>${nEsc(next.head.split('(')[0].trim())}</b> · tap to view</div>`;
+    } else if (['Sun', 'Wed'].includes(nDayName(NS.selDay, true))) {
+      html += `<div class="n-panel"><div class="n-panel-title">🔪 Prep plan</div><pre>${nEsc(NS.planWeek.prep_plan)}</pre></div>`;
+    }
+  }
   html += nFreezerWeekHtml();
   html += nInvWeekHtml();
   if (NS.planWeek?.week_notes)

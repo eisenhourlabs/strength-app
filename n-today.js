@@ -149,11 +149,28 @@ function nPromptCardsHtml() {
         <button class="n-prompt-dismiss" onclick="NS.dismissed.checkin=1;renderToday()">later</button>
       </div></div>`;
   }
-  if ((day === 'Sun' || day === 'Wed') && NS.planWeek?.prep_plan && !NS.dismissed.prep) {
-    html += `<div class="n-prompt"><div class="n-prompt-title">🔪 Prep night
-      <button class="n-prompt-dismiss" onclick="NS.dismissed.prep=1;renderToday()">done</button></div>
-      <div style="font-size:13px;color:var(--n-text);white-space:pre-wrap">${nEsc(NS.planWeek.prep_plan)}</div>
-      <div class="n-prompt-row" style="margin-top:8px"><button class="n-act small" onclick="nShowTab('recipes')">📖 Open Recipe Book</button></div></div>`;
+  // Prep cards: full checklist on the prep day, thaw heads-up the evening before.
+  // Dates come from the prep_plan block headers (nPrepBlocks); dismissals persist.
+  {
+    const { dated: prepBlocks, notes: prepNotes } = nPrepBlocks();
+    const todayBlk = prepBlocks.find(b => b.date === nToday());
+    const tmrwBlk = prepBlocks.find(b => b.date === nAddDays(nToday(), 1));
+    if (todayBlk && !nDismissedLS('prep_' + todayBlk.date)) {
+      html += `<div class="n-prompt"><div class="n-prompt-title">🔪 Prep day
+        <button class="n-prompt-dismiss" onclick="nDismissLS('prep_${todayBlk.date}');renderToday()">done</button></div>
+        ${nPrepBlockBodyHtml(todayBlk, prepNotes)}</div>`;
+    } else if (tmrwBlk && !nDismissedLS('prephu_' + tmrwBlk.date)) {
+      html += `<div class="n-prompt"><div class="n-prompt-title">🔪 Prep tomorrow
+        <button class="n-prompt-dismiss" onclick="nDismissLS('prephu_${tmrwBlk.date}');renderToday()">got it</button></div>
+        <div class="n-prep-head">${nEsc(tmrwBlk.head)}</div>
+        ${tmrwBlk.steps.length ? nPrepStepHtml(tmrwBlk.steps[0]) : ''}</div>`;
+    } else if (!prepBlocks.length && (day === 'Sun' || day === 'Wed') && NS.planWeek?.prep_plan && !NS.dismissed.prep) {
+      // Legacy fallback: prep_plan text without parseable dated blocks.
+      html += `<div class="n-prompt"><div class="n-prompt-title">🔪 Prep night
+        <button class="n-prompt-dismiss" onclick="NS.dismissed.prep=1;renderToday()">done</button></div>
+        <div style="font-size:13px;color:var(--n-text);white-space:pre-wrap">${nEsc(NS.planWeek.prep_plan)}</div>
+        <div class="n-prompt-row" style="margin-top:8px"><button class="n-act small" onclick="nShowTab('recipes')">📖 Open Recipe Book</button></div></div>`;
+    }
   }
   if (nWeighInDueToday()) {
     html += `<div class="n-prompt"><div class="n-prompt-title">⚖️ Weigh-in day</div>
