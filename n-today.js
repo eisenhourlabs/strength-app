@@ -6,6 +6,7 @@ const N_STATUS_LABEL = {
 };
 const N_STATUS_ICON = { as_planned: '✓', swapped: '⇄', skipped: '✕', ate_out: '🍴', added: '+' };
 const N_PORTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+const N_PENDING = {};   // pre-log portion selection, keyed by planned-meal id
 let N_OPEN = {};   // expanded logged-card ids (session only)
 
 // ── Render ──
@@ -210,6 +211,7 @@ function nToggleCard(id) { N_OPEN[id] = !N_OPEN[id]; renderToday(); }
 
 function nMealCardHtml(m) {
   const log = NS.logs[m.id];
+  const pend = N_PENDING[m.id] || 1;
   const name = nMealName(m);
   const partner = nSharedPartner(m);
   const slotLabel = m.meal_slot === 'snack' ? `snack ${m.slot_order > 1 ? m.slot_order : ''}` : m.meal_slot;
@@ -255,8 +257,10 @@ function nMealCardHtml(m) {
     ${m.portion_note ? `<div class="n-meal-portion">${nEsc(m.portion_note)}</div>` : ''}
     ${badges ? `<div class="n-meal-badges">${badges}</div>` : ''}
     ${m.coach_note ? `<div class="n-meal-note">${nEsc(m.coach_note)}</div>` : ''}
+    <div class="n-portion-chips">${N_PORTIONS.map(p =>
+      `<button class="n-chip${pend === p ? ' active' : ''}" onclick="nPickPending('${m.id}',${p})">${p}×</button>`).join('')}</div>
     <div class="n-meal-actions">
-      <button class="n-act primary" onclick="quickLog('${m.id}')">✓ Ate it</button>
+      <button class="n-act primary" onclick="quickLog('${m.id}')">✓ Ate it${pend !== 1 ? ` (${pend}×)` : ''}</button>
       <button class="n-act" onclick="openNSheet('swap','${m.id}')">⇄ Swap</button>
       <button class="n-act" onclick="quickSkip('${m.id}')">Skip</button>
     </div></div>`;
@@ -308,10 +312,17 @@ async function nRemoveAdded(logId) {
 }
 
 function nFindMeal(id) { return NS.meals.find(m => m.id === id); }
+function nPickPending(mealId, p) { N_PENDING[mealId] = p; renderToday(); }
+// Kitchen-unit label for a Tweak basket item: qty x serving_desc -> "6 oz cooked" (no bare multiplier shown).
+function nKitchenAmt(it) {
+  const d = String(it.unit || 'serving');
+  return (typeof nScaleServing === 'function') ? nScaleServing(d, it.qty) : `${it.qty}x ${d}`;
+}
 
 async function quickLog(mealId) {
   const m = nFindMeal(mealId);
-  try { await nLogMeal(m, 'as_planned', null, 1.0); toast('Logged ✓'); renderToday(); }
+  const p = N_PENDING[mealId] || 1.0;
+  try { await nLogMeal(m, 'as_planned', null, p); delete N_PENDING[mealId]; toast('Logged ✓'); renderToday(); }
   catch (e) { if (e.message !== 'offline') toast('Save failed: ' + e.message, 4000); }
 }
 async function quickSkip(mealId) {
@@ -449,7 +460,7 @@ function renderNSheetList() {
   if (basket && basket.length) {
     const tot = nBasketTotals();
     const rows = basket.map((it, i) => `<div class="n-basket-row">
-      <span class="n-basket-name">${nEsc(it.name)} <span style="color:var(--n-muted);font-size:11px">(${nEsc(String(it.unit))})</span></span>
+      <span class="n-basket-name">${nEsc(it.name)} <span style="color:var(--n-muted);font-size:11px">${nEsc(nKitchenAmt(it))}</span></span>
       <input type="number" class="n-basket-qty" inputmode="decimal" step="0.25" min="0.25"
         value="${it.qty}" onchange="nBasketQty(${i}, this.value)">
       <button class="n-basket-x" onclick="nBasketRemove(${i})">✕</button></div>`).join('');
