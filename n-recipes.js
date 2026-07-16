@@ -34,11 +34,15 @@ function nScaleServing(desc, factor) {
   return `${q}${unit ? ' ' + unit : ''}`.trim();
 }
 
-// "Pull / cook this much" list for the current week's batch of a recipe.
+// This week's batch: how many servings to cook + the per-ingredient amounts.
+// Yield-aware: when a food carries a yield_factor (Phase 3), the pull list shows the RAW
+// quantity to buy/thaw (cooked / yield) with the cooked amount for reference; until yield
+// data exists the amount is the COOKED total, labelled as such — a cooked quantity is never
+// silently presented as a raw "pull this much" (fixes F2). Includes freeze extras (A2).
 function nRecipeBatchHtml(r) {
   const { total, byDate } = nRecipeWeekServings(r.id);
   // Freeze extras planned for this recipe this week, expressed in recipe-servings
-  // via each portion's kcal ÷ the recipe's per-serving kcal (honest for 60/40 sizes).
+  // via each portion's kcal / the recipe's per-serving kcal (honest for 60/40 sizes).
   const stock = Array.isArray(NS.planWeek && NS.planWeek.freezer_stock) ? NS.planWeek.freezer_stock : [];
   const perServ = Number(r.kcal_per_serving) || 0;
   let freezePortions = 0, freezeServings = 0;
@@ -54,23 +58,39 @@ function nRecipeBatchHtml(r) {
       <div style="font-size:13px;color:var(--n-muted)">Not on this week's plan.</div></div>`;
   }
   const comps = (NS.components || {})[r.id] || [];
-  let pulls = '';
+  let pulls = '', anyRaw = false, anyCookedOnly = false;
   for (const c of comps) {
     const f = nFoodById(c.food_item_id);
     if (!f) continue;
-    const amount = nScaleServing(f.serving_desc, grand * (Number(c.qty) || 0));
-    pulls += `<div class="n-rec-pull"><span>${nEsc(f.name)}</span><span class="n-rec-pullqty">${nEsc(amount)}</span></div>`;
+    const cookedFactor = grand * (Number(c.qty) || 0);
+    const cooked = nScaleServing(f.serving_desc, cookedFactor);
+    const yf = Number(f.yield_factor) || 0;
+    let qtyHtml;
+    if (yf > 0) {
+      anyRaw = true;
+      const raw = nScaleServing(f.serving_desc, cookedFactor / yf);
+      qtyHtml = `<span class="n-rec-pullqty">${nEsc(raw)} raw</span>`
+              + `<span style="margin-left:8px;color:var(--n-muted);font-size:11px">${nEsc(cooked)} cooked</span>`;
+    } else {
+      anyCookedOnly = true;
+      qtyHtml = `<span class="n-rec-pullqty">${nEsc(cooked)} cooked</span>`;
+    }
+    pulls += `<div class="n-rec-pull"><span>${nEsc(f.name)}</span>${qtyHtml}</div>`;
   }
   const dates = Object.keys(byDate).sort()
     .map(d => `${nDayName(d, true)} (${Math.round(byDate[d] * 100) / 100}×)`).join(' · ');
   const breakdown = freezePortions
     ? `${Math.round(total * 100) / 100} for dinners${dates ? ' (' + dates + ')' : ''} + ${freezePortions} to freeze`
     : (dates || 'this week');
+  const pullTitle = anyRaw ? 'Pull / buy (raw)' : 'Cook this much';
+  const note = anyCookedOnly
+    ? 'Amounts are COOKED totals — raw pull/purchase quantities appear once yield data is added (Phase 3).'
+    : 'Raw amounts to pull/buy (cooked / yield); includes the portions you are freezing this block.';
   return `<div class="n-panel"><div class="n-panel-title">📦 This week's batch</div>
     <div class="n-rec-batchline">Cooking <b>${Math.round(grand * 100) / 100} servings</b> — ${nEsc(breakdown)}</div>
-    ${pulls ? `<div class="n-rec-pulls">${pulls}</div>`
+    ${pulls ? `<div style="font-size:11px;color:var(--n-muted);margin:4px 0 2px;text-transform:uppercase;letter-spacing:.04em">${pullTitle}</div><div class="n-rec-pulls">${pulls}</div>`
             : `<div style="font-size:12px;color:var(--n-muted)">Add a <code>Components:</code> line to this recipe for an exact pull list.</div>`}
-    <div class="n-rec-pullnote">Pull list includes the portions you're freezing this block.</div></div>`;
+    <div class="n-rec-pullnote">${note}</div></div>`;
 }
 
 function nRecipeDetailHtml(r) {
