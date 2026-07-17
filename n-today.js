@@ -628,36 +628,49 @@ function nBw() { return NS.lastWeight || NS.metricsToday.weight || 165; }
 function nStepsKcal(steps) { return Math.round(steps * nBw() * 0.00023); }
 function nWorkoutKcal(min, type) { return Math.round(min * (N_WORKOUT_KCAL_MIN[type] || 0.03) * nBw()); }
 
+// Collapsed/logged rows reuse the .n-meal.done.compact treatment (green left
+// border, checkmark) from meal cards. Tap a logged row to re-expand it for editing;
+// N_OPEN keys 'act-steps' / 'act-workout' track that, same mechanism as nToggleCard.
 function nActivityCardHtml() {
   const steps = NS.metricsToday.steps;
   const wMin = NS.metricsToday.workout_min;
   const wType = (NS.metricsTodayNotes || {}).workout_min || '';
-  let summary = [];
-  if (steps != null) summary.push(`👟 ${Number(steps).toLocaleString()} steps (~${nStepsKcal(steps)} kcal)`);
-  if (wMin != null) summary.push(`💪 ${wMin} min ${nEsc(wType)} (~${nWorkoutKcal(wMin, wType)} kcal)`);
   const hint = NS.me.training_active
     ? 'Gym sessions from the strength app sync automatically — log only extra activity here.'
     : 'Log workouts here so they show in your trends.';
 
+  const stepsRow = (steps != null && !N_OPEN['act-steps'])
+    ? `<div class="n-meal done compact" style="margin-bottom:8px" onclick="nToggleCard('act-steps')">
+        <div class="n-done-row"><span class="n-done-check">✓</span>
+          <span class="n-done-name">👟 ${Number(steps).toLocaleString()} steps logged</span>
+          <span class="n-done-kcal">~${nStepsKcal(steps)} kcal</span></div></div>`
+    : `<div class="n-prompt-row" style="margin-bottom:8px">
+        <input type="number" inputmode="numeric" id="na-steps" placeholder="steps" value="${steps ?? ''}">
+        <button class="n-act small primary" onclick="submitSteps()">Save steps</button></div>`;
+
+  const workoutRow = (wMin != null && !N_OPEN['act-workout'])
+    ? `<div class="n-meal done compact" onclick="nToggleCard('act-workout')">
+        <div class="n-done-row"><span class="n-done-check">✓</span>
+          <span class="n-done-name">💪 ${wMin} min ${nEsc(wType)} logged</span>
+          <span class="n-done-kcal">~${nWorkoutKcal(wMin, wType)} kcal</span></div></div>`
+    : `<div class="n-prompt-row">
+        <input type="number" inputmode="numeric" id="na-wmin" placeholder="min" style="width:64px" value="${wMin ?? ''}">
+        ${Object.keys(N_WORKOUT_KCAL_MIN).map(k =>
+          `<button class="n-chip${wType === k ? ' active' : ''}" onclick="submitWorkout('${k}')">${k}</button>`).join('')}
+      </div>`;
+
   return `<div class="n-panel" style="margin-top:14px"><div class="n-panel-title">⚡ Activity today</div>
-    ${summary.length ? `<div style="font-size:13px;color:var(--n-text);margin-bottom:8px">${summary.join(' · ')}</div>` : ''}
     ${!NS.me.training_active ? `<div class="n-prompt-row" style="margin-bottom:8px">
       <input type="number" step="0.5" inputmode="decimal" id="na-sleep" placeholder="sleep last night (hrs)" value="${NS.sleepToday ?? ''}">
       <button class="n-act small primary" onclick="submitSleep()">Save sleep</button></div>` : ''}
-    <div class="n-prompt-row" style="margin-bottom:8px">
-      <input type="number" inputmode="numeric" id="na-steps" placeholder="steps" value="${steps ?? ''}">
-      <button class="n-act small primary" onclick="submitSteps()">Save steps</button></div>
-    <div class="n-prompt-row">
-      <input type="number" inputmode="numeric" id="na-wmin" placeholder="min" style="width:64px" value="${wMin ?? ''}">
-      ${Object.keys(N_WORKOUT_KCAL_MIN).map(k =>
-        `<button class="n-chip${wType === k ? ' active' : ''}" onclick="submitWorkout('${k}')">${k}</button>`).join('')}
-    </div>
+    ${stepsRow}
+    ${workoutRow}
     <div style="font-size:11px;color:var(--n-muted);margin-top:6px">${hint} Estimates are rough — they inform trends, not your calorie target.</div></div>`;
 }
 async function submitSteps() {
   const v = parseInt(document.getElementById('na-steps').value, 10);
   if (!v || v < 0 || v > 100000) { toast('Enter today\'s step count'); return; }
-  if (await nSaveMetric('steps', v, 'steps')) { toast('Steps saved ✓'); renderToday(); }
+  if (await nSaveMetric('steps', v, 'steps')) { N_OPEN['act-steps'] = false; toast('Steps saved ✓'); renderToday(); }
 }
 async function submitWorkout(type) {
   const min = parseInt(document.getElementById('na-wmin').value, 10);
@@ -670,6 +683,7 @@ async function submitWorkout(type) {
   if (error) { toast('Save failed: ' + error.message, 4000); return; }
   NS.metricsToday.workout_min = min;
   (NS.metricsTodayNotes ||= {}).workout_min = type;
+  N_OPEN['act-workout'] = false;
   toast(`${type} logged ✓`);
   renderToday();
 }
