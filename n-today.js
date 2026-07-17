@@ -8,6 +8,8 @@ const N_STATUS_ICON = { as_planned: '✓', swapped: '⇄', skipped: '✕', ate_o
 const N_PORTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 const N_PENDING = {};   // pre-log portion selection, keyed by planned-meal id
 let N_OPEN = {};   // expanded logged-card ids (session only)
+const N_ADJ = {};          // meal ids with the inline Adjust panel open
+const N_ADJ_BASKET = {};   // meal id -> editable component items (sheet-basket shape)
 
 // ── Render ──
 function renderToday() {
@@ -250,17 +252,27 @@ function nMealCardHtml(m) {
       </div></div>`;
   }
 
+  const seedItems = nMealSeedItems(m);
+  const canAdjust = seedItems.length > 0 && !m.custom_name;
+  const isAsm = typeof nIsAssemblyRecipe === 'function' && nIsAssemblyRecipe(m.recipe_id);
+  const nameHtml = (m.recipe_id && !isAsm)
+    ? `<span class="n-rec-linkable" onclick="event.stopPropagation();nOpenRecipe('${m.recipe_id}')">${nEsc(name)} <span class="n-rec-linkicon">📖</span></span>`
+    : nEsc(name);
+  const itemsLine = (m.recipe_id && seedItems.length)
+    ? seedItems.map(it => `${nEsc(it.name)} <span class="n-item-qty">${nEsc(nItemQtyBadge(it))}</span>`).join(' · ')
+    : '';
+  const adjOpen = !!N_ADJ[m.id];
   return `<div class="n-meal">
     <div class="n-meal-top"><span class="n-meal-slot">${slotLabel}</span>
       <span class="n-meal-kcal">${Math.round(m.planned_kcal)} kcal · ${Math.round(m.planned_protein_g)}P · ${Math.round(m.planned_carbs_g)}C · ${Math.round(m.planned_fat_g)}F</span></div>
-    <div class="n-meal-name">${m.recipe_id ? `<span class="n-rec-linkable" onclick="event.stopPropagation();nOpenRecipe('${m.recipe_id}')">${nEsc(name)} <span class="n-rec-linkicon">📖</span></span>` : nEsc(name)}</div>
-    ${m.portion_note ? `<div class="n-meal-portion">${nEsc(m.portion_note)}</div>` : ''}
+    <div class="n-meal-name">${nameHtml}</div>
+    ${itemsLine ? `<div class="n-meal-items">${itemsLine}</div>` : (m.portion_note ? `<div class="n-meal-portion">${nEsc(m.portion_note)}</div>` : '')}
     ${badges ? `<div class="n-meal-badges">${badges}</div>` : ''}
     ${m.coach_note ? `<div class="n-meal-note">${nEsc(m.coach_note)}</div>` : ''}
-    <div class="n-portion-chips">${N_PORTIONS.map(p =>
-      `<button class="n-chip${pend === p ? ' active' : ''}" onclick="nPickPending('${m.id}',${p})">${p}×</button>`).join('')}</div>
+    ${adjOpen ? nAdjustPanelHtml(m) : ''}
     <div class="n-meal-actions">
-      <button class="n-act primary" onclick="quickLog('${m.id}')">✓ Ate it${pend !== 1 ? ` (${pend}×)` : ''}</button>
+      <button class="n-act primary" onclick="quickLog('${m.id}')">✓ Ate it</button>
+      ${canAdjust ? `<button class="n-act${adjOpen ? ' active' : ''}" onclick="nToggleAdjust('${m.id}')">Adjust ${adjOpen ? '▴' : '▾'}</button>` : ''}
       <button class="n-act" onclick="openNSheet('swap','${m.id}')">⇄ Swap</button>
       <button class="n-act" onclick="quickSkip('${m.id}')">Skip</button>
     </div></div>`;
@@ -327,6 +339,114 @@ function nKitchenAmt(it) {
     return `${base} (~${g}g / ${oz}oz)`;
   }
   return base;
+}
+
+// ══════════════ Inline component editing (Adjust panel on the meal card) ══════════════
+// Build a sheet-basket-shaped item from a food row (so these items are compatible
+// with nBasketTotals / nKitchenAmt and can be handed to the builder sheet).
+function nMakeItem(f, qty) {
+  return { srcKind: 'f', srcId: f.id, kind: 'f', id: f.id, name: f.name, qty,
+    kcal: f.kcal, protein_g: f.protein_g, carbs_g: f.carbs_g, fat_g: f.fat_g,
+    unit: f.serving_desc, grams: f.grams_per_serving, rest: f.item_type === 'restaurant' };
+}
+// The planned meal's items at planned servings: recipe components, else the single food.
+function nMealSeedItems(m) {
+  const out = [];
+  const comps = m.recipe_id ? (NS.components || {})[m.recipe_id] : null;
+  if (comps && comps.length) {
+    for (const c of comps) {
+      const f = NS.foods.find(x => x.id === c.food_item_id);
+      if (!f) continue;
+      const it = nMakeItem(f, Math.round(c.qty * (m.planned_servings || 1) * 100) / 100);
+      it.seedQty = it.qty; out.push(it);
+    }
+  } else if (m.food_item_id) {
+    const f = NS.foods.find(x => x.id === m.food_item_id);
+    if (f) { const it = nMakeItem(f, m.planned_servings || 1); it.seedQty = it.qty; out.push(it); }
+  }
+  return out;
+}
+// Compact per-item badge for the collapsed card: measured units show the amount
+// ("1 tbsp", "6 oz"); count-like units show a multiplier ("×3").
+function nItemQtyBadge(it) {
+  const d = String(it.unit || 'serving').trim();
+  const mm = d.match(/^(\d+(?:\.\d+)?)\s*(.*)$/);
+  const unitWord = (mm ? mm[2] : d).toLowerCase();
+  if (/^(tbsp|tsp|oz|cup|gram|g\b|ml)/.test(unitWord)) return nScaleServing(d, it.qty);
+  const q = Math.round(it.qty * 100) / 100;
+  return '×' + q;
+}
+function nToggleAdjust(id) {
+  if (N_ADJ[id]) { delete N_ADJ[id]; }
+  else { N_ADJ_BASKET[id] = nMealSeedItems(nFindMeal(id)); N_ADJ[id] = true; }
+  renderToday();
+}
+function nAdjTotals(id) {
+  const t = { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+  for (const it of (N_ADJ_BASKET[id] || [])) {
+    t.kcal += it.kcal * it.qty; t.protein_g += it.protein_g * it.qty;
+    t.carbs_g += it.carbs_g * it.qty; t.fat_g += it.fat_g * it.qty;
+  }
+  for (const k of Object.keys(t)) t[k] = Math.round(t[k]);
+  return t;
+}
+function nAdjQty(id, idx, val) {
+  const q = parseFloat(val);
+  if (isNaN(q) || q < 0) return;
+  if (N_ADJ_BASKET[id] && N_ADJ_BASKET[id][idx]) N_ADJ_BASKET[id][idx].qty = q;
+  renderToday();
+}
+function nAdjDrop(id, idx) { if (N_ADJ_BASKET[id]) { N_ADJ_BASKET[id].splice(idx, 1); renderToday(); } }
+function nAdjScaleAll(id, f) {
+  for (const it of (N_ADJ_BASKET[id] || []))
+    it.qty = Math.round((it.seedQty != null ? it.seedQty : it.qty) * f * 100) / 100;
+  renderToday();
+}
+// Promote the inline edits into the full builder sheet to add or swap items.
+function nAdjAddItem(id) {
+  const items = N_ADJ_BASKET[id] || [];
+  openNSheet('swap', id);
+  NS.sheet.basket = items;
+  delete N_ADJ[id];
+  renderNSheetList();
+}
+async function nAdjLog(id) {
+  const m = nFindMeal(id);
+  const basket = N_ADJ_BASKET[id] || [];
+  if (!basket.length) { toast('Add an item or Swap the meal'); return; }
+  const seed = nMealSeedItems(m);
+  const unchanged = seed.length === basket.length
+    && basket.every(b => { const s = seed.find(x => x.id === b.id); return s && Math.abs((s.qty || 0) - (b.qty || 0)) < 0.001; });
+  try {
+    if (unchanged) {
+      await nLogMeal(m, 'as_planned', null, 1.0);
+    } else {
+      const tot = nAdjTotals(id);
+      const desc = basket.map(it => it.qty + '× ' + it.name).join('; ');
+      await nLogMeal(m, 'swapped', { recipe_id: null, food_item_id: null, desc,
+        kcal: tot.kcal, protein_g: tot.protein_g, carbs_g: tot.carbs_g, fat_g: tot.fat_g }, 1.0);
+    }
+    delete N_ADJ[id]; delete N_ADJ_BASKET[id];
+    toast('Logged ✓'); renderToday();
+  } catch (e) { if (e.message !== 'offline') toast('Save failed: ' + e.message, 4000); }
+}
+function nAdjustPanelHtml(m) {
+  const basket = N_ADJ_BASKET[m.id] || [];
+  const tot = nAdjTotals(m.id);
+  const dk = Math.round(tot.kcal - m.planned_kcal);
+  const rows = basket.map((it, i) => `<div class="n-adjust-row">
+      <span class="n-adjust-name">${nEsc(it.name)}<span class="n-adjust-amt">${nEsc(nKitchenAmt(it))}</span></span>
+      <input type="number" class="n-adjust-qty" inputmode="decimal" step="0.25" min="0" value="${it.qty}" onchange="nAdjQty('${m.id}',${i},this.value)">
+      <button class="n-adjust-x" onclick="nAdjDrop('${m.id}',${i})">✕</button></div>`).join('');
+  return `<div class="n-adjust">
+    <div class="n-adjust-scale"><span class="n-adjust-lbl">scale all</span>${N_PORTIONS.map(p =>
+      `<button class="n-chip" onclick="nAdjScaleAll('${m.id}',${p})">${p}×</button>`).join('')}</div>
+    <div class="n-adjust-items">${rows || '<div class="n-adjust-empty">No items — add one below or Swap.</div>'}</div>
+    <button class="n-adjust-add" onclick="nAdjAddItem('${m.id}')">＋ add / swap an item</button>
+    <div class="n-adjust-total">${tot.kcal} kcal · ${tot.protein_g}P · ${tot.carbs_g}C · ${tot.fat_g}F
+      <span class="n-adjust-delta">(${dk >= 0 ? '+' : ''}${dk} vs planned)</span></div>
+    <button class="n-act primary n-adjust-log" onclick="nAdjLog('${m.id}')">✓ Log this</button>
+  </div>`;
 }
 
 async function quickLog(mealId) {

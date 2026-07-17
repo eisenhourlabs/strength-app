@@ -174,7 +174,7 @@ async function nLoadAll() {
     ndb.from('planned_meals').select('*').gte('meal_date', wk).lte('meal_date', end)
       .order('meal_date').order('slot_order'),
     ndb.from('nutrition_settings').select('*').eq('athlete_id', meId).maybeSingle(),
-    ndb.from('recipes').select('id,name,description,kcal_per_serving,protein_g_per_serving,carbs_g_per_serving,fat_g_per_serving,best_meal_slots,tags,portion_notes,prep_notes,storage_notes,person_fit_notes,ingredients_text,servings_default,is_keeper')
+    ndb.from('recipes').select('id,name,description,kcal_per_serving,protein_g_per_serving,carbs_g_per_serving,fat_g_per_serving,best_meal_slots,tags,portion_notes,prep_notes,storage_notes,person_fit_notes,ingredients_text,servings_default,is_keeper,kind')
       .eq('is_active', true).order('name'),
     ndb.from('food_items').select('id,name,item_type,restaurant_name,serving_desc,kcal,protein_g,carbs_g,fat_g,default_meal_slots,tags,grams_per_serving,yield_factor,household_desc,approval_status')
       .eq('is_active', true).order('name'),
@@ -290,6 +290,13 @@ function nMealName(m) {
   if (m.recipe_id) return NS.recipes.find(r => r.id === m.recipe_id)?.name || 'Recipe';
   if (m.food_item_id) return NS.foods.find(f => f.id === m.food_item_id)?.name || 'Food';
   return 'Meal';
+}
+// True when a planned meal points at a Kind:assembly recipe (no-cook composite).
+// Assemblies are hidden from the Recipes section and show no recipe-direction link.
+function nIsAssemblyRecipe(id) {
+  if (!id) return false;
+  const r = (NS.recipes || []).find(x => x.id === id);
+  return !!r && r.kind === 'assembly';
 }
 function nSharedPartner(m) {
   if (!m.shared_group_id) return null;

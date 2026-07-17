@@ -262,3 +262,23 @@ body { background: var(--n-bg) !important; color: var(--n-text); }
 .n-prep-step b { font-weight: 600; }
 .n-prep-note { font-size: 13px; color: var(--n-muted); margin-top: 8px; white-space: pre-wrap; }
 .n-prep-next { cursor: pointer; font-size: 13px; }
+
+/* ── Meal-card component summary + inline Adjust panel ── */
+.n-meal-items { font-size: 12.5px; color: var(--n-muted); margin-top: 3px; line-height: 1.5; }
+.n-item-qty { color: var(--n-text); font-weight: 600; }
+.n-act.active { background: #ecf6e8; border-color: #bfdcb5; color: #2c6e22; }
+
+.n-adjust { background: #ecf6e8; border: 1px solid #bfdcb5; border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
+.n-adjust-scale { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.n-adjust-lbl { font-size: 11px; color: var(--n-muted); text-transform: uppercase; letter-spacing: .04em; margin-right: 2px; }
+.n-adjust-items { display: flex; flex-direction: column; gap: 6px; }
+.n-adjust-row { display: flex; align-items: center; gap: 8px; }
+.n-adjust-name { flex: 1; font-size: 13px; color: var(--n-text); display: flex; flex-direction: column; }
+.n-adjust-amt { font-size: 11px; color: var(--n-muted); margin-top: 1px; }
+.n-adjust-qty { width: 62px; padding: 6px 8px; border: 1px solid var(--n-border); border-radius: 8px; font-size: 13px; text-align: center; }
+.n-adjust-x { flex: 0 0 auto; width: 30px; height: 30px; border: 1px solid var(--n-border); border-radius: 8px; background: #fff; color: var(--n-muted); cursor: pointer; font-size: 13px; }
+.n-adjust-empty { font-size: 12px; color: var(--n-muted); font-style: italic; }
+.n-adjust-add { width: 100%; margin-top: 8px; padding: 8px; border: 1px dashed #bfdcb5; border-radius: 8px; background: #fff; color: #2c6e22; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.n-adjust-total { font-size: 12.5px; color: var(--n-text); font-weight: 600; margin-top: 8px; }
+.n-adjust-delta { color: var(--n-muted); font-weight: 400; }
+.n-adjust-log { width: 100%; margin-top: 8px; }

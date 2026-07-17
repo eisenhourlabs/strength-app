@@ -114,7 +114,7 @@ function nRecipeDetailHtml(r) {
 
 function nRecipeRowsHtml() {
   const q = N_REC_Q.toLowerCase();
-  let recs = (NS.recipes || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+  let recs = (NS.recipes || []).filter(r => r.kind !== 'assembly').slice().sort((a, b) => a.name.localeCompare(b.name));
   if (q) recs = recs.filter(r =>
     r.name.toLowerCase().includes(q) ||
     (r.tags || []).some(t => String(t).toLowerCase().includes(q)) ||
@@ -152,7 +152,7 @@ function renderRecipes() {
   const body = document.getElementById('recipes-body');
   if (!body) return;
   const sub = document.getElementById('recipes-sub');
-  if (sub) sub.textContent = N_REC_SEL ? 'recipe detail' : `${(NS.recipes || []).length} recipes`;
+  if (sub) sub.textContent = N_REC_SEL ? 'recipe detail' : `${(NS.recipes || []).filter(r => r.kind !== 'assembly').length} recipes`;
   if (N_REC_SEL) {
     const r = nRecById(N_REC_SEL);
     if (r) { body.innerHTML = nRecipeDetailHtml(r); return; }
@@ -163,6 +163,7 @@ function renderRecipes() {
 
 // Deep-link helper: open a recipe by id (used by tappable meal names).
 function nOpenRecipe(id) {
+  if (typeof nIsAssemblyRecipe === 'function' && nIsAssemblyRecipe(id)) return;
   nShowTab('recipes');
   N_REC_SEL = id;
   renderRecipes();
