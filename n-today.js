@@ -443,6 +443,12 @@ async function submitBasket() {
   } catch (e) { if (e.message !== 'offline') toast('Save failed: ' + e.message, 4000); }
 }
 
+// Plain-language serving label: prefer the household description (e.g. "1 medium (~130g / 4.6 oz)")
+// over the bare serving_desc (e.g. "1 medium") when the food has one.
+function nServingLabel(f) {
+  return (f && f.household_desc) ? f.household_desc : (f && f.serving_desc) || '';
+}
+
 // ── Sheet rendering ──
 function nOptHtml(kind, id, star, name, sub) {
   return `<button class="n-opt" onclick="nBasketAdd('${kind}','${id}')">
@@ -534,7 +540,7 @@ function renderNSheetList() {
     if (fds.length) html += `<div class="n-sheet-section">Foods & ingredients</div>`;
     for (const f of fds.slice(0, 50))
       html += nOptHtml('f', f.id, false, f.name,
-        `${Math.round(f.kcal)} kcal · ${Math.round(f.protein_g)}P per ${f.serving_desc}` +
+        `${Math.round(f.kcal)} kcal · ${Math.round(f.protein_g)}P per ${nServingLabel(f)}` +
         (f.approval_status === 'pending' ? ' · ⏳ pending review' : ''));
   }
 
