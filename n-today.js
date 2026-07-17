@@ -314,9 +314,19 @@ async function nRemoveAdded(logId) {
 function nFindMeal(id) { return NS.meals.find(m => m.id === id); }
 function nPickPending(mealId, p) { N_PENDING[mealId] = p; renderToday(); }
 // Kitchen-unit label for a Tweak basket item: qty x serving_desc -> "6 oz cooked" (no bare multiplier shown).
+// When the food carries grams_per_serving, appends the scaled gram/oz reading so the
+// quantity-adjust panel shows exactly how much that qty is in household terms
+// (e.g. "2 medium (~260g / 9.2oz)") without text-scaling the household_desc string.
 function nKitchenAmt(it) {
   const d = String(it.unit || 'serving');
-  return (typeof nScaleServing === 'function') ? nScaleServing(d, it.qty) : `${it.qty}x ${d}`;
+  const base = (typeof nScaleServing === 'function') ? nScaleServing(d, it.qty) : `${it.qty}x ${d}`;
+  const gps = Number(it.grams);
+  if (gps > 0) {
+    const g = Math.round(gps * it.qty);
+    const oz = Math.round((g / 28.3495) * 10) / 10;
+    return `${base} (~${g}g / ${oz}oz)`;
+  }
+  return base;
 }
 
 async function quickLog(mealId) {
@@ -390,7 +400,7 @@ function nBasketAdd(kind, id) {
     const f = NS.foods.find(x => x.id === id);
     if (f) item = { srcKind: 'f', srcId: id, kind: 'f', id, name: f.name, qty: 1,
       kcal: f.kcal, protein_g: f.protein_g, carbs_g: f.carbs_g, fat_g: f.fat_g,
-      unit: f.serving_desc, rest: f.item_type === 'restaurant' };
+      unit: f.serving_desc, grams: f.grams_per_serving, rest: f.item_type === 'restaurant' };
   } else if (kind === 'a') {
     const alts = NS.alternates[NS.sheet.meal?.id] || [];
     const a = alts.find(x => x.id === id);
@@ -441,12 +451,6 @@ async function submitBasket() {
     else await nLogMeal(meal, status, src, 1.0);
     closeNSheet(); toast('Logged ✓'); renderToday();
   } catch (e) { if (e.message !== 'offline') toast('Save failed: ' + e.message, 4000); }
-}
-
-// Plain-language serving label: prefer the household description (e.g. "1 medium (~130g / 4.6 oz)")
-// over the bare serving_desc (e.g. "1 medium") when the food has one.
-function nServingLabel(f) {
-  return (f && f.household_desc) ? f.household_desc : (f && f.serving_desc) || '';
 }
 
 // ── Sheet rendering ──
@@ -540,7 +544,7 @@ function renderNSheetList() {
     if (fds.length) html += `<div class="n-sheet-section">Foods & ingredients</div>`;
     for (const f of fds.slice(0, 50))
       html += nOptHtml('f', f.id, false, f.name,
-        `${Math.round(f.kcal)} kcal · ${Math.round(f.protein_g)}P per ${nServingLabel(f)}` +
+        `${Math.round(f.kcal)} kcal · ${Math.round(f.protein_g)}P per ${f.serving_desc}` +
         (f.approval_status === 'pending' ? ' · ⏳ pending review' : ''));
   }
 
@@ -696,14 +700,14 @@ function nTweakSeed() {
       const qty = Math.round(c.qty * (meal.planned_servings || 1) * 100) / 100;
       NS.sheet.basket.push({ srcKind: 'f', srcId: f.id, kind: 'f', id: f.id, name: f.name,
         qty, kcal: f.kcal, protein_g: f.protein_g, carbs_g: f.carbs_g, fat_g: f.fat_g,
-        unit: f.serving_desc, rest: false });
+        unit: f.serving_desc, grams: f.grams_per_serving, rest: false });
     }
   } else if (meal.food_item_id) {
     const f = NS.foods.find(x => x.id === meal.food_item_id);
     if (f) NS.sheet.basket.push({ srcKind: 'f', srcId: f.id, kind: 'f', id: f.id, name: f.name,
       qty: meal.planned_servings || 1, kcal: f.kcal, protein_g: f.protein_g,
       carbs_g: f.carbs_g, fat_g: f.fat_g, unit: f.serving_desc,
-      rest: f.item_type === 'restaurant' });
+      grams: f.grams_per_serving, rest: f.item_type === 'restaurant' });
   }
   renderNSheetList();
 }
