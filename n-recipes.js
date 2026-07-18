@@ -26,6 +26,11 @@ function nRecipeWeekServings(id) {
 // non-numeric like "1 slice (0.75 oz)" -> "3× 1 slice (0.75 oz)".
 function nScaleServing(desc, factor) {
   const d = String(desc || '').trim();
+  const fm = d.match(/^(\d+)\/(\d+)\s*(.*)$/);   // "1/4 cup" -> 0.25 cup
+  if (fm) {
+    const q = Math.round((parseInt(fm[1], 10) / parseInt(fm[2], 10)) * factor * 100) / 100;
+    return `${q}${fm[3] ? ' ' + fm[3] : ''}`.trim();
+  }
   const m = d.match(/^(\d+(?:\.\d+)?)\s*(.*)$/);
   const f = Math.round(factor * 100) / 100;
   if (!m) return `${f}× ${d || 'serving'}`;
@@ -34,61 +39,90 @@ function nScaleServing(desc, factor) {
   return `${q}${unit ? ' ' + unit : ''}`.trim();
 }
 
-// This week's batch: how many servings to cook + the per-ingredient amounts.
-// Yield-aware: when a food carries a yield_factor (Phase 3), the pull list shows the RAW
-// quantity to buy/thaw (cooked / yield) with the cooked amount for reference; until yield
-// data exists the amount is the COOKED total, labelled as such — a cooked quantity is never
-// silently presented as a raw "pull this much" (fixes F2). Includes freeze extras (A2).
+// This week's batch — speaks in CONTAINERS and BATCH MULTIPLES, not raw serving math.
+// A recipe is calibrated as one standard batch (Servings: 7.5 = 3 Troy + 3 Amanda containers,
+// Troy container = 1.5 servings). One planned meal row = one container. Freezer portions add
+// to what gets cooked. The pull list scales each ingredient to the total cook (raw where yield
+// data exists) so the user knows exactly what to buy; the Ingredients panel stays one batch.
+function nNiceServing(desc, factor) {
+  const d = String(desc || '').trim();
+  let m = d.match(/^(\d+)\/(\d+)\s*(.*)$/), val, unit;
+  if (m) { val = parseInt(m[1], 10) / parseInt(m[2], 10); unit = m[3] || ''; }
+  else {
+    m = d.match(/^(\d+(?:\.\d+)?)\s*(.*)$/);
+    if (!m) return `${Math.round(factor * 100) / 100}\u00d7 ${d || 'serving'}`;
+    val = parseFloat(m[1]); unit = m[2] || '';
+  }
+  let q = val * factor;
+  q = q >= 10 ? Math.round(q) : q >= 3 ? Math.round(q * 2) / 2 : Math.round(q * 4) / 4;
+  let s = `${q}${unit ? ' ' + unit : ''}`.trim();
+  if (/^oz\b/.test(unit) && q >= 16) s += ` (${Math.round(q / 16 * 10) / 10} lb)`;
+  return s;
+}
+
 function nRecipeBatchHtml(r) {
   const { total, byDate } = nRecipeWeekServings(r.id);
-  // Freeze extras planned for this recipe this week, expressed in recipe-servings
-  // via each portion's kcal / the recipe's per-serving kcal (honest for 60/40 sizes).
+  // Containers per person: one planned meal row = one container.
+  const perAth = {};
+  for (const m of (NS.meals || [])) {
+    if (m.recipe_id !== r.id) continue;
+    const a = (NS.household || []).find(h => h.id === m.athlete_id);
+    const nm = (a && a.name) || 'planned';
+    perAth[nm] = (perAth[nm] || 0) + 1;
+  }
+  // Freezer portions planned for this recipe this week.
   const stock = Array.isArray(NS.planWeek && NS.planWeek.freezer_stock) ? NS.planWeek.freezer_stock : [];
   const perServ = Number(r.kcal_per_serving) || 0;
-  let freezePortions = 0, freezeServings = 0;
+  let freezeServings = 0; const freezeParts = [];
   for (const e of stock) {
     if (e.recipe !== r.name) continue;
     const n = Number(e.portions) || 0;
-    freezePortions += n;
+    if (!n) continue;
+    freezeParts.push(`${n} ${e.athlete || ''}`.trim());
     freezeServings += perServ ? n * ((Number(e.kcal) || perServ) / perServ) : n;
   }
   const grand = total + freezeServings;
   if (!grand) {
-    return `<div class="n-panel"><div class="n-panel-title">📦 This week's batch</div>
+    return `<div class="n-panel"><div class="n-panel-title">\ud83d\udce6 This week's batch</div>
       <div style="font-size:13px;color:var(--n-muted)">Not on this week's plan.</div></div>`;
   }
+  const days = Object.keys(byDate).sort().map(d => nDayName(d, true)).join(' \u00b7 ');
+  const dinnerBits = Object.entries(perAth).map(([nm, c]) => `${c} ${nm}`).join(' + ');
+  let makes = dinnerBits ? `${dinnerBits} dinner containers${days ? ' (' + days + ')' : ''}` : '';
+  if (freezeParts.length) makes += `${makes ? ' + ' : ''}${freezeParts.join(' + ')} freezer portion${freezeServings > 1 ? 's' : ''}`;
+  const batches = Number(r.servings_default) ? grand / Number(r.servings_default) : 1;
+  const cookLine = Math.abs(batches - 1) <= 0.05
+    ? `<b>one standard batch</b> \u2014 the Ingredients list below is exactly what to buy`
+    : `<b>\u2248${Math.round(batches * 20) / 20}\u00d7 the standard batch</b> \u2014 buy the amounts below (the Ingredients list covers a single batch)`;
   const comps = (NS.components || {})[r.id] || [];
-  let pulls = '', anyRaw = false, anyCookedOnly = false;
+  let pulls = '', anyRaw = false, anyFinished = false;
   for (const c of comps) {
     const f = nFoodById(c.food_item_id);
     if (!f) continue;
     const cookedFactor = grand * (Number(c.qty) || 0);
-    const cooked = nScaleServing(f.serving_desc, cookedFactor);
     const yf = Number(f.yield_factor) || 0;
     let qtyHtml;
     if (yf > 0) {
       anyRaw = true;
-      const raw = nScaleServing(f.serving_desc, cookedFactor / yf);
+      const raw = nNiceServing(f.serving_desc, cookedFactor / yf);
+      const cooked = nNiceServing(f.serving_desc, cookedFactor);
       qtyHtml = `<span class="n-rec-pullqty">${nEsc(raw)} raw</span>`
-              + `<span style="margin-left:8px;color:var(--n-muted);font-size:11px">${nEsc(cooked)} cooked</span>`;
+              + `<span style="margin-left:8px;color:var(--n-muted);font-size:11px">\u2248${nEsc(cooked)} cooked</span>`;
     } else {
-      anyCookedOnly = true;
-      qtyHtml = `<span class="n-rec-pullqty">${nEsc(cooked)} cooked</span>`;
+      anyFinished = true;
+      qtyHtml = `<span class="n-rec-pullqty">${nEsc(nNiceServing(f.serving_desc, cookedFactor))}</span>`;
     }
     pulls += `<div class="n-rec-pull"><span>${nEsc(f.name)}</span>${qtyHtml}</div>`;
   }
-  const dates = Object.keys(byDate).sort()
-    .map(d => `${nDayName(d, true)} (${Math.round(byDate[d] * 100) / 100}×)`).join(' · ');
-  const breakdown = freezePortions
-    ? `${Math.round(total * 100) / 100} for dinners${dates ? ' (' + dates + ')' : ''} + ${freezePortions} to freeze`
-    : (dates || 'this week');
-  const pullTitle = anyRaw ? 'Pull / buy (raw)' : 'Cook this much';
-  const note = anyCookedOnly
-    ? 'Amounts are COOKED totals — raw pull/purchase quantities appear once yield data is added (Phase 3).'
-    : 'Raw amounts to pull/buy (cooked / yield); includes the portions you are freezing this block.';
-  return `<div class="n-panel"><div class="n-panel-title">📦 This week's batch</div>
-    <div class="n-rec-batchline">Cooking <b>${Math.round(grand * 100) / 100} servings</b> — ${nEsc(breakdown)}</div>
-    ${pulls ? `<div style="font-size:11px;color:var(--n-muted);margin:4px 0 2px;text-transform:uppercase;letter-spacing:.04em">${pullTitle}</div><div class="n-rec-pulls">${pulls}</div>`
+  const note = anyRaw && anyFinished
+    ? 'Meats are raw buy/pull amounts (cooked \u00f7 yield); other items are finished quantities. Includes any freezer portions.'
+    : anyRaw
+    ? 'Raw buy/pull amounts (cooked \u00f7 yield). Includes any freezer portions.'
+    : 'Finished-food quantities. Includes any freezer portions.';
+  return `<div class="n-panel"><div class="n-panel-title">\ud83d\udce6 This week's batch</div>
+    <div class="n-rec-batchline"><b>Makes:</b> ${nEsc(makes)}</div>
+    <div class="n-rec-batchline"><b>Cook:</b> ${cookLine}</div>
+    ${pulls ? `<div style="font-size:11px;color:var(--n-muted);margin:4px 0 2px;text-transform:uppercase;letter-spacing:.04em">Buy / pull for this cook</div><div class="n-rec-pulls">${pulls}</div>`
             : `<div style="font-size:12px;color:var(--n-muted)">Add a <code>Components:</code> line to this recipe for an exact pull list.</div>`}
     <div class="n-rec-pullnote">${note}</div></div>`;
 }
@@ -108,7 +142,7 @@ function nRecipeDetailHtml(r) {
     </div>
     ${r.description ? `<div class="n-rec-desc">${nEsc(r.description)}</div>` : ''}
     ${nRecipeBatchHtml(r)}
-    ${sec('Ingredients', r.ingredients_text)}
+    ${sec('Ingredients (one standard batch)', r.ingredients_text)}
     ${sec('Prep', nPrepSteps(r.prep_notes))}
     ${sec('Portions', r.portion_notes)}
     ${sec('Storage / freezing', r.storage_notes)}`;
