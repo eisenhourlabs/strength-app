@@ -93,6 +93,9 @@ function nRecipeBatchHtml(r) {
     <div class="n-rec-pullnote">${note}</div></div>`;
 }
 
+// Prep is authored as one line of numbered steps ("1) ... 2) ..."); break each step onto its own line.
+function nPrepSteps(txt) { return String(txt || '').replace(/\s+(?=\d+\))/g, '\n'); }
+
 function nRecipeDetailHtml(r) {
   const slots = (r.best_meal_slots || []).join(', ');
   const macro = `${Math.round(r.kcal_per_serving)} kcal · ${Math.round(r.protein_g_per_serving)}P · ${Math.round(r.carbs_g_per_serving)}C · ${Math.round(r.fat_g_per_serving)}F per serving`;
@@ -106,10 +109,9 @@ function nRecipeDetailHtml(r) {
     ${r.description ? `<div class="n-rec-desc">${nEsc(r.description)}</div>` : ''}
     ${nRecipeBatchHtml(r)}
     ${sec('Ingredients', r.ingredients_text)}
-    ${sec('Prep', r.prep_notes)}
+    ${sec('Prep', nPrepSteps(r.prep_notes))}
     ${sec('Portions', r.portion_notes)}
-    ${sec('Storage / freezing', r.storage_notes)}
-    ${sec('Person fit', r.person_fit_notes)}`;
+    ${sec('Storage / freezing', r.storage_notes)}`;
 }
 
 function nRecipeRowsHtml() {
