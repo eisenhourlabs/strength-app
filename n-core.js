@@ -267,11 +267,42 @@ async function nLoadAll() {
     .order('log_date', { ascending: false }).limit(1);
   NS.lastWeight = lastW && lastW.length ? parseFloat(lastW[0].value) : null;
   const watch = ['weight', ...(NS.settings?.measurement_metrics || [])];
+  NS.lastMetricValues = {};
   for (const metric of watch) {
-    const { data: last } = await ndb.from('body_metrics').select('log_date')
-      .eq('athlete_id', meId).eq('metric', metric)
+    // Value as well as date: rules 3 and 4 compare against the PREVIOUS reading.
+    const { data: last } = await ndb.from('body_metrics').select('log_date,value')
+      .eq('athlete_id', meId).eq('metric', metric).neq('flag', 'excluded')
       .order('log_date', { ascending: false }).limit(1);
-    if (last && last.length) NS.lastMetricDates[metric] = last[0].log_date;
+    if (last && last.length) {
+      NS.lastMetricDates[metric] = last[0].log_date;
+      NS.lastMetricValues[metric] = parseFloat(last[0].value);
+    }
+  }
+
+  // Recent weigh-ins drive the entry-time trend reference (N09 §4 rules 1-2).
+  NS.recentWeights = [];
+  try {
+    const { data: rw } = await ndb.from('body_metrics').select('log_date,value,flag')
+      .eq('athlete_id', meId).eq('metric', 'weight')
+      .gte('log_date', nAddDays(nToday(), -90)).order('log_date');
+    NS.recentWeights = rw || [];
+  } catch (_) {}
+
+  // 28-day step mean + today's strength session: rule 14 (duplicated activity).
+  NS.steps28Mean = null;
+  try {
+    const { data: st } = await ndb.from('body_metrics').select('value')
+      .eq('athlete_id', meId).eq('metric', 'steps')
+      .gte('log_date', nAddDays(nToday(), -28));
+    if (st && st.length) NS.steps28Mean = st.reduce((a, r) => a + parseFloat(r.value), 0) / st.length;
+  } catch (_) {}
+  NS.hasStrengthSessionToday = false;
+  if (NS.me.training_active) {
+    try {
+      const { data: cs } = await ndb.from('completed_sessions').select('id')
+        .eq('athlete_id', meId).eq('session_date', nToday()).limit(1);
+      NS.hasStrengthSessionToday = !!(cs && cs.length);
+    } catch (_) {}
   }
 }
 
@@ -423,15 +454,40 @@ async function nLogAdded(dateStr, src) {
 }
 
 // ── Body metrics ──
-async function nSaveMetric(metric, value, unit) {
+// flag/flagReason implement N09 §4: a reading the athlete confirms as odd is
+// RETAINED and marked, never discarded. 'suspect' rows are skipped by the trend
+// engine; 'confirmed' rows are treated as real; null is a normal reading.
+async function nSaveMetric(metric, value, unit, flag, flagReason) {
   if (nOffline) { toast('Offline — reconnect to log.', 3000); return false; }
   const { error } = await ndb.from('body_metrics').upsert({
     athlete_id: NS.me.id, log_date: nToday(), metric, value, unit,
+    flag: flag || null, flag_reason: flagReason || null,
   }, { onConflict: 'athlete_id,log_date,metric' });
   if (error) { toast('Save failed: ' + error.message, 4000); return false; }
   NS.metricsToday[metric] = value;
   NS.lastMetricDates[metric] = nToday();
+  if (metric === 'weight') {
+    NS.recentWeights = (NS.recentWeights || []).filter(r => r.log_date !== nToday());
+    NS.recentWeights.push({ log_date: nToday(), value, flag: flag || null });
+    NS.recentWeights.sort((a, b) => a.log_date.localeCompare(b.log_date));
+    NS.lastWeight = value;
+  } else {
+    NS.lastMetricValues = NS.lastMetricValues || {};
+    NS.lastMetricValues[metric] = value;
+  }
   return true;
+}
+
+// Reference weight for the entry-time checks (N09 §4 rules 1-2). Prefer the EWMA
+// trend; before the trend clears its display gate, fall back to the most recent
+// admissible weigh-in so a typo is still caught on day one.
+function nWeightReference() {
+  const rows = NS.recentWeights || [];
+  if (!rows.length) return null;
+  const tr = nmTrendWeight(rows);
+  if (tr.current != null) return tr.current;
+  const ok = rows.filter(r => r.flag !== 'excluded' && r.flag !== 'suspect');
+  return ok.length ? parseFloat(ok[ok.length - 1].value) : null;
 }
 
 // ── Offline banner ──

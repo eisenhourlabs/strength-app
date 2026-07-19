@@ -134,6 +134,18 @@
 </div>
 
 <!-- ══════════════════ FOOD PICKER SHEET (swap / ate-out / add) ══════════════════ -->
+<!-- Entry-time confirm sheet (N09 §4 rules 1-5, 14). Never deletes data:
+     every path either saves a corrected value or saves the original with a flag. -->
+<div class="n-sheet-overlay" id="n-confirm" style="display:none">
+  <div class="n-sheet" style="max-height:60vh">
+    <div class="n-sheet-head">
+      <div class="n-sheet-title" id="n-confirm-title">Check that entry</div>
+    </div>
+    <div id="n-confirm-body" style="font-size:14px;color:var(--n-text);line-height:1.45"></div>
+    <div id="n-confirm-actions" style="display:flex;flex-direction:column;gap:8px;margin-top:14px"></div>
+  </div>
+</div>
+
 <div class="n-sheet-overlay" id="n-sheet" style="display:none" onclick="if(event.target===this)closeNSheet()">
   <div class="n-sheet">
     <div class="n-sheet-head">
@@ -165,6 +177,7 @@
 </div>
 
 <script src="n-core.js"></script>
+<script src="n-metrics.js"></script>
 <script src="n-today.js"></script>
 <script src="n-grocery.js"></script>
 <script src="n-checkin.js"></script>

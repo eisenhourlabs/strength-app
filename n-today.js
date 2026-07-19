@@ -212,16 +212,122 @@ function nPromptCardsHtml() {
   }
   return html;
 }
+// ══════════════ Entry-time confirm sheets (N09 §4 rules 1-5, 14) ══════════════
+// Design stance: catch entry ERRORS at entry time; leave biology to the coach.
+// These sheets never lecture about normal fluctuation and never delete data —
+// every branch either writes a corrected value or writes the original with a flag.
+// Only rules 1-5 and 14 get a sheet; everything else in §4 is passive.
+
+let N_CONFIRM = null;   // {actions: [{label, kind, run}]}
+
+function nConfirmOpen(title, bodyHtml, actions) {
+  N_CONFIRM = { actions };
+  document.getElementById('n-confirm-title').textContent = title;
+  document.getElementById('n-confirm-body').innerHTML = bodyHtml;
+  document.getElementById('n-confirm-actions').innerHTML = actions.map((a, i) =>
+    `<button class="n-act${a.kind === 'primary' ? ' primary' : ''}" onclick="nConfirmRun(${i})"
+      style="width:100%;padding:11px">${nEsc(a.label)}</button>`).join('');
+  document.getElementById('n-confirm').style.display = 'flex';
+}
+function nConfirmClose() {
+  document.getElementById('n-confirm').style.display = 'none';
+  N_CONFIRM = null;
+}
+async function nConfirmRun(i) {
+  const a = N_CONFIRM && N_CONFIRM.actions[i];
+  nConfirmClose();
+  if (a && a.run) await a.run();
+}
+
 async function submitWeighIn() {
   const v = parseFloat(document.getElementById('np-weight').value);
   if (!v || v < 50 || v > 500) { toast('Enter a weight in lbs'); return; }
-  if (await nSaveMetric('weight', v, 'lb')) { toast('Weight saved ✓'); renderToday(); }
+
+  // Rules 1 and 2 — implausible vs trend, or a likely unit/typo error.
+  const ref = nWeightReference();
+  const hit = nmCheckWeight(v, ref);
+  if (!hit) return nSaveWeigh(v, null, null);
+
+  const actions = [];
+  if (hit.suggested) {
+    actions.push({
+      label: `Use ${hit.suggested.value} lb instead`, kind: 'primary',
+      run: () => nSaveWeigh(hit.suggested.value, null, null),
+    });
+  }
+  actions.push({
+    label: `Keep ${v} lb — that's real`,
+    // Retained + flagged. The trend engine skips 'suspect' points (N09 §3.1) so one
+    // odd reading can't drag the line, but the number stays in the record.
+    run: () => nSaveWeigh(v, 'suspect', hit.key),
+  });
+  actions.push({ label: 'Cancel — let me re-weigh', run: null });
+
+  const why = hit.suggested
+    ? `<div style="font-size:12px;color:var(--n-muted);margin-top:6px">Looks like ${nEsc(hit.suggested.why)}.</div>`
+    : '';
+  nConfirmOpen('Check that weigh-in',
+    `<div>${nEsc(hit.message)}</div>${why}
+     <div style="font-size:12px;color:var(--n-muted);margin-top:8px">Nothing is deleted either way —
+     if you keep it, it's saved but left out of your trend line.</div>`, actions);
 }
+
+async function nSaveWeigh(v, flag, reason) {
+  if (await nSaveMetric('weight', v, 'lb', flag, reason)) {
+    toast(flag ? 'Saved and flagged ✓' : 'Weight saved ✓');
+    renderToday();
+  }
+}
+
 async function submitMeasurement(metric) {
   const v = parseFloat(document.getElementById(`np-${metric}`).value);
   if (!v || v <= 0) { toast('Enter a value'); return; }
   const unit = metric.startsWith('caliper_') ? 'mm' : 'in';
-  if (await nSaveMetric(metric, v, unit)) { toast('Saved ✓'); renderToday(); }
+  const prev = (NS.lastMetricValues || {})[metric];
+
+  // Rule 3 — waist/hips jump >1.5 in. Rule 4 — caliper mm-sum >15%; checked on the
+  // DERIVED sum once all three sites are in, which is why it fires on the last site.
+  let hit = null;
+  if (metric === 'waist' || metric === 'hips') {
+    hit = nmCheckTape(v, prev);
+  } else if (metric.startsWith('caliper_')) {
+    const sums = nCaliperSums(metric, v);
+    if (sums) hit = nmCheckCaliper(sums.now, sums.prev);
+  }
+  if (!hit) return nSaveMeasure(metric, v, unit, null, null);
+
+  nConfirmOpen('Re-measure to confirm?',
+    `<div>${nEsc(hit.message)}</div>
+     <div style="font-size:12px;color:var(--n-muted);margin-top:8px">Tape and caliper readings drift with
+     technique more than with body change — a second pass settles it.</div>`,
+    [
+      { label: 'I re-measured — it\'s correct', kind: 'primary',
+        run: () => nSaveMeasure(metric, v, unit, 'confirmed', hit.key) },
+      { label: 'Save it, but flag as unsure',
+        run: () => nSaveMeasure(metric, v, unit, 'suspect', hit.key) },
+      { label: 'Cancel — let me re-measure', run: null },
+    ]);
+}
+
+async function nSaveMeasure(metric, v, unit, flag, reason) {
+  if (await nSaveMetric(metric, v, unit, flag, reason)) {
+    toast(flag === 'suspect' ? 'Saved and flagged ✓' : 'Saved ✓');
+    renderToday();
+  }
+}
+
+// Current vs previous caliper mm-sum. Returns null until all three sites exist
+// for today AND a previous sum is known — rule 4 compares sums, not single sites.
+function nCaliperSums(metric, v) {
+  const SITES = ['caliper_chest_mm', 'caliper_abdomen_mm', 'caliper_thigh_mm'];
+  const today = { ...(NS.metricsToday || {}), [metric]: v };
+  if (!SITES.every(s => today[s] != null)) return null;
+  const prevVals = NS.lastMetricValues || {};
+  if (!SITES.every(s => prevVals[s] != null)) return null;
+  return {
+    now: SITES.reduce((a, s) => a + parseFloat(today[s]), 0),
+    prev: SITES.reduce((a, s) => a + parseFloat(prevVals[s]), 0),
+  };
 }
 
 // ── Meal cards ──
@@ -583,8 +689,24 @@ async function submitBasket() {
   };
   try {
     const status = basket.every(it => it.rest) ? 'ate_out' : 'swapped';
-    if (mode === 'add' || !meal) await nLogAdded(nToday(), src);
-    else await nLogMeal(meal, status, src, 1.0);
+    if (mode === 'add' || !meal) {
+      // Rule 5 — the unique index only covers planned-linked logs, so ad-hoc
+      // additions can silently double up. Ask before creating the second one.
+      const dup = nmCheckDuplicate(NS.addedLogs, {
+        log_date: nToday(), meal_slot: 'snack', status: 'added',
+        swap_recipe_id: src.recipe_id, swap_food_item_id: src.food_item_id,
+        custom_desc: src.desc,
+      });
+      if (dup) {
+        closeNSheet();
+        return nConfirmOpen('Log this twice?', `<div>${nEsc(dup.message)}</div>`, [
+          { label: 'Yes, I had it again', kind: 'primary',
+            run: async () => { await nLogAdded(nToday(), src); toast('Logged ✓'); renderToday(); } },
+          { label: 'No — that was a double entry', run: () => renderToday() },
+        ]);
+      }
+      await nLogAdded(nToday(), src);
+    } else await nLogMeal(meal, status, src, 1.0);
     closeNSheet(); toast('Logged ✓'); renderToday();
   } catch (e) { if (e.message !== 'offline') toast('Save failed: ' + e.message, 4000); }
 }
@@ -806,12 +928,35 @@ function nActivityCardHtml() {
 async function submitSteps() {
   const v = parseInt(document.getElementById('na-steps').value, 10);
   if (!v || v < 0 || v > 100000) { toast('Enter today\'s step count'); return; }
+  // Rule 14 — soft confirm only. Steps are context, never in the TDEE, so a wrong
+  // value costs nothing but a confusing chart; one tap is the right amount of friction.
+  const hit = nmCheckActivity({ kind: 'steps', value: v, mean28: NS.steps28Mean });
+  if (hit) {
+    return nConfirmOpen('That\'s a big step day', `<div>${nEsc(hit.message)}</div>`, [
+      { label: 'Yes, keep it', kind: 'primary', run: () => nSaveSteps(v) },
+      { label: 'Cancel — let me fix it', run: null },
+    ]);
+  }
+  return nSaveSteps(v);
+}
+async function nSaveSteps(v) {
   if (await nSaveMetric('steps', v, 'steps')) { N_OPEN['act-steps'] = false; toast('Steps saved ✓'); renderToday(); }
 }
 async function submitWorkout(type) {
   const min = parseInt(document.getElementById('na-wmin').value, 10);
   if (!min || min <= 0 || min > 600) { toast('Enter workout minutes first'); return; }
   if (nOffline) { toast('Offline — reconnect to log.', 3000); return; }
+  // Rule 14 — a manual workout on a day whose gym session already synced.
+  const hit = nmCheckActivity({ kind: 'workout', hasStrengthSession: NS.hasStrengthSessionToday });
+  if (hit) {
+    return nConfirmOpen('Already have today\'s session', `<div>${nEsc(hit.message)}</div>`, [
+      { label: 'This was extra — log it', kind: 'primary', run: () => nWriteWorkout(type, min) },
+      { label: 'Cancel', run: null },
+    ]);
+  }
+  return nWriteWorkout(type, min);
+}
+async function nWriteWorkout(type, min) {
   const { error } = await ndb.from('body_metrics').upsert({
     athlete_id: NS.me.id, log_date: nToday(), metric: 'workout_min',
     value: min, unit: 'min', notes: type,
