@@ -410,7 +410,9 @@ function nMeasurementsHtml(rows) {
     return `<div class="n-panel"><div class="n-panel-title">📏 Measurements</div>None logged yet — the app prompts every few weeks.</div>`;
   const byMetric = {};
   for (const r of rows) (byMetric[r.metric] ||= []).push(r);   // ascending by date
-  const label = { waist: 'Waist', hips: 'Hips', caliper_mm_sum: 'Calipers (mm sum)', bodyfat_pct: 'Body fat %' };
+  // bodyfat_pct retired 2026-07-18 (N09 §2): JP3 method error ±3-4% exceeds true monthly change.
+  // Calipers are entered per site (N09 §2); mm-sum is derived.
+  const label = { waist: 'Waist', hips: 'Hips', caliper_chest_mm: 'Calipers — chest', caliper_abdomen_mm: 'Calipers — abdomen', caliper_thigh_mm: 'Calipers — thigh', caliper_mm_sum: 'Calipers (mm sum)' };
   let html = '';
   for (const [metric, list] of Object.entries(byMetric)) {
     const latest = list[list.length - 1], prev = list.length > 1 ? list[list.length - 2] : null;

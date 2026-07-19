@@ -185,11 +185,27 @@ function nPromptCardsHtml() {
   }
   const due = nMeasurementsDue();
   if (due.length) {
+    // Labels + entry-time protocol reminders (N09 §2 / N04 / N05).
+    // Calipers are entered PER SITE; mm-sum is derived. bodyfat_pct is retired.
+    const label = {
+      waist: 'Waist (in)', hips: 'Hips (in)',
+      caliper_chest_mm: 'Chest (mm)', caliper_abdomen_mm: 'Abdomen (mm)', caliper_thigh_mm: 'Thigh (mm)',
+      caliper_mm_sum: 'Calipers mm-sum'
+    };
+    const siteHint = {
+      waist: 'At the navel, tape horizontal, end of a normal exhale. 2 measurements — re-measure if they differ >0.25 in, record the average.',
+      hips: 'Widest point of the hips/glutes, feet together, tape horizontal.',
+      caliper_chest_mm: 'Right side. Diagonal fold, midway between the anterior axillary line and the nipple. 2 passes, re-pinch if >1 mm apart.',
+      caliper_abdomen_mm: 'Right side. Vertical fold, ~1 in right of the navel. 2 passes, re-pinch if >1 mm apart.',
+      caliper_thigh_mm: 'Right side. Vertical fold, front of thigh, midway between the inguinal crease and the top of the patella. 2 passes.',
+      caliper_mm_sum: 'Sum of chest + abdomen + thigh.'
+    };
     const rows = due.map(metric => {
-      const label = { waist: 'Waist (in)', hips: 'Hips (in)', caliper_mm_sum: 'Calipers mm-sum' }[metric] || metric;
-      return `<div class="n-prompt-row" style="margin-bottom:6px"><label style="width:110px">${label}</label>
+      const lab = label[metric] || metric;
+      const hint = siteHint[metric] ? `<div class="n-hint" style="width:100%;font-size:11px;opacity:.7;margin:2px 0 6px 0">${siteHint[metric]}</div>` : '';
+      return `<div class="n-prompt-row" style="margin-bottom:6px;flex-wrap:wrap"><label style="width:110px">${lab}</label>
         <input type="number" inputmode="decimal" id="np-${metric}">
-        <button class="n-act small primary" onclick="submitMeasurement('${metric}')">Save</button></div>`;
+        <button class="n-act small primary" onclick="submitMeasurement('${metric}')">Save</button>${hint}</div>`;
     }).join('');
     html += `<div class="n-prompt"><div class="n-prompt-title">📏 Measurement check (every ${NS.settings?.measurement_interval_weeks || 4} weeks)
       <button class="n-prompt-dismiss" onclick="${due.map(d => `NS.dismissed['${d}']=1`).join(';')};renderToday()">later</button></div>${rows}</div>`;
@@ -204,7 +220,7 @@ async function submitWeighIn() {
 async function submitMeasurement(metric) {
   const v = parseFloat(document.getElementById(`np-${metric}`).value);
   if (!v || v <= 0) { toast('Enter a value'); return; }
-  const unit = metric === 'caliper_mm_sum' ? 'mm' : 'in';
+  const unit = metric.startsWith('caliper_') ? 'mm' : 'in';
   if (await nSaveMetric(metric, v, unit)) { toast('Saved ✓'); renderToday(); }
 }
 
