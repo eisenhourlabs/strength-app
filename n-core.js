@@ -72,11 +72,58 @@ function nShowScreen(name) {
   document.getElementById(`screen-${name}`).classList.add('active');
   document.getElementById('n-tabbar').style.display = name === 'login' ? 'none' : 'flex';
 }
+// ── Android back-button support ──
+// Every openable layer (picker sheet, confirm, check-in, info sheet, non-Today tab)
+// pushes a history entry + a raw hide fn. System back pops the top layer instead of
+// exiting the PWA; closing a layer via its own ✕ consumes its history entry so the
+// stack and history stay in sync. Empty stack + back = exit (user is "home").
+const N_BACK = { stack: [], guard: 0 };
+function nBackPush(kind, hide) {
+  N_BACK.stack.push({ kind, hide });
+  try { history.pushState({ n: N_BACK.stack.length }, ''); } catch (e) { /* ignore */ }
+}
+function nBackConsume(kind) {
+  const top = N_BACK.stack[N_BACK.stack.length - 1];
+  if (top && top.kind === kind) {
+    N_BACK.stack.pop();
+    N_BACK.guard++;
+    try { history.back(); } catch (e) { N_BACK.guard--; }
+  }
+}
+window.addEventListener('popstate', () => {
+  if (N_BACK.guard > 0) { N_BACK.guard--; return; }
+  const top = N_BACK.stack.pop();
+  if (top) top.hide();
+});
+
+// ── Info sheet (week notes / freezer inventory) ──
+let N_INFO_KIND = null;
+function nInfoHide() {
+  document.getElementById('n-info').style.display = 'none';
+  N_INFO_KIND = null;
+}
+function nInfoOpen(kind, title, bodyHtml) {
+  N_INFO_KIND = kind;
+  document.getElementById('n-info-title').textContent = title;
+  document.getElementById('n-info-body').innerHTML = bodyHtml;
+  document.getElementById('n-info').style.display = 'flex';
+  nBackPush('info', nInfoHide);
+}
+function nInfoClose() { nInfoHide(); nBackConsume('info'); }
+function nInfoRefresh(kind, bodyHtml) {
+  if (N_INFO_KIND === kind) document.getElementById('n-info-body').innerHTML = bodyHtml;
+}
+
 function nShowTab(name) {
   nShowScreen(name);
   document.querySelectorAll('.n-tab').forEach(t => t.classList.remove('active'));
   const tab = document.getElementById(`tab-${name}`);
   if (tab) tab.classList.add('active');
+  // Back-button: leaving Today pushes one "return to Today" level (not one per tab
+  // tap — back is an exit ramp, not an undo of every navigation).
+  if (name === 'today') nBackConsume('tab');
+  else if (!N_BACK.stack.some(e => e.kind === 'tab'))
+    nBackPush('tab', () => nShowTab('today'));
   if (name === 'today') renderToday();
   if (name === 'nweek') renderNWeek();
   if (name === 'recipes') renderRecipes();
@@ -94,6 +141,20 @@ function nEsc(s) {
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 function nRound(x) { return x == null ? null : Math.round(x); }
+
+// ── Oz-first quantity entry ──
+// A food is ENTERED in ounces when its serving is weight-denominated ("4 oz") or
+// the coach tagged it entry_oz in the Food Library (count-based but weighed, e.g.
+// sweet potato "1 large" @ 225g). Counted foods (scoops, eggs, bars, slices) and
+// restaurant plates stay as servings. Returns oz-per-serving, or null.
+function nOzPerServing(f) {
+  if (!f || f.item_type === 'restaurant') return null;
+  const m = String(f.serving_desc || '').match(/^(\d+(?:\.\d+)?)\s*oz\b/i);
+  if (m) return parseFloat(m[1]);
+  if ((f.tags || []).includes('entry_oz') && Number(f.grams_per_serving) > 0)
+    return Math.round((Number(f.grams_per_serving) / 28.3495) * 100) / 100;
+  return null;
+}
 
 // ── Auth ──
 async function nDoLogin() {

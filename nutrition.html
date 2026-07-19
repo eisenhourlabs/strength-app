@@ -63,6 +63,7 @@
       <div class="header-title" id="today-title">Today</div>
       <div class="header-sub" id="today-sub"></div>
     </div>
+    <button class="n-hbtn" onclick="nOpenFreezerSheet()">🧊 Freezer</button>
     <a href="index.html" id="training-link" class="n-switch" style="display:none">🏋 Training</a>
     <button class="n-signout" onclick="nDoLogout()">Sign out</button>
   </div>
@@ -78,6 +79,7 @@
       <div class="header-title">This Week</div>
       <div class="header-sub" id="nweek-sub"></div>
     </div>
+    <button class="n-hbtn" id="nweek-notes-btn" style="display:none" onclick="nOpenNotesSheet()">📌 Notes<span class="n-dot" id="nweek-notes-dot" style="display:none"></span></button>
   </div>
   <div class="body n-body" id="nweek-body"></div>
 </div>
@@ -154,7 +156,7 @@
     </div>
     <input type="text" class="n-search" id="n-sheet-search" placeholder="Search…" oninput="renderNSheetList()">
     <div class="n-sheet-list" id="n-sheet-list"></div>
-    <div class="n-sheet-custom">
+    <div class="n-sheet-custom" id="n-custom-panel" style="display:none">
       <div class="n-sheet-section">Something else… (not in the database)</div>
       <input type="text" id="n-custom-desc" placeholder="Name it — e.g. Kirkland protein bar">
       <div class="n-custom-row">
@@ -173,6 +175,17 @@
       </div>
       <div class="n-opt-sub" style="margin:4px 0 8px">One-off: name is enough, kcal + protein make it count. Saving for reuse needs name, serving, kcal, protein.</div>
     </div>
+  </div>
+</div>
+
+<!-- ══════════════════ INFO SHEET (week notes / freezer inventory) ══════════════════ -->
+<div class="n-sheet-overlay" id="n-info" style="display:none" onclick="if(event.target===this)nInfoClose()">
+  <div class="n-sheet" style="max-height:75vh">
+    <div class="n-sheet-head">
+      <div class="n-sheet-title" id="n-info-title"></div>
+      <button class="n-sheet-close" onclick="nInfoClose()">✕</button>
+    </div>
+    <div class="n-sheet-list" id="n-info-body"></div>
   </div>
 </div>
 

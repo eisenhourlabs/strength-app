@@ -67,13 +67,36 @@ function renderNWeek() {
     }
   }
   html += nFreezerWeekHtml();
-  html += nInvWeekHtml();
-  if (NS.planWeek?.week_notes)
-    html += `<div class="n-panel"><div class="n-panel-title">📌 This week</div><pre>${nEsc(NS.planWeek.week_notes)}</pre></div>`;
-  if (NS.planWeek?.coach_notes)
-    html += `<div class="n-panel"><div class="n-panel-title">🧠 Coach notes</div><pre>${nEsc(NS.planWeek.coach_notes)}</pre></div>`;
+  // Week/coach notes moved to the 📌 Notes header sheet (they're week-level, not
+  // day-level); the standing freezer inventory lives in the Today header sheet.
+  nNotesButtonSync();
 
   body.innerHTML = html;
+}
+
+// ── 📌 Notes header button + sheet (week_notes + coach_notes) ──
+function nHasWeekNotes() { return !!(NS.planWeek && (NS.planWeek.week_notes || NS.planWeek.coach_notes)); }
+function nNotesSeenKey() { return 'n_notes_seen_' + (NS.planWeek && NS.planWeek.id || NS.weekOf); }
+function nNotesButtonSync() {
+  const btn = document.getElementById('nweek-notes-btn');
+  const dot = document.getElementById('nweek-notes-dot');
+  if (!btn) return;
+  btn.style.display = nHasWeekNotes() ? '' : 'none';
+  let seen = false;
+  try { seen = !!localStorage.getItem(nNotesSeenKey()); } catch (e) { seen = true; }
+  if (dot) dot.style.display = (nHasWeekNotes() && !seen) ? '' : 'none';
+}
+function nOpenNotesSheet() {
+  const pw = NS.planWeek || {};
+  let html = '';
+  if (pw.week_notes)
+    html += `<div class="n-panel"><div class="n-panel-title">📌 This week</div><pre>${nEsc(pw.week_notes)}</pre></div>`;
+  if (pw.coach_notes)
+    html += `<div class="n-panel"><div class="n-panel-title">🧠 Coach notes</div><pre>${nEsc(pw.coach_notes)}</pre></div>`;
+  try { localStorage.setItem(nNotesSeenKey(), '1'); } catch (e) { /* ignore */ }
+  const dot = document.getElementById('nweek-notes-dot');
+  if (dot) dot.style.display = 'none';
+  nInfoOpen('notes', 'Week notes', html || '<div class="n-opt-sub" style="padding:12px">No notes this week.</div>');
 }
 
 // ── Boot ──

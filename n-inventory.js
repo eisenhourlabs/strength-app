@@ -43,6 +43,12 @@ function nInvPanelHtml(interactive) {
 }
 function nInvWeekHtml() { return nInvPanelHtml(false); }
 
+// Header-button sheet on the Today screen (the standing inventory lives here now,
+// not in the daily card stack — it's an inventory, not a today item).
+function nOpenFreezerSheet() {
+  nInfoOpen('freezer', '🧊 Freezer inventory', nInvPanelHtml(true));
+}
+
 // Use one of MY frozen portions: log it as today's dinner and decrement the count.
 async function nInvUse(id) {
   if (nOffline) { toast('Offline — reconnect to use freezer stock.', 3000); return; }
@@ -60,7 +66,17 @@ async function nInvUse(id) {
     else await nLogAdded(today, { ...src, desc: src.desc || `Freezer: ${row.recipe_name}` });
   } catch (e) { toast('Could not log — try again.', 3000); return; }
 
-  const left = (row.portions || 1) - 1;
+  await nInvConsume(id, 1);
+  if (typeof renderToday === 'function') renderToday();
+  nInfoRefresh('freezer', nInvPanelHtml(true));
+  toast('Logged from freezer ✓');
+}
+
+// Decrement (and clean up) an inventory row after its portions were eaten.
+async function nInvConsume(id, n) {
+  const row = (NS.freezerInventory || []).find(x => x.id === id);
+  if (!row) return;
+  const left = (row.portions || 1) - (n || 1);
   if (left <= 0) {
     const { error } = await ndb.from('freezer_inventory').delete().eq('id', id);
     if (error) toast('Logged, but inventory update failed', 3000);
@@ -69,8 +85,6 @@ async function nInvUse(id) {
     const { error } = await ndb.from('freezer_inventory').update({ portions: left }).eq('id', id);
     if (error) toast('Logged, but inventory update failed', 3000); else row.portions = left;
   }
-  if (typeof renderToday === 'function') renderToday();
-  toast('Logged from freezer ✓');
 }
 
 // ── Prep-night "set aside to freeze" confirm cards ──

@@ -45,7 +45,6 @@ function renderToday() {
   }
 
   html += nActivityCardHtml();
-  html += nInvPanelHtml(true);
   html += `<button class="n-act" style="width:100%;margin-top:10px" onclick="openNSheet('add', null)">+ Add food</button>`;
   body.innerHTML = html;
 }
@@ -228,11 +227,13 @@ function nConfirmOpen(title, bodyHtml, actions) {
     `<button class="n-act${a.kind === 'primary' ? ' primary' : ''}" onclick="nConfirmRun(${i})"
       style="width:100%;padding:11px">${nEsc(a.label)}</button>`).join('');
   document.getElementById('n-confirm').style.display = 'flex';
+  nBackPush('confirm', nConfirmHide);
 }
-function nConfirmClose() {
+function nConfirmHide() {
   document.getElementById('n-confirm').style.display = 'none';
   N_CONFIRM = null;
 }
+function nConfirmClose() { nConfirmHide(); nBackConsume('confirm'); }
 async function nConfirmRun(i) {
   const a = N_CONFIRM && N_CONFIRM.actions[i];
   nConfirmClose();
@@ -453,6 +454,12 @@ function nPickPending(mealId, p) { N_PENDING[mealId] = p; renderToday(); }
 // (e.g. "2 medium (~260g / 9.2oz)") without text-scaling the household_desc string.
 function nKitchenAmt(it) {
   const d = String(it.unit || 'serving');
+  // Oz-entry items: the input box already reads in ounces, so the label only needs
+  // the serving equivalence for count-based servings ("0.8 large") — nothing for "4 oz".
+  if (it.ozPer) {
+    if (/^\d+(?:\.\d+)?\s*oz\b/i.test(d)) return '';
+    return '≈ ' + ((typeof nScaleServing === 'function') ? nScaleServing(d, it.qty) : `${it.qty}x ${d}`);
+  }
   const base = (typeof nScaleServing === 'function') ? nScaleServing(d, it.qty) : `${it.qty}x ${d}`;
   const gps = Number(it.grams);
   if (gps > 0) {
@@ -469,7 +476,8 @@ function nKitchenAmt(it) {
 function nMakeItem(f, qty) {
   return { srcKind: 'f', srcId: f.id, kind: 'f', id: f.id, name: f.name, qty,
     kcal: f.kcal, protein_g: f.protein_g, carbs_g: f.carbs_g, fat_g: f.fat_g,
-    unit: f.serving_desc, grams: f.grams_per_serving, rest: f.item_type === 'restaurant' };
+    unit: f.serving_desc, grams: f.grams_per_serving, ozPer: nOzPerServing(f),
+    rest: f.item_type === 'restaurant' };
 }
 // The planned meal's items at planned servings: recipe components, else the single food.
 function nMealSeedItems(m) {
@@ -491,6 +499,7 @@ function nMealSeedItems(m) {
 // Compact per-item badge for the collapsed card: measured units show the amount
 // ("1 tbsp", "6 oz"); count-like units show a multiplier ("×3").
 function nItemQtyBadge(it) {
+  if (it.ozPer) return `${Math.round(it.qty * it.ozPer * 10) / 10} oz`;
   const d = String(it.unit || 'serving').trim();
   const mm = d.match(/^(\d+(?:\.\d+)?)\s*(.*)$/);
   const unitWord = (mm ? mm[2] : d).toLowerCase();
@@ -513,9 +522,12 @@ function nAdjTotals(id) {
   return t;
 }
 function nAdjQty(id, idx, val) {
-  const q = parseFloat(val);
+  let q = parseFloat(val);
   if (isNaN(q) || q < 0) return;
-  if (N_ADJ_BASKET[id] && N_ADJ_BASKET[id][idx]) N_ADJ_BASKET[id][idx].qty = q;
+  const it = N_ADJ_BASKET[id] && N_ADJ_BASKET[id][idx];
+  if (!it) return;
+  if (it.ozPer) q = q / it.ozPer;   // box reads ounces -> store servings
+  it.qty = q;
   renderToday();
 }
 function nAdjDrop(id, idx) { if (N_ADJ_BASKET[id]) { N_ADJ_BASKET[id].splice(idx, 1); renderToday(); } }
@@ -544,7 +556,9 @@ async function nAdjLog(id) {
       await nLogMeal(m, 'as_planned', null, 1.0);
     } else {
       const tot = nAdjTotals(id);
-      const desc = basket.map(it => it.qty + '× ' + it.name).join('; ');
+      const desc = basket.map(it => it.ozPer
+        ? `${Math.round(it.qty * it.ozPer * 10) / 10}oz ${it.name}`
+        : `${it.qty}× ${it.name}`).join('; ');
       await nLogMeal(m, 'swapped', { recipe_id: null, food_item_id: null, desc,
         kcal: tot.kcal, protein_g: tot.protein_g, carbs_g: tot.carbs_g, fat_g: tot.fat_g }, 1.0);
     }
@@ -558,7 +572,8 @@ function nAdjustPanelHtml(m) {
   const dk = Math.round(tot.kcal - m.planned_kcal);
   const rows = basket.map((it, i) => `<div class="n-adjust-row">
       <span class="n-adjust-name">${nEsc(it.name)}<span class="n-adjust-amt">${nEsc(nKitchenAmt(it))}</span></span>
-      <input type="number" class="n-adjust-qty" inputmode="decimal" step="0.25" min="0" value="${it.qty}" onchange="nAdjQty('${m.id}',${i},this.value)">
+      <input type="number" class="n-adjust-qty" inputmode="decimal" step="${it.ozPer ? 0.1 : 0.25}" min="0"
+        value="${it.ozPer ? Math.round(it.qty * it.ozPer * 10) / 10 : it.qty}" onchange="nAdjQty('${m.id}',${i},this.value)"><span class="n-unit">${it.ozPer ? 'oz' : '×'}</span>
       <button class="n-adjust-x" onclick="nAdjDrop('${m.id}',${i})">✕</button></div>`).join('');
   return `<div class="n-adjust">
     <div class="n-adjust-scale"><span class="n-adjust-lbl">scale all</span>${N_PORTIONS.map(p =>
@@ -618,20 +633,28 @@ function openNSheet(mode, mealId) {
   if (srvRow) srvRow.style.display = 'none';
   else document.getElementById('n-custom-serving').style.display = 'none';
   document.getElementById('n-custom-save').classList.remove('active');
+  const cp = document.getElementById('n-custom-panel');
+  if (cp) cp.style.display = 'none';   // custom entry hidden until asked for
   document.getElementById('n-sheet').style.display = 'flex';
+  nBackPush('sheet', nSheetHide);
   renderNSheetList();
 }
-function closeNSheet() {
+function nSheetHide() {
   document.getElementById('n-sheet').style.display = 'none';
   NS.sheet = null;
 }
+function closeNSheet() { nSheetHide(); nBackConsume('sheet'); }
 function nSetFilter(f) { NS.sheet.filter = f; renderNSheetList(); }
 
 // ── Basket ──
 function nBasketAdd(kind, id) {
   const b = NS.sheet.basket;
   const existing = b.find(x => x.srcKind === kind && x.srcId === id);
-  if (existing) { existing.qty += 1; renderNSheetList(); return; }
+  if (existing) {
+    existing.qty += 1;
+    if (existing.srcKind === 'z' && existing.maxPortions) existing.qty = Math.min(existing.qty, existing.maxPortions);
+    renderNSheetList(); return;
+  }
   let item = null;
   if (kind === 'r') {
     const r = NS.recipes.find(x => x.id === id);
@@ -640,9 +663,15 @@ function nBasketAdd(kind, id) {
       carbs_g: r.carbs_g_per_serving, fat_g: r.fat_g_per_serving, unit: 'serving' };
   } else if (kind === 'f') {
     const f = NS.foods.find(x => x.id === id);
-    if (f) item = { srcKind: 'f', srcId: id, kind: 'f', id, name: f.name, qty: 1,
-      kcal: f.kcal, protein_g: f.protein_g, carbs_g: f.carbs_g, fat_g: f.fat_g,
-      unit: f.serving_desc, grams: f.grams_per_serving, rest: f.item_type === 'restaurant' };
+    if (f) item = nMakeItem(f, 1);
+  } else if (kind === 'z') {
+    // Freezer portion: a cooked single-meal container from MY freezer inventory.
+    // Logging the basket decrements the count (submitBasket -> nConsumeZ).
+    const r = (NS.freezerInventory || []).find(x => x.id === id);
+    if (r) item = { srcKind: 'z', srcId: id, kind: 'z', id, name: `🧊 ${r.recipe_name}`,
+      qty: 1, kcal: r.kcal || 0, protein_g: r.protein_g || 0,
+      carbs_g: r.carbs_g || 0, fat_g: r.fat_g || 0,
+      unit: 'portion', maxPortions: r.portions || 1, invRecipeId: r.recipe_id || null };
   } else if (kind === 'a') {
     const alts = NS.alternates[NS.sheet.meal?.id] || [];
     const a = alts.find(x => x.id === id);
@@ -658,9 +687,12 @@ function nBasketAdd(kind, id) {
   if (item) { b.push(item); renderNSheetList(); }
 }
 function nBasketQty(idx, val) {
-  const q = parseFloat(val);
-  if (!q || q <= 0) return;
-  NS.sheet.basket[idx].qty = q;
+  const it = NS.sheet.basket[idx];
+  let q = parseFloat(val);
+  if (!it || !q || q <= 0) return;
+  if (it.ozPer) q = q / it.ozPer;            // box reads ounces -> store servings
+  if (it.srcKind === 'z') q = Math.min(Math.max(Math.round(q), 1), it.maxPortions || 1);
+  it.qty = q;
   renderNSheetList();
 }
 function nBasketRemove(idx) { NS.sheet.basket.splice(idx, 1); renderNSheetList(); }
@@ -674,19 +706,30 @@ function nBasketTotals() {
   return t;
 }
 
+// Decrement freezer inventory for any logged freezer portions.
+async function nConsumeZ(zItems) {
+  for (const it of (zItems || [])) await nInvConsume(it.srcId, Math.round(it.qty));
+  if (zItems && zItems.length && typeof nInvPanelHtml === 'function')
+    nInfoRefresh('freezer', nInvPanelHtml(true));
+}
+
 async function submitBasket() {
   const { mode, meal, basket } = NS.sheet || {};
   if (!basket || !basket.length) return;
   const tot = nBasketTotals();
   const multi = basket.length > 1;
   const first = basket[0];
-  const qtyDesc = basket.map(it => `${it.qty}× ${it.name}`).join('; ');
+  const qtyDesc = basket.map(it => it.ozPer
+    ? `${Math.round(it.qty * it.ozPer * 10) / 10}oz ${it.name}`
+    : `${it.qty}× ${it.name}`).join('; ');
   const src = {
-    recipe_id: (!multi && first.kind === 'r') ? first.id : null,
+    recipe_id: (!multi && first.kind === 'r') ? first.id
+             : (!multi && first.kind === 'z') ? first.invRecipeId : null,
     food_item_id: (!multi && first.kind === 'f') ? first.id : null,
-    desc: (multi || first.qty !== 1) ? qtyDesc : null,
+    desc: (multi || first.qty !== 1 || (first.kind === 'z' && !first.invRecipeId)) ? qtyDesc : null,
     kcal: tot.kcal, protein_g: tot.protein_g, carbs_g: tot.carbs_g, fat_g: tot.fat_g,
   };
+  const zItems = basket.filter(it => it.srcKind === 'z');
   try {
     const status = basket.every(it => it.rest) ? 'ate_out' : 'swapped';
     if (mode === 'add' || !meal) {
@@ -701,12 +744,13 @@ async function submitBasket() {
         closeNSheet();
         return nConfirmOpen('Log this twice?', `<div>${nEsc(dup.message)}</div>`, [
           { label: 'Yes, I had it again', kind: 'primary',
-            run: async () => { await nLogAdded(nToday(), src); toast('Logged ✓'); renderToday(); } },
+            run: async () => { await nLogAdded(nToday(), src); await nConsumeZ(zItems); toast('Logged ✓'); renderToday(); } },
           { label: 'No — that was a double entry', run: () => renderToday() },
         ]);
       }
       await nLogAdded(nToday(), src);
-    } else await nLogMeal(meal, status, src, 1.0);
+      await nConsumeZ(zItems);
+    } else { await nLogMeal(meal, status, src, 1.0); await nConsumeZ(zItems); }
     closeNSheet(); toast('Logged ✓'); renderToday();
   } catch (e) { if (e.message !== 'offline') toast('Save failed: ' + e.message, 4000); }
 }
@@ -729,8 +773,10 @@ function renderNSheetList() {
     const tot = nBasketTotals();
     const rows = basket.map((it, i) => `<div class="n-basket-row">
       <span class="n-basket-name">${nEsc(it.name)} <span style="color:var(--n-muted);font-size:11px">${nEsc(nKitchenAmt(it))}</span></span>
-      <input type="number" class="n-basket-qty" inputmode="decimal" step="0.25" min="0.25"
-        value="${it.qty}" onchange="nBasketQty(${i}, this.value)">
+      <input type="number" class="n-basket-qty" inputmode="decimal"
+        step="${it.srcKind === 'z' ? 1 : it.ozPer ? 0.1 : 0.25}" min="${it.srcKind === 'z' ? 1 : it.ozPer ? 0.1 : 0.25}"
+        ${it.srcKind === 'z' && it.maxPortions ? `max="${it.maxPortions}"` : ''}
+        value="${it.ozPer ? Math.round(it.qty * it.ozPer * 10) / 10 : it.qty}" onchange="nBasketQty(${i}, this.value)"><span class="n-unit">${it.srcKind === 'z' ? '×' : it.ozPer ? 'oz' : '×'}</span>
       <button class="n-basket-x" onclick="nBasketRemove(${i})">✕</button></div>`).join('');
     let delta = '';
     if (meal) {
@@ -757,11 +803,14 @@ function renderNSheetList() {
 
   // Filter chips
   const hasAlts = mode === 'swap' && meal && (NS.alternates[meal.id] || []).length;
+  const myFrozen = (typeof nInvForAthlete === 'function') ? nInvForAthlete(NS.me.id) : [];
   const filters = [['all', 'All']];
   if (hasAlts) filters.push(['alts', '★ Coach picks']);
   filters.push(['recipes', 'Recipes'], ['foods', 'Foods'], ['restaurants', 'Restaurants']);
+  if (myFrozen.length) filters.push(['freezer', '🧊 Freezer']);
   html += `<div class="n-filter-row">${filters.map(([f, l]) =>
-    `<button class="n-chip${filter === f ? ' active' : ''}" onclick="nSetFilter('${f}')">${l}</button>`).join('')}</div>`;
+    `<button class="n-chip${filter === f ? ' active' : ''}" onclick="nSetFilter('${f}')">${l}</button>`).join('')}
+    <button class="n-chip${NS.sheet && NS.sheet.customOpen ? ' active' : ''}" onclick="nToggleCustomPanel()">＋ Custom</button></div>`;
 
   const show = s => filter === 'all' || filter === s;
 
@@ -775,6 +824,16 @@ function renderNSheetList() {
       html += nOptHtml('a', a.id, true, nm,
         `${Math.round(a.kcal)} kcal · ${Math.round(a.protein_g)}P${a.note ? ' — ' + a.note : ''}`);
     }
+  }
+
+  // 🧊 My freezer portions — ready to eat; logging one decrements the inventory
+  if (myFrozen.length && show('freezer')) {
+    const rows = myFrozen.filter(r => !q || (r.recipe_name || '').toLowerCase().includes(q));
+    if (rows.length) html += `<div class="n-sheet-section">🧊 My freezer — ready to eat</div>`;
+    for (const r of rows)
+      html += `<button class="n-opt" onclick="nBasketAdd('z','${r.id}')">
+        <div class="n-opt-name">🧊 ${nEsc(r.recipe_name)}</div>
+        <div class="n-opt-sub">${r.portions} in freezer${r.kcal != null ? ` · ${Math.round(r.kcal)} kcal · ${Math.round(r.protein_g || 0)}P per portion` : ''} — tap to add</div></button>`;
   }
 
   // Recipes
@@ -800,10 +859,14 @@ function renderNSheetList() {
       if (mf !== 'all') fds = fds.filter(f => nMacroClass(f) === mf);
     }
     if (fds.length) html += `<div class="n-sheet-section">Foods & ingredients</div>`;
-    for (const f of fds.slice(0, 50))
+    for (const f of fds.slice(0, 50)) {
+      const oz = nOzPerServing(f);
+      const per = (oz && !/^\d+(?:\.\d+)?\s*oz\b/i.test(String(f.serving_desc || '')))
+        ? `${oz} oz (${f.serving_desc})` : f.serving_desc;
       html += nOptHtml('f', f.id, false, f.name,
-        `${Math.round(f.kcal)} kcal · ${Math.round(f.protein_g)}P per ${f.serving_desc}` +
+        `${Math.round(f.kcal)} kcal · ${Math.round(f.protein_g)}P per ${per}` +
         (f.approval_status === 'pending' ? ' · ⏳ pending review' : ''));
+    }
   }
 
   // Restaurants, grouped
@@ -820,8 +883,30 @@ function renderNSheetList() {
     }
   }
 
-  document.getElementById('n-sheet-list').innerHTML =
-    html || '<div class="n-opt-sub" style="padding:12px">No matches.</div>';
+  if (!html) {
+    html = '<div class="n-opt-sub" style="padding:12px">No matches.</div>';
+    if (q) html += `<button class="n-opt" onclick="nCustomFromSearch()">
+      <div class="n-opt-name">＋ Add it as a custom food</div>
+      <div class="n-opt-sub">Not in the database — enter it once, optionally save for reuse</div></button>`;
+  }
+  document.getElementById('n-sheet-list').innerHTML = html;
+}
+
+// ── Custom-food panel show/hide (hidden by default — it's the rare path) ──
+function nToggleCustomPanel() {
+  const open = !(NS.sheet && NS.sheet.customOpen);
+  if (NS.sheet) NS.sheet.customOpen = open;
+  const cp = document.getElementById('n-custom-panel');
+  if (cp) cp.style.display = open ? 'block' : 'none';
+  renderNSheetList();
+  if (open) document.getElementById('n-custom-desc').focus();
+}
+function nCustomFromSearch() {
+  const q = document.getElementById('n-sheet-search').value.trim();
+  if (!(NS.sheet && NS.sheet.customOpen)) nToggleCustomPanel();
+  const inp = document.getElementById('n-custom-desc');
+  if (q && !inp.value) inp.value = q;
+  inp.focus();
 }
 
 function toggleCustomSave() {
@@ -992,17 +1077,11 @@ function nTweakSeed() {
     for (const c of comps) {
       const f = NS.foods.find(x => x.id === c.food_item_id);
       if (!f) continue;
-      const qty = Math.round(c.qty * (meal.planned_servings || 1) * 100) / 100;
-      NS.sheet.basket.push({ srcKind: 'f', srcId: f.id, kind: 'f', id: f.id, name: f.name,
-        qty, kcal: f.kcal, protein_g: f.protein_g, carbs_g: f.carbs_g, fat_g: f.fat_g,
-        unit: f.serving_desc, grams: f.grams_per_serving, rest: false });
+      NS.sheet.basket.push(nMakeItem(f, Math.round(c.qty * (meal.planned_servings || 1) * 100) / 100));
     }
   } else if (meal.food_item_id) {
     const f = NS.foods.find(x => x.id === meal.food_item_id);
-    if (f) NS.sheet.basket.push({ srcKind: 'f', srcId: f.id, kind: 'f', id: f.id, name: f.name,
-      qty: meal.planned_servings || 1, kcal: f.kcal, protein_g: f.protein_g,
-      carbs_g: f.carbs_g, fat_g: f.fat_g, unit: f.serving_desc,
-      grams: f.grams_per_serving, rest: f.item_type === 'restaurant' });
+    if (f) NS.sheet.basket.push(nMakeItem(f, meal.planned_servings || 1));
   }
   renderNSheetList();
 }

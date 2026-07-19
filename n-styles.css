@@ -282,3 +282,8 @@ body { background: var(--n-bg) !important; color: var(--n-text); }
 .n-adjust-total { font-size: 12.5px; color: var(--n-text); font-weight: 600; margin-top: 8px; }
 .n-adjust-delta { color: var(--n-muted); font-weight: 400; }
 .n-adjust-log { width: 100%; margin-top: 8px; }
+
+/* ── 2026-07-19 UX pass: oz-first entry, header sheet buttons ── */
+.n-unit { font-size: 11px; color: var(--n-muted); margin-left: 4px; align-self: center; min-width: 16px; }
+.n-hbtn { background: none; border: 1px solid var(--n-border); color: var(--n-text); font-size: 13px; border-radius: 8px; padding: 6px 10px; cursor: pointer; position: relative; white-space: nowrap; }
+.n-dot { position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--n-red); }

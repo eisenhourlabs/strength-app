@@ -33,12 +33,14 @@ function openCheckin() {
     document.body.appendChild(ov);
   }
   ov.style.display = 'flex';
+  nBackPush('checkin', nCheckinHide);
   renderCheckinSheet();
 }
-function closeCheckin() {
+function nCheckinHide() {
   const ov = document.getElementById('nci-overlay');
   if (ov) ov.style.display = 'none';
 }
+function closeCheckin() { nCheckinHide(); nBackConsume('checkin'); }
 
 function nciChips(field, max) {
   let h = '<div class="n-portion-chips">';
