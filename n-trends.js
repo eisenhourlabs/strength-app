@@ -110,7 +110,16 @@ function nTrendsDerive(weights, summary, planned, logs, phases, targets) {
   const blank = () => ({ meals_planned: 0, meals_logged: 0, has_null_kcal: false,
     actual_kcal: null, actual_protein_g: null, planned_kcal: 0,
     carbs: 0, fat: 0, as_planned: 0, swapped: 0, skipped: 0, ate_out: 0, added: 0 });
+  // Only shape days that have actually HAPPENED. Planned meals exist for the
+  // whole Wed->Tue week the moment the plan is pushed, so counting future days
+  // here would score them as unlogged and deflate compliance / logging tier for
+  // the rest of the week (mid-week a perfect 4-of-7 days reads 57%, not 100%,
+  // which is below the N02 3 interpretability gate). Mirrors the data_end cap
+  // in 05_Scripts/pull_nutrition.py so the app and the coach pull can never
+  // quote different adherence for the same week.
+  const nmToday = nToday();
   for (const m of planned) {
+    if (m.meal_date > nmToday) continue;
     const d = (days[m.meal_date] ||= blank());
     d.meals_planned++;
     d.planned_kcal += m.planned_kcal || 0;
@@ -126,6 +135,7 @@ function nTrendsDerive(weights, summary, planned, logs, phases, targets) {
   }
   for (const l of logs) {
     if (l.planned_meal_id) continue;            // ad-hoc added items
+    if (l.log_date > nmToday) continue;
     const d = (days[l.log_date] ||= blank());
     d.added++;
     if (l.actual_kcal == null) { d.has_null_kcal = true; continue; }
