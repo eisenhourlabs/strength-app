@@ -332,7 +332,11 @@ async function nLoadAll() {
   for (const metric of watch) {
     // Value as well as date: rules 3 and 4 compare against the PREVIOUS reading.
     const { data: last } = await ndb.from('body_metrics').select('log_date,value')
-      .eq('athlete_id', meId).eq('metric', metric).neq('flag', 'excluded')
+      // NOTE: .neq('flag','excluded') alone would drop flag=NULL rows too (SQL
+      // three-valued logic), i.e. every normal measurement — which made the
+      // measurement prompt think nothing was ever logged and nag daily. Keep
+      // NULL-flag (normal) rows; only drop rows explicitly flagged 'excluded'.
+      .eq('athlete_id', meId).eq('metric', metric).or('flag.is.null,flag.neq.excluded')
       .order('log_date', { ascending: false }).limit(1);
     if (last && last.length) {
       NS.lastMetricDates[metric] = last[0].log_date;

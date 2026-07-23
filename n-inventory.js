@@ -16,11 +16,19 @@ function nInvCount(aid) { return nInvForAthlete(aid).reduce((s, r) => s + (r.por
 
 // The inventory panel. interactive=true shows "Use" on the current user's own rows.
 function nInvPanelHtml(interactive) {
+  // The Add UI lives at the top of the interactive sheet so you can stock the
+  // freezer by hand any time — even when it's empty — not only via prep-night cards.
+  const addUi = interactive
+    ? (N_INV_ADD
+        ? nInvAddFormHtml()
+        : `<div class="n-prompt-row" style="justify-content:flex-end;margin-bottom:8px">
+             <button class="n-act small" onclick="nInvToggleAdd()">➕ Add to freezer</button></div>`)
+    : '';
   const anyRows = nInvRows().length;
   if (!anyRows) {
     if (!interactive) return '';
     const summary = (NS.household || []).map(a => `${nEsc(a.name)} ${nInvCount(a.id)}/${N_INV_TARGET}`).join(' · ');
-    return `<div class="n-panel"><div class="n-panel-title">🧊 Freezer inventory</div>
+    return `${addUi}<div class="n-panel"><div class="n-panel-title">🧊 Freezer inventory</div>
       <div class="n-inv-empty">Building up backup dinners — target ${N_INV_TARGET} each. ${summary}</div></div>`;
   }
   let body = '';
@@ -39,13 +47,62 @@ function nInvPanelHtml(interactive) {
         ${use}</div>`;
     }
   }
-  return `<div class="n-panel"><div class="n-panel-title">🧊 Freezer inventory</div>${body}</div>`;
+  return `${addUi}<div class="n-panel"><div class="n-panel-title">🧊 Freezer inventory</div>${body}</div>`;
+}
+
+// ── Manual add (recipe-library only) ──
+// A freezer portion = one single-meal serving, so per-serving macros carry over.
+let N_INV_ADD = false;
+function nInvToggleAdd() { N_INV_ADD = !N_INV_ADD; nInfoRefresh('freezer', nInvPanelHtml(true)); }
+function nInvAddFormHtml() {
+  const people = (NS.household || []).map(a =>
+    `<option value="${a.id}"${a.id === NS.me.id ? ' selected' : ''}>${nEsc(a.name)}</option>`).join('');
+  const recs = (NS.recipes || []).filter(r => r.kind !== 'assembly')
+    .slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const opts = recs.map(r => `<option value="${r.id}">${nEsc(r.name)}</option>`).join('');
+  return `<div class="n-panel"><div class="n-panel-title">➕ Add to freezer</div>
+    <div class="n-prompt-row" style="flex-wrap:wrap;gap:6px">
+      <select id="ninv-add-person" style="flex:1 1 110px">${people}</select>
+      <select id="ninv-add-recipe" style="flex:2 1 170px"><option value="">Pick a recipe…</option>${opts}</select>
+      <label>Portions</label>
+      <input type="number" inputmode="numeric" id="ninv-add-qty" value="1" min="1" style="width:60px">
+      <button class="n-act small primary" onclick="nInvAddSave()">Add ✓</button>
+      <button class="n-act small" onclick="nInvToggleAdd()">Cancel</button>
+    </div></div>`;
+}
+async function nInvAddSave() {
+  if (nOffline) { toast('Offline — reconnect to update the freezer.', 3000); return; }
+  const aid = document.getElementById('ninv-add-person')?.value;
+  const rid = document.getElementById('ninv-add-recipe')?.value;
+  const qty = Math.max(1, parseInt(document.getElementById('ninv-add-qty')?.value, 10) || 0);
+  const rec = (NS.recipes || []).find(r => String(r.id) === String(rid));
+  if (!aid || !rec) { toast('Pick a person and a recipe.', 2500); return; }
+  const { data, error } = await ndb.from('freezer_inventory').insert({
+    household_id: NS.me.household_id,
+    athlete_id: aid,
+    recipe_id: rec.id,
+    recipe_name: rec.name,
+    portions: qty,
+    kcal: rec.kcal_per_serving != null ? rec.kcal_per_serving : null,
+    protein_g: rec.protein_g_per_serving != null ? rec.protein_g_per_serving : null,
+    carbs_g: rec.carbs_g_per_serving != null ? rec.carbs_g_per_serving : null,
+    fat_g: rec.fat_g_per_serving != null ? rec.fat_g_per_serving : null,
+    frozen_on: nToday(),
+    plan_week_id: null,
+  }).select().single();
+  if (error) { toast('Add failed: ' + error.message, 3500); return; }
+  (NS.freezerInventory = NS.freezerInventory || []).push(data);
+  N_INV_ADD = false;
+  if (typeof renderToday === 'function') renderToday();
+  nInfoRefresh('freezer', nInvPanelHtml(true));
+  toast(`Added ${qty} to the freezer ✓`);
 }
 function nInvWeekHtml() { return nInvPanelHtml(false); }
 
 // Header-button sheet on the Today screen (the standing inventory lives here now,
 // not in the daily card stack — it's an inventory, not a today item).
 function nOpenFreezerSheet() {
+  N_INV_ADD = false;
   nInfoOpen('freezer', '🧊 Freezer inventory', nInvPanelHtml(true));
 }
 

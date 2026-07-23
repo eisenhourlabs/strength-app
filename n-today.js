@@ -128,6 +128,14 @@ function nWeighInDueToday() {
   const days = NS.settings?.weigh_in_days || [];
   return days.includes(nDayName(nToday(), true)) && NS.metricsToday.weight == null && !NS.dismissed.weight;
 }
+// Evening-before heads-up: we weigh first thing, so a same-morning card is too
+// late. Show after 5pm the day before a weigh-in day; dismissal keyed to that
+// date so 'got it' sticks for the rest of the evening.
+function nWeighInTomorrow() {
+  const days = NS.settings?.weigh_in_days || [];
+  const tmrw = nDayName(nAddDays(nToday(), 1), true);
+  return days.includes(tmrw) && new Date().getHours() >= 17;
+}
 function nMeasurementsDue() {
   const s = NS.settings;
   if (!s) return [];
@@ -158,9 +166,11 @@ function nPromptCardsHtml() {
     const todayBlk = prepBlocks.find(b => b.date === nToday());
     const tmrwBlk = prepBlocks.find(b => b.date === nAddDays(nToday(), 1));
     if (todayBlk && !nDismissedLS('prep_' + todayBlk.date)) {
+      // Compact reminder only — the full checklist already lives on the Week tab.
       html += `<div class="n-prompt"><div class="n-prompt-title">🔪 Prep day
         <button class="n-prompt-dismiss" onclick="nDismissLS('prep_${todayBlk.date}');renderToday()">done</button></div>
-        ${nPrepBlockBodyHtml(todayBlk, prepNotes)}</div>`;
+        <div style="font-size:13px;color:var(--n-text);margin:2px 0 8px">It's a prep day — the full checklist is on the Week tab.</div>
+        <div class="n-prompt-row"><button class="n-act small primary" onclick="nShowTab('nweek')">Open Week tab</button></div></div>`;
     } else if (tmrwBlk && !nDismissedLS('prephu_' + tmrwBlk.date)) {
       html += `<div class="n-prompt"><div class="n-prompt-title">🔪 Prep tomorrow
         <button class="n-prompt-dismiss" onclick="nDismissLS('prephu_${tmrwBlk.date}');renderToday()">got it</button></div>
@@ -174,6 +184,14 @@ function nPromptCardsHtml() {
         <div class="n-prompt-row" style="margin-top:8px"><button class="n-act small" onclick="nShowTab('recipes')">📖 Open Recipe Book</button></div></div>`;
     }
   }
+  {
+    const wTmrw = nAddDays(nToday(), 1);
+    if (nWeighInTomorrow() && !nDismissedLS('weighhu_' + wTmrw)) {
+      html += `<div class="n-prompt"><div class="n-prompt-title">⚖️ Weigh-in tomorrow
+        <button class="n-prompt-dismiss" onclick="nDismissLS('weighhu_${wTmrw}');renderToday()">got it</button></div>
+        <div style="font-size:13px;color:var(--n-text)">Heads up — weigh in first thing tomorrow morning, before eating or drinking.</div></div>`;
+    }
+  }
   if (nWeighInDueToday()) {
     html += `<div class="n-prompt"><div class="n-prompt-title">⚖️ Weigh-in day</div>
       <div class="n-prompt-row">
@@ -182,8 +200,12 @@ function nPromptCardsHtml() {
         <button class="n-prompt-dismiss" onclick="NS.dismissed.weight=1;renderToday()">later</button>
       </div></div>`;
   }
+  // Measurements ride the weekly check-in cadence: only surface on the Sunday
+  // check-in, and only once 4 wks have elapsed (nMeasurementsDue). Dismissing
+  // snoozes for the whole plan week (nDismissLS is week-scoped), so it never
+  // nags daily — if missed, it returns next Sunday, still overdue.
   const due = nMeasurementsDue();
-  if (due.length) {
+  if (due.length && day === 'Sun' && !nDismissedLS('measure')) {
     // Labels + entry-time protocol reminders (N09 §2 / N04 / N05).
     // Calipers are entered PER SITE; mm-sum is derived. bodyfat_pct is retired.
     const label = {
@@ -207,7 +229,7 @@ function nPromptCardsHtml() {
         <button class="n-act small primary" onclick="submitMeasurement('${metric}')">Save</button>${hint}</div>`;
     }).join('');
     html += `<div class="n-prompt"><div class="n-prompt-title">📏 Measurement check (every ${NS.settings?.measurement_interval_weeks || 4} weeks)
-      <button class="n-prompt-dismiss" onclick="${due.map(d => `NS.dismissed['${d}']=1`).join(';')};renderToday()">later</button></div>${rows}</div>`;
+      <button class="n-prompt-dismiss" onclick="nDismissLS('measure');renderToday()">later</button></div>${rows}</div>`;
   }
   return html;
 }
