@@ -317,8 +317,13 @@ async function loadHistory() {
       const notesHtml = sess.session_notes
         ? `<div style="font-size:12px;color:var(--muted);font-style:italic;margin-top:8px">${sess.session_notes}</div>` : '';
 
+      const wasSkipped = sess.status === 'skipped';
       const emptyHtml = (!exHtml && !sessCondsArr.length)
-        ? `<div style="font-size:13px;color:var(--muted)">No exercises logged</div>` : '';
+        ? (wasSkipped
+            ? `<div style="font-size:13px;color:var(--muted)">Session skipped</div>`
+            : `<div style="font-size:13px;color:var(--muted)">No exercises logged</div>`)
+        : '';
+      const skipBadge = wasSkipped ? `<span class="badge badge-skipped">⨯ Skipped</span>` : '';
 
       return `
         <div class="hist-sess-card collapsed" id="hist-card-${sess.id}">
@@ -327,6 +332,7 @@ async function loadHistory() {
               <div class="hist-sess-type">${sess.session_type || 'Session'}</div>
             </div>
             <div style="display:flex;align-items:center;gap:8px">
+              ${skipBadge}
               ${rpeHtml}
               ${copyBtn}
               <span class="hist-toggle-icon" style="color:var(--muted);font-size:18px">⌄</span>

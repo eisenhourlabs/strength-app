@@ -166,6 +166,7 @@ async function loadTrends() {
 
     const { data: sessions } = await db.from('completed_sessions')
       .select('*').eq('athlete_id', S.athlete.id)
+      .or('status.is.null,status.neq.skipped')
       .gte('session_date', cutoffStr).order('session_date');
 
     const sessionIds = (sessions || []).map(function(s) { return s.id; });

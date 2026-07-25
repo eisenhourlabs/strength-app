@@ -56,7 +56,26 @@
     .badge-done     { background: #1a3a1a; color: var(--success); }
     .badge-progress { background: #1a2a1a; color: #86efac; }
     .badge-cond     { background: #1a2a3a; color: #60a5fa; }
+    .badge-skipped  { background: #3a2a1a; color: #d9a441; }
     .arrow          { color: var(--muted); font-size: 20px; }
+
+    /* Skipped whole session */
+    .card.sess-skipped { opacity: .55; }
+    .sess-skip-reason  { font-size: 11px; color: var(--muted); font-style: italic; margin-top: 4px; }
+    .sess-skip-btn     { background: none; border: none; color: var(--muted);
+      font-size: 17px; cursor: pointer; padding: 4px 6px; flex-shrink: 0; line-height: 1; }
+    .sess-skip-btn:active   { color: var(--accent); }
+    .sess-skip-btn.skipped  { color: var(--accent); }
+    .skip-reason-wrap  { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 4px; }
+    .skip-reason-chip  { background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); border-radius: 10px; padding: 12px 14px; font-size: 15px;
+      text-align: left; cursor: pointer; width: 100%; }
+    .skip-reason-chip:active { border-color: var(--accent); color: var(--accent); }
+    .skip-sess-btn { display: block; width: 100%; margin: 14px 0 4px; background: none;
+      border: 1px solid var(--border); color: var(--muted); border-radius: var(--radius);
+      padding: 13px; font-size: 14px; cursor: pointer; }
+    .skip-sess-btn:active  { border-color: var(--danger); color: var(--danger); }
+    .skip-sess-btn.skipped { border-color: var(--accent); color: var(--accent); }
 
     /* Exercise card (editable) */
     .ex-card { background: var(--surface); border: 1px solid var(--border);
@@ -268,6 +287,7 @@
       border-radius: 16px; padding: 8px 13px; font-size: 14px; cursor: pointer; }
     .rpe-chip:active { border-color: var(--accent); color: var(--accent); }
     .rpe-chip-clear { color: var(--muted); }
+    .rpe-chip-easy  { background: #1a2a3a; border-color: #2c4460; color: #60a5fa; font-weight: 600; }
     .pain-prompt-yes.danger { background: var(--danger); }
 
     /* Plate calculator + superset stripes */

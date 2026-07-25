@@ -613,7 +613,9 @@ function openRpeChips(key, idx) {
   const bar  = document.createElement('div');
   bar.className = 'rpe-chipbar';
   bar.id        = 'rpe-chipbar';
-  bar.innerHTML = vals.map(v =>
+  bar.innerHTML =
+    `<button class="rpe-chip rpe-chip-easy" onclick="pickRpe('${key}',${idx},2)">Easy</button>` +
+    vals.map(v =>
     `<button class="rpe-chip" onclick="pickRpe('${key}',${idx},${v})">${v}</button>`).join('') +
     `<button class="rpe-chip rpe-chip-clear" onclick="pickRpe('${key}',${idx},null)">✕</button>`;
   row.insertAdjacentElement('afterend', bar);
@@ -935,6 +937,14 @@ async function renderSessionBody() {
           ${isCompleted ? 'disabled' : ''}>${notesVal}</textarea>
       </div>
     </div>`;
+
+  // Skip / un-skip the whole session (hidden once the session is finished)
+  const sessIsSkipped = S.activeCompletedSession?.status === 'skipped';
+  if (!isCompleted) {
+    html += sessIsSkipped
+      ? `<button class="skip-sess-btn skipped" onclick="unskipSession('${S.activeSession.id}')">↩  Un-skip this session</button>`
+      : `<button class="skip-sess-btn" onclick="openSkipSessionSheet('${S.activeSession.id}')">⨯  Skip whole session</button>`;
+  }
 
   body.innerHTML = html;
 

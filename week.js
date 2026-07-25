@@ -22,10 +22,13 @@ async function renderWeek() {
   const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
   const totalSess = S.sessions.length;
   const doneSess  = S.sessions.filter(s => S.completed[s.id]?.status === 'completed').length;
+  const skipSess  = S.sessions.filter(s => S.completed[s.id]?.status === 'skipped').length;
+  const planSess  = totalSess - skipSess;   // skipped sessions drop out of the target
+  const skipNote  = skipSess ? ` · ${skipSess} skipped` : '';
   const progressHtml = (S.cycle && totalSess > 0) ? `
     <div class="week-progress">
-      <div class="week-progress-label">${doneSess} of ${totalSess} session${totalSess !== 1 ? 's' : ''} complete${doneSess === totalSess ? ' — week done! 🎉' : ''}</div>
-      <div class="week-progress-track"><div class="week-progress-fill" style="width:${Math.round(doneSess / totalSess * 100)}%"></div></div>
+      <div class="week-progress-label">${doneSess} of ${planSess} session${planSess !== 1 ? 's' : ''} complete${(planSess > 0 && doneSess === planSess) ? ' — week done! 🎉' : ''}${skipNote}</div>
+      <div class="week-progress-track"><div class="week-progress-fill" style="width:${planSess > 0 ? Math.round(doneSess / planSess * 100) : 100}%"></div></div>
     </div>` : '';
 
   const emptyStateHtml =
@@ -41,25 +44,35 @@ async function renderWeek() {
     const isCondOnly = s.session_type === 'Conditioning Only';
     const icon       = isCondOnly ? '🚴 ' : '';
     const dayLabel   = s.day_label || '';
+    const isSkipped = !!(comp && comp.status === 'skipped');
     let statusBadge;
     if (!comp) {
       statusBadge = `<span class="badge badge-pending">Pending</span>`;
+    } else if (isSkipped) {
+      statusBadge = `<span class="badge badge-skipped">⨯ Skipped</span>`;
     } else if (comp.status === 'in_progress') {
       statusBadge = `<span class="badge badge-progress">▶ In Progress</span>`;
     } else {
       statusBadge = `<span class="badge badge-done">✓ Logged</span>`;
     }
-    const isToday = dayLabel === todayName && !(comp && comp.status === 'completed');
+    const skipReason = isSkipped
+      ? `<div class="card-sub sess-skip-reason">${(comp.session_notes || 'Skipped')}</div>` : '';
+    const skipBtnHtml = isSkipped
+      ? `<button class="sess-skip-btn skipped" onclick="event.stopPropagation();unskipSession('${s.id}')" title="Un-skip session">↩</button>`
+      : `<button class="sess-skip-btn" onclick="event.stopPropagation();openSkipSessionSheet('${s.id}')" title="Skip session">⨯</button>`;
+    const isToday = dayLabel === todayName && !isSkipped && !(comp && comp.status === 'completed');
     return `
-      <div class="card tap${isToday ? ' today-card' : ''}" data-sid="${s.id}" onclick="openSession('${s.id}')">
+      <div class="card tap${isToday ? ' today-card' : ''}${isSkipped ? ' sess-skipped' : ''}" data-sid="${s.id}" onclick="openSession('${s.id}')">
         <div class="session-row">
           <span class="drag-handle" onclick="event.stopPropagation()" style="margin-right:10px;flex-shrink:0">≡</span>
           <div style="flex:1">
             <div class="card-label sess-day-chip" onclick="event.stopPropagation();editDayLabel('${s.id}')">${dayLabel || '<span style="opacity:.45">+ day</span>'} <span class="day-edit-icon">&#9998;</span>${isToday ? ' <span class="today-chip">TODAY</span>' : ''}</div>
             <div class="card-title">${icon}${s.session_type || 'Session'}</div>
             <div class="session-meta">${statusBadge}</div>
+            ${skipReason}
           </div>
           <div style="display:flex;align-items:center;gap:6px">
+            ${skipBtnHtml}
             <button class="sess-del-btn" onclick="event.stopPropagation();deleteSession('${s.id}')" title="Delete session">🗑</button>
             <div class="arrow">›</div>
           </div>
@@ -171,7 +184,7 @@ async function loadProgram() {
 
     const psIds = S.sessions.map(s => s.id);
     const { data: compList } = await db.from('completed_sessions')
-      .select('id,planned_session_id,status')
+      .select('id,planned_session_id,status,session_notes')
       .eq('athlete_id', S.athlete.id)
       .in('planned_session_id', psIds);
     S.completed = {};
@@ -248,6 +261,148 @@ async function _deleteSessionConfirmed(sessionId) {
   } catch (err) {
     console.error(err);
     toast('Error deleting session.', 4000);
+  }
+}
+
+// ── Skip a whole session ─────────────────────────────────────────────────────
+// Writes completed_sessions.status = 'skipped' with a reason in session_notes.
+// The coach-side pull (pull_logs.py) already counts this status.
+const SKIP_REASONS = [
+  ['🤒', 'Sick'],
+  ['✈️', 'Travel'],
+  ['⏱',  'No time'],
+  ['😴', 'Too beat up'],
+  ['🩹', 'Pain / injury'],
+  ['⋯',  'Other'],
+];
+
+let _skipSessionId = null;
+
+function openSkipSessionSheet(sessionId) {
+  _skipSessionId = sessionId;
+  const sess  = (S.sessions || []).find(s => s.id === sessionId);
+  const label = sess
+    ? (sess.day_label ? sess.day_label + ' · ' : '') + (sess.session_type || 'Session')
+    : 'this session';
+  const chips = SKIP_REASONS.map(r =>
+    `<button class="skip-reason-chip" onclick="chooseSkipReason('${r[1].replace(/'/g, "\\'")}')">${r[0]}  ${r[1]}</button>`
+  ).join('');
+  const overlay = document.createElement('div');
+  overlay.className = 'pain-prompt-overlay';
+  overlay.id        = 'skip-sess-overlay';
+  overlay.innerHTML = `
+    <div class="pain-prompt-box">
+      <div class="pain-prompt-title">Skip this session?</div>
+      <div class="pain-prompt-sub">${label}<br>Why? Your coach sees this.</div>
+      <div class="skip-reason-wrap">${chips}</div>
+      <div class="pain-prompt-btns">
+        <button class="pain-prompt-no" onclick="closeSkipSessionSheet()">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+function closeSkipSessionSheet() {
+  const o = document.getElementById('skip-sess-overlay');
+  if (o) o.remove();
+  _skipSessionId = null;
+}
+
+function chooseSkipReason(reason) {
+  const sessionId = _skipSessionId;
+  closeSkipSessionSheet();
+  if (!sessionId) return;
+  const cs = S.completed[sessionId];
+  if (cs && cs.status !== 'skipped') {
+    showConfirm('This session already has logged work',
+      'The sets you logged stay saved, but the session reports to your coach as skipped. Continue?',
+      'Mark skipped', () => _applySkipSession(sessionId, reason), true);
+    return;
+  }
+  _applySkipSession(sessionId, reason);
+}
+
+function _skipNote(existingNotes, reason) {
+  const tag = 'Skipped — ' + reason;
+  const prior = (existingNotes || '').replace(/\s*\|?\s*Skipped — [^|]*/g, '').trim();
+  return prior ? prior + ' | ' + tag : tag;
+}
+
+async function _applySkipSession(sessionId, reason) {
+  const sess = (S.sessions || []).find(s => s.id === sessionId);
+  const cs   = S.completed[sessionId];
+  const note = _skipNote(cs && cs.session_notes, reason);
+  try {
+    if (isOffline) {
+      if (cs) {
+        await idbQueueWrite({ op: 'finish_session_update',
+          tempSessionId: cs.id,
+          sessionId:     cs._isTemp ? null : cs.id,
+          payload:       { status: 'skipped', session_notes: note } });
+        S.completed[sessionId] = { ...cs, status: 'skipped', session_notes: note };
+      } else {
+        const sp = { athlete_id: S.athlete.id, planned_session_id: sessionId,
+          session_date: today(), week_of: S.cycle ? S.cycle.start_date : null,
+          session_type: sess ? sess.session_type : null,
+          status: 'skipped', session_notes: note };
+        await idbQueueWrite({ op: 'finish_session_insert', payload: sp });
+        S.completed[sessionId] = { id: crypto.randomUUID(), _isTemp: true, ...sp };
+      }
+      toast('Session skipped — will sync when connected.');
+      showScreen('week');
+      renderWeek();
+      return;
+    }
+
+    if (cs) {
+      const { error } = await db.from('completed_sessions')
+        .update({ status: 'skipped', session_notes: note }).eq('id', cs.id);
+      if (error) throw error;
+    } else {
+      const { error } = await db.from('completed_sessions').insert({
+        athlete_id:         S.athlete.id,
+        planned_session_id: sessionId,
+        session_date:       today(),
+        week_of:            S.cycle ? S.cycle.start_date : null,
+        session_type:       sess ? sess.session_type : null,
+        status:             'skipped',
+        session_notes:      note,
+      });
+      if (error) throw error;
+    }
+    toast('Session skipped');
+    loadProgram();
+  } catch (err) {
+    console.error('_applySkipSession:', err);
+    toast('Could not skip session — check connection.', 4000);
+  }
+}
+
+async function unskipSession(sessionId) {
+  const cs = S.completed[sessionId];
+  if (!cs) { showScreen('week'); renderWeek(); return; }
+  if (isOffline) { toast('Un-skipping needs a connection.', 3000); return; }
+  try {
+    // If nothing was ever logged against it, drop the record so it reads Pending again.
+    const { data: sets } = await db.from('completed_strength_sets')
+      .select('id').eq('completed_session_id', cs.id).limit(1);
+    const { data: cond } = await db.from('completed_conditioning')
+      .select('id').eq('completed_session_id', cs.id).limit(1);
+    const hasWork = (sets && sets.length) || (cond && cond.length);
+    if (hasWork) {
+      const notes = (cs.session_notes || '').replace(/\s*\|?\s*Skipped — [^|]*/g, '').trim() || null;
+      const { error } = await db.from('completed_sessions')
+        .update({ status: 'in_progress', session_notes: notes }).eq('id', cs.id);
+      if (error) throw error;
+    } else {
+      const { error } = await db.from('completed_sessions').delete().eq('id', cs.id);
+      if (error) throw error;
+    }
+    toast('Session restored');
+    loadProgram();
+  } catch (err) {
+    console.error('unskipSession:', err);
+    toast('Could not restore session.', 4000);
   }
 }
 
