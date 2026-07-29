@@ -11,6 +11,95 @@ let N_OPEN = {};   // expanded logged-card ids (session only)
 const N_ADJ = {};          // meal ids with the inline Adjust panel open
 const N_ADJ_BASKET = {};   // meal id -> editable component items (sheet-basket shape)
 
+// ── Weekly quiet encouragement (Amanda only) ──
+// Source of truth: 08_Nutrition/Amanda_Encouragement_Messages.md
+// Regenerate the array below with: python 05_Scripts/build_encouragement.py
+// ENCOURAGEMENT:START
+const N_ENCOURAGEMENT = [
+  {"type": "wife", "text": "You are exactly the partner I'd choose again, on purpose, every time."},
+  {"type": "wife", "text": "The steadiness you bring to this house is easy to take for granted and impossible to replace."},
+  {"type": "wife", "text": "You've got a way of making people feel like they matter — I got the best version of that, every day."},
+  {"type": "wife", "text": "Being loved by you has made me better at being a person."},
+  {"type": "mother", "text": "You don't get enough credit for the invisible labor of just keeping everyone okay. I see it."},
+  {"type": "person", "text": "Whatever you're carrying today, you don't have to carry all of it alone."},
+  {"type": "person", "text": "You've built a life full of people who love you because of who you consistently choose to be."},
+  {"type": "person", "text": "Whatever version of \"enough\" you're measuring yourself against today, you're clearing it."},
+  {"type": "person", "text": "You are allowed to rest. The world keeps turning even when you're not holding it up for one afternoon."},
+  {"type": "verse", "text": "\"She is clothed with strength and dignity, and she laughs without fear of the future.\" — Proverbs 31:25"},
+  {"type": "verse", "text": "\"Her children rise up and call her blessed.\" — Proverbs 31:28"},
+  {"type": "verse", "text": "\"Those who hope in the Lord will renew their strength. They will soar on wings like eagles.\" — Isaiah 40:31"},
+  {"type": "verse", "text": "\"The Lord your God is with you, the Mighty Warrior who saves. He will take great delight in you; he will rejoice over you with singing.\" — Zephaniah 3:17"},
+  {"type": "verse", "text": "\"Love is patient, love is kind... it always protects, always trusts, always hopes, always perseveres.\" — 1 Corinthians 13:4,7"},
+  {"type": "verse", "text": "\"The joy of the Lord is your strength.\" — Nehemiah 8:10"},
+  {"type": "verse", "text": "\"His mercies are new every morning; great is his faithfulness.\" — Lamentations 3:22-23"},
+  {"type": "playful", "text": "If \"keeping the entire family calendar in her head\" were an Olympic event, you'd have a room full of gold medals."},
+  {"type": "playful", "text": "The dog likes you best. Everyone knows it. It's fine. It's totally fine."},
+  {"type": "playful", "text": "You could run this household with one hand tied behind your back, and some weeks you basically do."},
+  {"type": "playful", "text": "Reminder: you are, statistically, the most competent person in this house before 6 a.m. Everyone else is just guessing."},
+  {"type": "wife", "text": "Still think I got the better end of this deal every single day."},
+  {"type": "wife", "text": "You're allowed to have an off day. I'll still think you're the best part of mine."},
+  {"type": "wife", "text": "Whatever kind of day you're having, I'd still rather be having it with you than anyone else."},
+  {"type": "wife", "text": "Honestly, you're better at this whole marriage thing than I probably deserve."},
+  {"type": "mother", "text": "You raised boys who actually call their mother back. That's not nothing."},
+  {"type": "mother", "text": "The house is quieter now, but the impact you had on those boys isn't going anywhere."},
+  {"type": "mother", "text": "Pretty sure your sons don't know yet how much of who they are came from watching you."},
+  {"type": "person", "text": "You don't have to have it all figured out today. Nobody does."},
+  {"type": "verse", "text": "\"Let all that you do be done in love.\" — 1 Corinthians 16:14"},
+  {"type": "verse", "text": "\"Cast all your anxiety on him because he cares for you.\" — 1 Peter 5:7"},
+  {"type": "mother", "text": "You don't have to keep proving you're a good mom. That case closed a long time ago."},
+  {"type": "person", "text": "You show up for people without keeping score. Not everyone does that."},
+  {"type": "verse", "text": "\"She sets about her work vigorously; her arms are strong for her tasks.\" — Proverbs 31:17"},
+  {"type": "wife", "text": "I don't say it enough, but I notice everything you do around here."},
+  {"type": "wife", "text": "I'm still trying to figure out how I got this lucky."},
+  {"type": "wife", "text": "I'd rather have a bad day with you than a good one without you."},
+  {"type": "verse", "text": "\"She speaks with wisdom, and faithful instruction is on her tongue.\" — Proverbs 31:26"},
+  {"type": "verse", "text": "\"The Lord is my strength and my shield; my heart trusts in him, and he helps me.\" — Psalm 28:7"},
+  {"type": "verse", "text": "\"Many waters cannot quench love; rivers cannot sweep it away.\" — Song of Songs 8:7"},
+];
+// ENCOURAGEMENT:END
+
+function nWeekHash(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
+function nSeededShuffle(n, seed) {
+  let a = seed >>> 0;
+  function rand() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+  const arr = Array.from({ length: n }, (_, i) => i);
+  for (let i = n - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// Picks ONE day this week to show a line, for Amanda only. Both the day
+// and the message are deterministic per athlete+week (so it doesn't shift
+// around on reload), but only render on the chosen day — the other six
+// days show nothing. Cycles through every message once before any repeat,
+// then reshuffles for the next cycle.
+function nWeeklyQuietLine(dateStr) {
+  if (!NS.me || NS.me.name !== 'Amanda' || !N_ENCOURAGEMENT.length) return '';
+  const dayOffset = nWeekHash('enc:day:' + NS.me.id + ':' + NS.weekOf) % 7;
+  const chosenDay = nAddDays(NS.weekOf, dayOffset);
+  if (dateStr !== chosenDay) return '';
+
+  const n = N_ENCOURAGEMENT.length;
+  const weekNum = Math.floor(Date.parse(NS.weekOf + 'T00:00:00Z') / 86400000 / 7);
+  const cycle = Math.floor(weekNum / n);
+  const posInCycle = ((weekNum % n) + n) % n;
+  const order = nSeededShuffle(n, nWeekHash('enc:' + NS.me.id + ':' + cycle));
+  const msg = N_ENCOURAGEMENT[order[posInCycle]];
+  return msg ? `<div class="n-quiet-note">${nEsc(msg.text)}</div>` : '';
+}
+
 // ── Render ──
 function renderToday() {
   const dateStr = nToday();
@@ -19,34 +108,44 @@ function renderToday() {
     `${NS.me.name} · week of ${NS.weekOf}${NS.planWeek ? '' : ' — no plan pushed yet'}`;
 
   const body = document.getElementById('today-body');
-  let html = '';
-  html += nPromptCardsHtml();
+  const blocks = [];
+  blocks.push(nPromptCardsHtml());
 
   const inWeek = dateStr >= NS.weekOf && dateStr <= nAddDays(NS.weekOf, 6);
   if (!inWeek) {
-    html += `<div class="n-panel"><div class="n-panel-title">Plan week of ${NS.weekOf}</div>
+    blocks.push(`<div class="n-panel"><div class="n-panel-title">Plan week of ${NS.weekOf}</div>
       Your plan ${dateStr < NS.weekOf ? 'starts ' + nFmtDate(NS.weekOf) : 'ended ' + nFmtDate(nAddDays(NS.weekOf, 6))}.
-      Browse the full week, prep plan, and grocery list in the tabs below — meals appear here day by day once the week begins.</div>`;
+      Browse the full week, prep plan, and grocery list in the tabs below — meals appear here day by day once the week begins.</div>`);
   } else {
-    html += `<div class="n-sticky">${nBudgetHtml(dateStr)}</div>`;
+    blocks.push(`<div class="n-sticky">${nBudgetHtml(dateStr)}</div>`);
   }
 
   const meals = inWeek ? nMyMeals(dateStr) : [];
   if (!meals.length && inWeek) {
-    html += `<div class="n-panel">No meals planned for today.</div>`;
+    blocks.push(`<div class="n-panel">No meals planned for today.</div>`);
   }
-  for (const m of meals) html += nMealCardHtml(m);
+  for (const m of meals) blocks.push(nMealCardHtml(m));
 
   // Added (unplanned) items today
   const added = NS.addedLogs.filter(l => l.log_date === dateStr);
   if (added.length) {
-    html += `<div class="n-sheet-section" style="margin-top:14px">Added today</div>`;
-    for (const l of added) html += nAddedCardHtml(l);
+    blocks.push(`<div class="n-sheet-section" style="margin-top:14px">Added today</div>`);
+    for (const l of added) blocks.push(nAddedCardHtml(l));
   }
 
-  html += nActivityCardHtml();
-  html += `<button class="n-act" style="width:100%;margin-top:10px" onclick="openNSheet('add', null)">+ Add food</button>`;
-  body.innerHTML = html;
+  blocks.push(nActivityCardHtml());
+  blocks.push(`<button class="n-act" style="width:100%;margin-top:10px" onclick="openNSheet('add', null)">+ Add food</button>`);
+
+  // Weekly quiet line (Amanda only) — dropped into a random gap between
+  // cards so it doesn't always land in the same place, but never inside
+  // an existing card's markup.
+  const quiet = nWeeklyQuietLine(dateStr);
+  if (quiet) {
+    const pos = nWeekHash('enc:slot:' + NS.me.id + ':' + NS.weekOf) % (blocks.length + 1);
+    blocks.splice(pos, 0, quiet);
+  }
+
+  body.innerHTML = blocks.join('');
 }
 
 // ── On-track math ──

@@ -286,4 +286,7 @@ body { background: var(--n-bg) !important; color: var(--n-text); }
 /* ── 2026-07-19 UX pass: oz-first entry, header sheet buttons ── */
 .n-unit { font-size: 11px; color: var(--n-muted); margin-left: 4px; align-self: center; min-width: 16px; }
 .n-hbtn { background: none; border: 1px solid var(--n-border); color: var(--n-text); font-size: 13px; border-radius: 8px; padding: 6px 10px; cursor: pointer; position: relative; white-space: nowrap; }
+
+/* ── 2026-07-29 weekly quiet line (Amanda, Today tab) — deliberately plain, no card/border ── */
+.n-quiet-note { font-size: 12px; color: var(--n-muted); margin: 10px 6px; line-height: 1.4; }
 .n-dot { position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--n-red); }
