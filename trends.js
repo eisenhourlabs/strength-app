@@ -164,6 +164,12 @@ async function loadTrends() {
     cutoff.setDate(cutoff.getDate() - 84);
     const cutoffStr = cutoff.toISOString().slice(0, 10);
 
+    // Conditioning is pulled back further so the Conditioning period selector
+    // can offer a Last 6 Months view. Only that section reads this window.
+    const condCutoff = new Date();
+    condCutoff.setDate(condCutoff.getDate() - 190);
+    const condCutoffStr = condCutoff.toISOString().slice(0, 10);
+
     const { data: sessions } = await db.from('completed_sessions')
       .select('*').eq('athlete_id', S.athlete.id)
       .or('status.is.null,status.neq.skipped')
@@ -181,7 +187,7 @@ async function loadTrends() {
     const [readyRes, painRes, condRes, setsRes] = await Promise.all([
       db.from('readiness_logs').select('*').eq('athlete_id', S.athlete.id).gte('log_date', cutoffStr).order('log_date'),
       db.from('pain_injury_logs').select('*').eq('athlete_id', S.athlete.id).order('log_date'),
-      db.from('completed_conditioning').select('*').eq('athlete_id', S.athlete.id).gte('conditioning_date', cutoffStr).order('conditioning_date'),
+      db.from('completed_conditioning').select('*').eq('athlete_id', S.athlete.id).gte('conditioning_date', condCutoffStr).order('conditioning_date'),
       sessionIds.length
         ? db.from('completed_strength_sets')
             .select('*, exercise:exercise_id(id,name,movement_pattern,exercise_type), planned_ex:planned_exercise_id(planned_adaptation,exercise_role)')
@@ -799,15 +805,57 @@ function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
   const wkValues = weekKeys.map(function(k) { return Math.round(byWk[k]); });
   const minChart = trendsBarChart(wkValues, weekLabels, { height: 110, color: '#06b6d4' });
 
-  // ── Last-30-day window ────────────────────────────────────────────────────
-  const now30 = new Date(); now30.setDate(now30.getDate() - 30);
-  const cutoff30 = now30.toISOString().slice(0,10);
+  // ── Build HTML ─────────────────────────────────────────────────────────────
+  const period = (document.getElementById('cond-period-select') || {}).value || '4w';
+
+  const periodSelect = '<select class="trends-period-select" id="cond-period-select" onchange="refreshConditioningBreakdown()">'
+    + '<option value="1w"' + (period === '1w' ? ' selected' : '') + '>This Week</option>'
+    + '<option value="2w"' + (period === '2w' ? ' selected' : '') + '>Last Week</option>'
+    + '<option value="4w"' + (period === '4w' ? ' selected' : '') + '>Last 4 Weeks</option>'
+    + '<option value="6m"' + (period === '6m' ? ' selected' : '') + '>Last 6 Months</option>'
+    + '</select>';
+
+  const body = '<div class="trends-chart-box"><div class="trends-chart-title">Minutes per Week</div>' + minChart + '</div>'
+    + periodSelect
+    + '<div id="cond-breakdown">' + buildConditioningBreakdown(conditioning, weekKeys, period) + '</div>';
+
+  return trendSection('conditioning', 'Conditioning', body);
+}
+
+// ── Conditioning breakdown (period-filtered) ──────────────────────────────────
+// Mirrors the Volume & Workload period selector: This Week / Last Week /
+// Last 4 Weeks / Last 6 Months.
+function buildConditioningBreakdown(conditioning, weekKeys, period) {
+  const label = period === '1w' ? 'This Week'
+              : period === '2w' ? 'Last Week'
+              : period === '6m' ? 'Last 6 Months'
+              : 'Last 4 Weeks';
+
+  var inPeriod;
+  if (period === '6m') {
+    const cut = new Date(); cut.setDate(cut.getDate() - 182);
+    const cutStr = cut.toISOString().slice(0,10);
+    inPeriod = function(d) { return d >= cutStr; };
+  } else {
+    var cutKeys;
+    if (period === '1w') {
+      cutKeys = new Set([getWeekMonday(today())]);
+    } else if (period === '2w') {
+      const d = new Date(getWeekMonday(today()) + 'T00:00:00');
+      d.setDate(d.getDate() - 7);
+      cutKeys = new Set([d.toISOString().slice(0,10)]);
+    } else {
+      cutKeys = new Set((weekKeys || []).slice(-4));
+    }
+    inPeriod = function(d) { return cutKeys.has(getWeekMonday(d)); };
+  }
+
   const recent = conditioning.filter(function(row) {
     const d = row.conditioning_date || (row.created_at ? row.created_at.slice(0,10) : null);
-    return d && d >= cutoff30;
+    return d && inPeriod(d);
   });
 
-  // ── Time by modality (30 days) ────────────────────────────────────────────
+  // ── Time by modality ──────────────────────────────────────────────────────
   const timeByMod = {};
   recent.forEach(function(row) {
     if (!row.modality) return;
@@ -817,7 +865,7 @@ function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
     .map(function(e) { return { label: e[0], value: Math.round(e[1]) }; })
     .sort(function(a,b) { return b.value - a.value; });
 
-  // ── Distance by modality (30 days, metres -> miles) ───────────────────────
+  // ── Distance by modality (metres -> miles) ────────────────────────────────
   const DIST_MODS = ['Run','Ruck','Walk','Rower','SkiErg','Cycling','Echo Bike','Swimming'];
   const distByMod = {};
   recent.forEach(function(row) {
@@ -829,7 +877,7 @@ function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
     .map(function(e) { return { label: e[0], value: parseFloat((e[1] / 1609.34).toFixed(1)) }; })
     .sort(function(a,b) { return b.value - a.value; });
 
-  // ── Adaptation breakdown (30 days) ───────────────────────────────────────
+  // ── Adaptation breakdown ──────────────────────────────────────────────────
   const adaptMap = {};
   recent.forEach(function(row) {
     const zone = condAdaptation(row.workout_type, row.modality);
@@ -843,7 +891,7 @@ function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
     .map(function(e) { return { label: e[0], value: Math.round(e[1]) }; })
     .sort(function(a,b) { return b.value - a.value; });
 
-  // ── Workout type breakdown (30 days) ─────────────────────────────────────
+  // ── Workout type breakdown ────────────────────────────────────────────────
   const wtMap = {};
   recent.forEach(function(row) {
     const wt = row.workout_type || 'Unspecified';
@@ -853,10 +901,7 @@ function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
     .map(function(e) { return { label: e[0], value: Math.round(e[1]) }; })
     .sort(function(a,b) { return b.value - a.value; });
 
-  // ── Build HTML ─────────────────────────────────────────────────────────────
   var body = '';
-
-  body += '<div class="trends-chart-box"><div class="trends-chart-title">Minutes per Week</div>' + minChart + '</div>';
 
   if (adaptItems.length) {
     // Custom color horiz chart for adaptation
@@ -870,22 +915,30 @@ function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
         + '<div class="horiz-bar-track"><div class="horiz-bar-fill" style="width:' + pct + '%;background:' + col + '"></div></div>'
         + '</div>';
     });
-    body += '<div class="trends-chart-box"><div class="trends-chart-title">By Adaptation Zone — last 30 days</div>' + adaptRows + '</div>';
+    body += '<div class="trends-chart-box"><div class="trends-chart-title">By Adaptation Zone — ' + label + '</div>' + adaptRows + '</div>';
   }
 
   if (wtItems.length) {
-    body += '<div class="trends-chart-box"><div class="trends-chart-title">By Workout Type — last 30 days (min)</div>' + trendsHorizChart(wtItems, '#06b6d4') + '</div>';
+    body += '<div class="trends-chart-box"><div class="trends-chart-title">By Workout Type — ' + label + ' (min)</div>' + trendsHorizChart(wtItems, '#06b6d4') + '</div>';
   }
 
   if (timeItems.length) {
-    body += '<div class="trends-chart-box"><div class="trends-chart-title">Time by Modality — last 30 days (min)</div>' + trendsHorizChart(timeItems, '#0891b2') + '</div>';
+    body += '<div class="trends-chart-box"><div class="trends-chart-title">Time by Modality — ' + label + ' (min)</div>' + trendsHorizChart(timeItems, '#0891b2') + '</div>';
   }
 
   if (distItems.length) {
-    body += '<div class="trends-chart-box"><div class="trends-chart-title">Distance by Modality — last 30 days (mi)</div>' + trendsHorizChart(distItems, '#0e7490') + '</div>';
+    body += '<div class="trends-chart-box"><div class="trends-chart-title">Distance by Modality — ' + label + ' (mi)</div>' + trendsHorizChart(distItems, '#0e7490') + '</div>';
   }
 
-  return trendSection('conditioning', 'Conditioning', body);
+  if (!body) body = '<div style="color:var(--muted);font-size:13px;padding:8px 0">No conditioning data for this period.</div>';
+
+  return body;
+}
+
+function refreshConditioningBreakdown() {
+  const sel = document.getElementById('cond-period-select');
+  const el  = document.getElementById('cond-breakdown');
+  if (sel && el) el.innerHTML = buildConditioningBreakdown(window._tConditioning || [], window._tWkKeys || [], sel.value);
 }
 
 function renderTrendsPain(painItems) {

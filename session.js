@@ -1943,7 +1943,12 @@ async function restoreDraft(sessionId) {
       const card = document.getElementById(`ex-card-${key}`);
       if (!card) return;
       const nameEl = card.querySelector('.ex-name');
-      if (nameEl) nameEl.textContent = d.swappedTo.name;
+      if (nameEl) {
+        nameEl.textContent = d.swappedTo.name;
+        // Keep the history popup pointed at the swapped-in exercise
+        nameEl.setAttribute('onclick',
+          "openExerciseHistory('" + d.swappedTo.id + "','" + String(d.swappedTo.name).replace(/'/g, "\\'") + "')");
+      }
       if (!card.querySelector('.ex-swap-note')) {
         const origName = pe.exercise?.name || '';
         if (origName) {

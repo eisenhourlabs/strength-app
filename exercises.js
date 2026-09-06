@@ -210,7 +210,13 @@ function selectExercise(exId, exName) {
     const key  = `p-${S.swapExKey}`;
     const card = document.getElementById(`ex-card-${key}`);
     if (card) {
-      card.querySelector('.ex-name').textContent = exName;
+      const nameEl = card.querySelector('.ex-name');
+      if (nameEl) {
+        nameEl.textContent = exName;
+        // Point the history popup at the newly chosen exercise, not the original
+        nameEl.setAttribute('onclick',
+          "openExerciseHistory('" + exId + "','" + String(exName).replace(/'/g, "\\'") + "')");
+      }
       let swapNote = card.querySelector('.ex-swap-note');
       const origName = S.plannedExercises.find(pe => pe.id === S.swapExKey)?.exercise?.name || '';
       if (!swapNote) {
@@ -265,6 +271,16 @@ function selectExercise(exId, exName) {
               <option value="time">Time (sec)</option>
               <option value="dist">Distance (yds)</option>
             </select>
+          </div>
+          <div class="set-col-header">
+            <span class="set-col-num">SET</span>
+            <div class="set-col-fields">
+              <span class="set-col-field lb-tap" onclick="openPlateCalc('${key}')">LB &#9878;</span>
+              <span class="set-col-field" id="col-reps-lbl-${key}">REPS</span>
+              <span class="set-col-field">RPE</span>
+            </div>
+            <span class="set-col-check">&#10003;</span>
+            <span class="set-col-del"></span>
           </div>
           <div class="sets-wrap" id="sets-${key}">${buildOneSetRow(key, 0, false, 'reps')}</div>
           <button class="add-set-btn" onclick="addSet('${key}','${localId}',true)">＋ Add Set</button>
