@@ -57,6 +57,9 @@ function renderNWeek() {
     const { dated, notes } = nPrepBlocks();
     const blk = dated.find(b => b.date === NS.selDay);
     if (blk) {
+      // Batch card(s) first: what this cook makes and what to pull (n-recipes.js).
+      // The prep plan below is then purely the steps (N07 §1b).
+      if (typeof nPrepBatchCardsHtml === 'function') html += nPrepBatchCardsHtml(blk);
       html += `<div class="n-panel"><div class="n-panel-title">🔪 Prep plan</div>${nPrepBlockBodyHtml(blk, notes)}</div>`;
     } else if (dated.length) {
       const next = dated.find(b => b.date >= nToday()) || dated[dated.length - 1];

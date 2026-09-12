@@ -60,7 +60,25 @@ function nNiceServing(desc, factor) {
   return s;
 }
 
-function nRecipeBatchHtml(r) {
+// Ounce readout for foods the household puts on the kitchen scale — the `entry_oz`
+// foods (potatoes, sweet potatoes, rice) whose library serving is a COUNT ("1 medium").
+// Nobody cooks "4 medium potatoes"; they weigh out 24 oz. Foods whose serving is already
+// oz-denominated ("4 oz") need nothing, and counted foods (eggs, scoops, tortillas,
+// patties) are deliberately excluded — nOzPerServing returns null for those.
+function nBatchOzNote(f, factor) {
+  if (typeof nOzPerServing !== 'function') return '';
+  const ozPer = nOzPerServing(f);
+  if (!ozPer) return '';
+  if (/^\d+(?:\.\d+)?\s*oz\b/i.test(String(f.serving_desc || ''))) return '';
+  const oz = ozPer * factor;
+  if (!(oz > 0)) return '';
+  let s = `${oz >= 10 ? Math.round(oz) : Math.round(oz * 10) / 10} oz`;
+  if (oz >= 16) s += ` / ${Math.round(oz / 16 * 10) / 10} lb`;
+  return s;
+}
+
+function nRecipeBatchHtml(r, labelName) {
+  const title = '\ud83d\udce6 This week\'s batch' + (labelName ? ` \u2014 ${nEsc(labelName)}` : '');
   const { total, byDate } = nRecipeWeekServings(r.id);
   // Containers per person: one planned meal row = one container.
   const perAth = {};
@@ -83,7 +101,7 @@ function nRecipeBatchHtml(r) {
   }
   const grand = total + freezeServings;
   if (!grand) {
-    return `<div class="n-panel"><div class="n-panel-title">\ud83d\udce6 This week's batch</div>
+    return `<div class="n-panel"><div class="n-panel-title">${title}</div>
       <div style="font-size:13px;color:var(--n-muted)">Not on this week's plan.</div></div>`;
   }
   const days = Object.keys(byDate).sort().map(d => nDayName(d, true)).join(' \u00b7 ');
@@ -110,7 +128,11 @@ function nRecipeBatchHtml(r) {
               + `<span style="margin-left:8px;color:var(--n-muted);font-size:11px">\u2248${nEsc(cooked)} cooked</span>`;
     } else {
       anyFinished = true;
-      qtyHtml = `<span class="n-rec-pullqty">${nEsc(nNiceServing(f.serving_desc, cookedFactor))}</span>`;
+      // Count-served but scale-weighed foods (potatoes, sweet potatoes, rice) show the
+      // ounces too — that's the number the kitchen actually measures.
+      const ozNote = nBatchOzNote(f, cookedFactor);
+      qtyHtml = `<span class="n-rec-pullqty">${nEsc(nNiceServing(f.serving_desc, cookedFactor))}</span>`
+              + (ozNote ? `<span style="margin-left:8px;color:var(--n-muted);font-size:11px">= ${nEsc(ozNote)}</span>` : '');
     }
     pulls += `<div class="n-rec-pull"><span>${nEsc(f.name)}</span>${qtyHtml}</div>`;
   }
@@ -119,12 +141,29 @@ function nRecipeBatchHtml(r) {
     : anyRaw
     ? 'Raw buy/pull amounts (cooked \u00f7 yield). Includes any freezer portions.'
     : 'Finished-food quantities. Includes any freezer portions.';
-  return `<div class="n-panel"><div class="n-panel-title">\ud83d\udce6 This week's batch</div>
+  return `<div class="n-panel"><div class="n-panel-title">${title}</div>
     <div class="n-rec-batchline"><b>Makes:</b> ${nEsc(makes)}</div>
     <div class="n-rec-batchline"><b>Cook:</b> ${cookLine}</div>
     ${pulls ? `<div style="font-size:11px;color:var(--n-muted);margin:4px 0 2px;text-transform:uppercase;letter-spacing:.04em">Buy / pull for this cook</div><div class="n-rec-pulls">${pulls}</div>`
             : `<div style="font-size:12px;color:var(--n-muted)">Add a <code>Components:</code> line to this recipe for an exact pull list.</div>`}
     <div class="n-rec-pullnote">${note}</div></div>`;
+}
+
+// Batch cards for the recipes a prep block cooks, rendered on the Week tab ABOVE the prep
+// plan (Troy, 2026-09-12). The batch card owns "what this cook makes / what to pull"; the
+// prep block is then free to be nothing but steps (see N07 §1b). Recipes are matched the
+// same way nPrepRecipeLinks matches them — exact library names appearing in the block text.
+function nPrepBatchCardsHtml(blk) {
+  if (!blk || typeof nRecipeBatchHtml !== 'function') return '';
+  const txt = (blk.head + '\n' + blk.steps.join('\n')).toLowerCase();
+  const seen = {};
+  const hits = (NS.recipes || []).filter(r => {
+    if (!r.name || r.kind === 'assembly' || seen[r.id]) return false;
+    if (!txt.includes(r.name.toLowerCase())) return false;
+    seen[r.id] = true;
+    return true;
+  });
+  return hits.map(r => nRecipeBatchHtml(r, r.name)).join('');
 }
 
 // Prep is authored as one line of numbered steps ("1) ... 2) ..."); break each step onto its own line.
