@@ -197,7 +197,7 @@ function nmConfidence(o) {
   const flagged = (o && o.flaggedCount) || 0;
   if (unlogged === 'lots' || weighIns < 2 || tier === 'none' || tier === 'partial')
     return { level: 'low', reason: unlogged === 'lots' ? 'a lot of unlogged eating reported'
-      : weighIns < 2 ? `only ${weighIns} weigh-in${weighIns === 1 ? '' : 's'} this week`
+      : weighIns < 2 ? (weighIns === 0 ? 'no recent weigh-ins' : 'only 1 recent weigh-in')
       : 'logging below the interpretable threshold' };
   if (tier === 'mostly' || unlogged === 'some' || flagged > 0 || weighIns < 3)
     return { level: 'medium', reason: flagged > 0 ? 'flagged data point in the window'
@@ -340,6 +340,208 @@ function nmGoalProgress(o) {
     total: total == null ? null : Math.round(total * 10) / 10, pct };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// §3.7 TDEE (maintenance estimate)
+//
+// TDEE = mean(intake over interpretable days) − 3500 × Δtrend_weight / days
+//
+// "days" is the span the weigh-ins actually cover inside the window, not a
+// nominal 28 — dividing a 12-day Δtrend by 28 would understate the rate and
+// quietly bias the estimate toward intake. Gates are N09's, unchanged.
+// Activity is NEVER added here: it is already inside the scale-based Δtrend,
+// and adding it would double-count (N09 §3.7, spec §9 rejected list).
+// ─────────────────────────────────────────────────────────────────────────────
+const NM_TDEE_WINDOW_DAYS = 28;
+const NM_TDEE_MIN_DAYS = 14;        // interpretable days in the window
+const NM_TDEE_MIN_WEIGH_INS = 6;    // admissible weigh-ins spanning the window
+const NM_TDEE_MAX_STEP_KCAL = 100;  // §3.7 update cap / §4 rule 13
+const NM_KCAL_PER_LB = 3500;
+
+function nmPlural(n, word) { return `${n} ${word}${n === 1 ? '' : 's'}`; }
+
+// A day feeds TDEE only if it is interpretable AND carries a complete kcal
+// figure. N09 §4 rule 9: a day with a null-kcal log is excluded from TDEE and
+// calorie averages even though its logging tier may still read full/mostly.
+function nmTdeeDayEligible(d) {
+  return !!d && d.actual_kcal != null && !d.has_null_kcal && nmInterpretable(nmDayTier(d));
+}
+
+function nmTdeeBand(confidence) { return confidence === 'high' ? 100 : 200; }
+
+function nmTdee(o) {
+  o = o || {};
+  const end = o.asOf;
+  if (!end) return { sufficient: false, reason: 'no window end date' };
+  const start = nmAddDays(end, -(NM_TDEE_WINDOW_DAYS - 1));
+  const conf = o.confidence || 'high';
+
+  const days = (o.days || []).filter(d => d && d.day >= start && d.day <= end);
+  const eligible = days.filter(nmTdeeDayEligible);
+  const wp = (o.trendPoints || []).filter(p => p.date >= start && p.date <= end);
+  const base = { sufficient: false, window: [start, end],
+    nDays: eligible.length, nWeighIns: wp.length };
+
+  // Low confidence suppresses the number outright (N09 §3.10: Low = raw dots
+  // only). Stating the confidence reason is the whole point — a hidden metric
+  // must say why it is hidden (N09 §1 "suppression over guessing").
+  if (conf === 'low')
+    return { ...base, reason: o.confidenceReason
+      ? `data quality is low — ${o.confidenceReason}` : 'data quality is low' };
+  if (eligible.length < NM_TDEE_MIN_DAYS)
+    return { ...base, reason: `${nmPlural(NM_TDEE_MIN_DAYS - eligible.length, 'more fully-logged day')} needed in the last ${NM_TDEE_WINDOW_DAYS}` };
+  if (wp.length < NM_TDEE_MIN_WEIGH_INS)
+    return { ...base, reason: `${nmPlural(NM_TDEE_MIN_WEIGH_INS - wp.length, 'more weigh-in')} needed in the last ${NM_TDEE_WINDOW_DAYS} days` };
+
+  const span = nmDayDiff(wp[wp.length - 1].date, wp[0].date);
+  if (span <= 0) return { ...base, reason: 'weigh-ins do not span enough days yet' };
+
+  const meanIntake = eligible.reduce((a, d) => a + d.actual_kcal, 0) / eligible.length;
+  const dTrend = wp[wp.length - 1].trend - wp[0].trend;
+  const mid = Math.round((meanIntake - NM_KCAL_PER_LB * (dTrend / span)) / 50) * 50;
+  const band = nmTdeeBand(conf);
+  return { sufficient: true, window: [start, end], mid, low: mid - band, high: mid + band,
+    band, confidence: conf, meanIntake: Math.round(meanIntake),
+    deltaTrend: Math.round(dTrend * 100) / 100, spanDays: span,
+    nDays: eligible.length, nWeighIns: wp.length, reason: null };
+}
+
+// Weekly walk-forward used by the chart and the data table.
+//
+// The §3.7 "never moves more than 100 kcal/week" rule is a property of a
+// SEQUENCE, not of a point, which is why it lives here and not in nmTdee. Each
+// row therefore carries both numbers and the consumer chooses:
+//   .mid    — what the data says for that window, computed independently
+//   .shown  — the same series with the movement cap applied, forward from the
+//             first sufficient week; `recalibrating` marks a week where the cap
+//             bit and the previous range was held on screen (§4 rule 13).
+// A back-filled historical line should draw .mid: the cap governs how a LIVE
+// estimate is allowed to move on screen, and says nothing about what the logs
+// for a past window actually contained. The current headline uses .shown.
+function nmTdeeSeries(o) {
+  o = o || {};
+  const out = [];
+  let prevShown = null;
+  for (const end of (o.weekEnds || [])) {
+    const conf = (o.confidenceByWeek && o.confidenceByWeek[end]) || o.confidence || 'high';
+    const reason = (o.confidenceReasonByWeek && o.confidenceReasonByWeek[end]) || o.confidenceReason;
+    const r = nmTdee({ days: o.days, trendPoints: o.trendPoints, asOf: end,
+      confidence: conf, confidenceReason: reason });
+    let shown = null, recalibrating = false;
+    if (r.sufficient) {
+      if (prevShown == null) shown = r.mid;
+      else if (Math.abs(r.mid - prevShown) > NM_TDEE_MAX_STEP_KCAL) { shown = prevShown; recalibrating = true; }
+      else shown = r.mid;
+      prevShown = shown;
+    }
+    out.push({ ...r, weekEnd: end, shown, recalibrating,
+      shownLow: shown == null ? null : shown - r.band,
+      shownHigh: shown == null ? null : shown + r.band });
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// §3.8 Projection — shared suppression gate for both the goal ETA and the
+// phase-end forecast. Same rules, same rate bounds (×0.6 slow / ×1.4 fast);
+// only the destination differs.
+// ─────────────────────────────────────────────────────────────────────────────
+const NM_ETA_FAST = 1.4;
+const NM_ETA_SLOW = 0.6;
+const NM_ETA_MIN_TREND_WEEKS = 3;
+const NM_ETA_FLAT_RATE = 0.1;
+
+function nmProjectionSuppression(o) {
+  if (!o) return 'no data yet';
+  // Maintenance and diet breaks are not going anywhere on purpose — projecting
+  // a destination from them misreads the phase (N09 §3.8).
+  if (o.phaseType === 'maintenance' || o.phaseType === 'diet_break') return 'holding';
+  if (o.rate == null) return 'no trend rate yet';
+  if (o.weeksOfTrend != null && o.weeksOfTrend < NM_ETA_MIN_TREND_WEEKS)
+    return `needs about ${NM_ETA_MIN_TREND_WEEKS} weeks of trend data`;
+  if (Math.abs(o.rate) <= NM_ETA_FLAT_RATE) return 'the trend is too flat to project from';
+  if ((o.weeksLoggingBelowMostly || 0) >= 2) return 'logging has been below "mostly" for 2+ weeks';
+  return null;
+}
+
+const NM_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// N09 §3.8: date ranges are rounded to half-months. Never a single date.
+// The year is appended only when the date is NOT in the reference year — a
+// slow rate over a long distance can project 18 months out, and "late May –
+// late Apr" without years reads as a range running backwards.
+function nmHalfMonth(ymd, refYmd) {
+  const d = nmDate(ymd);
+  const label = `${d.getDate() <= 15 ? 'early' : 'late'} ${NM_MONTHS[d.getMonth()]}`;
+  if (!refYmd) return label;
+  return d.getFullYear() === nmDate(refYmd).getFullYear() ? label : `${label} ${d.getFullYear()}`;
+}
+function nmHalfMonthRange(a, b, refYmd) {
+  const x = nmHalfMonth(a, refYmd), y = nmHalfMonth(b, refYmd);
+  return x === y ? x : `${x} – ${y}`;
+}
+
+// Goal ETA — "when do I reach this weight?" Secondary to the phase forecast in
+// the UI, because a goal range is often several phases away.
+function nmGoalEta(o) {
+  o = o || {};
+  const sup = nmProjectionSuppression(o);
+  if (sup) return { suppressed: true, reason: sup, holding: sup === 'holding' };
+  if (o.trendWeight == null || o.targetWeight == null)
+    return { suppressed: true, reason: 'no goal weight set' };
+  const dist = o.trendWeight - o.targetWeight;
+  if (Math.abs(dist) < 0.5) return { suppressed: true, reason: 'already at this target', atTarget: true };
+  // The trend has to be pointed at the target for a date to mean anything.
+  if ((dist > 0) !== (o.rate < 0))
+    return { suppressed: true, reason: 'the trend is moving away from this target', divergent: true };
+  const wFast = Math.abs(dist) / (Math.abs(o.rate) * NM_ETA_FAST);
+  const wSlow = Math.abs(dist) / (Math.abs(o.rate) * NM_ETA_SLOW);
+  const dateFast = nmAddDays(o.asOf, Math.round(wFast * 7));
+  const dateSlow = nmAddDays(o.asOf, Math.round(wSlow * 7));
+  return { suppressed: false, targetWeight: o.targetWeight,
+    weeksFast: Math.round(wFast * 10) / 10, weeksSlow: Math.round(wSlow * 10) / 10,
+    dateFast, dateSlow, label: nmHalfMonthRange(dateFast, dateSlow, o.asOf) };
+}
+
+// ── Phase-end forecast ──
+// Default block lengths are the midpoints of the durations N06_Phase_Definitions
+// publishes for each archetype (fat_loss "6–8 week blocks", diet_break "1–2
+// weeks", baseline "2–3 weeks", lean_gain "8–12 weeks"). They are NOT inferred
+// from phase history: the history is a handful of rows broken up by travel gaps,
+// which is not a sample you can fit a default to. maintenance is open-ended by
+// definition, so it gets no forecast — "holding" language instead.
+function nmPhaseDefaultWeeks(phaseType) {
+  const w = { baseline: 3, fat_loss: 7, diet_break: 2, lean_gain: 10,
+    maintenance: null, recomp: null }[phaseType];
+  return w === undefined ? null : w;
+}
+
+function nmPhaseEnd(phase) {
+  if (!phase || !phase.start_date) return { date: null, source: null };
+  if (phase.end_date) return { date: phase.end_date, source: 'explicit' };
+  const w = nmPhaseDefaultWeeks(phase.phase_type);
+  if (w == null) return { date: null, source: null };
+  return { date: nmAddDays(phase.start_date, w * 7), source: 'default', weeks: w };
+}
+
+// "Where does the trend land by the end of this block?" — the §3.8 rate bounds
+// aimed at a date instead of a weight.
+function nmPhaseForecast(o) {
+  o = o || {};
+  const sup = nmProjectionSuppression(o);
+  if (sup) return { suppressed: true, reason: sup, holding: sup === 'holding' };
+  if (!o.phaseEnd) return { suppressed: true, reason: 'no phase end date to forecast to' };
+  if (o.trendWeight == null) return { suppressed: true, reason: 'no trend weight yet' };
+  const weeks = nmDayDiff(o.phaseEnd, o.asOf) / 7;
+  if (weeks <= 0) return { suppressed: true, reason: 'this phase is already past its planned end' };
+  const a = o.trendWeight + o.rate * NM_ETA_FAST * weeks;
+  const b = o.trendWeight + o.rate * NM_ETA_SLOW * weeks;
+  return { suppressed: false, phaseEnd: o.phaseEnd, source: o.phaseEndSource || null,
+    weeks: Math.round(weeks * 10) / 10,
+    low: Math.round(Math.min(a, b) * 10) / 10,
+    high: Math.round(Math.max(a, b) * 10) / 10 };
+}
+
 // ── exports: browser global + node (tests) ──
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -350,6 +552,9 @@ if (typeof module !== 'undefined' && module.exports) {
     nmConfidence, nmPlateau,
     nmCheckWeight, nmSuggestTypoFix, nmCheckTape, nmCheckCaliper,
     nmCheckDuplicate, nmCheckActivity, nmGoalProgress,
+    nmTdee, nmTdeeSeries, nmTdeeDayEligible, nmTdeeBand,
+    nmGoalEta, nmPhaseForecast, nmPhaseEnd, nmPhaseDefaultWeeks,
+    nmProjectionSuppression, nmHalfMonth, nmHalfMonthRange,
     nmWeekOf, nmAddDays, nmDayDiff,
   };
 }
