@@ -156,6 +156,22 @@ function nOzPerServing(f) {
   return null;
 }
 
+// ── Cooked-basis labelling (Troy, 2026-09-12) ──
+// Every macro in the Food Library is stated on ONE basis, recorded in `nutrition_basis`
+// ('cooked', 'cooked, drained', 'label', 'raw'). Anything logged in the app is eaten, so
+// cooked-basis foods must SAY "cooked" wherever a quantity is entered — otherwise 6 oz of
+// raw chicken gets logged as 6 oz of cooked chicken. Returns '' for raw/label/unknown.
+function nBasisWord(f) {
+  const b = String((f && f.nutrition_basis) || '').toLowerCase();
+  if (!b.startsWith('cooked')) return '';
+  // Only say it where the amount being entered is a WEIGHT or a VOLUME — those differ between
+  // raw and cooked. A discrete count doesn't (one egg is one egg, two slices are two slices),
+  // so "1 egg cooked" is noise, not clarity.
+  const d = String((f && f.serving_desc) || '');
+  if (nOzPerServing(f)) return 'cooked';
+  return /\b(cup|cups|tbsp|tsp|fl\s*oz|bowl)\b/i.test(d) ? 'cooked' : '';
+}
+
 // ── Auth ──
 async function nDoLogin() {
   const email = document.getElementById('login-email').value.trim();
@@ -237,7 +253,7 @@ async function nLoadAll() {
     ndb.from('nutrition_settings').select('*').eq('athlete_id', meId).maybeSingle(),
     ndb.from('recipes').select('id,name,description,kcal_per_serving,protein_g_per_serving,carbs_g_per_serving,fat_g_per_serving,best_meal_slots,tags,portion_notes,prep_notes,storage_notes,ingredients_text,servings_default,is_keeper,kind')
       .eq('is_active', true).order('name'),
-    ndb.from('food_items').select('id,name,item_type,restaurant_name,serving_desc,kcal,protein_g,carbs_g,fat_g,default_meal_slots,tags,grams_per_serving,yield_factor,household_desc,approval_status')
+    ndb.from('food_items').select('id,name,item_type,restaurant_name,serving_desc,kcal,protein_g,carbs_g,fat_g,default_meal_slots,tags,grams_per_serving,yield_factor,household_desc,nutrition_basis,approval_status')
       .eq('is_active', true).order('name'),
   ]);
   NS.target   = targetQ.data || null;

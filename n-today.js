@@ -575,11 +575,14 @@ function nPickPending(mealId, p) { N_PENDING[mealId] = p; renderToday(); }
 // (e.g. "2 medium (~260g / 9.2oz)") without text-scaling the household_desc string.
 function nKitchenAmt(it) {
   const d = String(it.unit || 'serving');
+  const bw = it.basis ? ` ${it.basis}` : '';
   // Oz-entry items: the input box already reads in ounces, so the label only needs
-  // the serving equivalence for count-based servings ("0.8 large") — nothing for "4 oz".
+  // the serving equivalence for count-based servings ("0.8 large") — plus the basis word,
+  // so a cooked-basis food never gets a raw weight typed into it.
   if (it.ozPer) {
-    if (/^\d+(?:\.\d+)?\s*oz\b/i.test(d)) return '';
-    return '≈ ' + ((typeof nScaleServing === 'function') ? nScaleServing(d, it.qty) : `${it.qty}x ${d}`);
+    if (/^\d+(?:\.\d+)?\s*oz\b/i.test(d)) return bw ? `${it.basis} weight` : '';
+    const eq = '≈ ' + ((typeof nScaleServing === 'function') ? nScaleServing(d, it.qty) : `${it.qty}x ${d}`);
+    return bw ? `${eq}, ${it.basis} weight` : eq;
   }
   const base = (typeof nScaleServing === 'function') ? nScaleServing(d, it.qty) : `${it.qty}x ${d}`;
   const gps = Number(it.grams);
@@ -598,6 +601,7 @@ function nMakeItem(f, qty) {
   return { srcKind: 'f', srcId: f.id, kind: 'f', id: f.id, name: f.name, qty,
     kcal: f.kcal, protein_g: f.protein_g, carbs_g: f.carbs_g, fat_g: f.fat_g,
     unit: f.serving_desc, grams: f.grams_per_serving, ozPer: nOzPerServing(f),
+    basis: (typeof nBasisWord === 'function') ? nBasisWord(f) : '',
     rest: f.item_type === 'restaurant' };
 }
 // The planned meal's items at planned servings: recipe components, else the single food.
@@ -982,8 +986,12 @@ function renderNSheetList() {
     if (fds.length) html += `<div class="n-sheet-section">Foods & ingredients</div>`;
     for (const f of fds.slice(0, 50)) {
       const oz = nOzPerServing(f);
+      // Cooked-basis foods say so right where the amount is shown, so "6 oz" is never
+      // mistaken for 6 oz raw (Troy, 2026-09-12).
+      const bw = (typeof nBasisWord === 'function') ? nBasisWord(f) : '';
       const per = (oz && !/^\d+(?:\.\d+)?\s*oz\b/i.test(String(f.serving_desc || '')))
-        ? `${oz} oz (${f.serving_desc})` : f.serving_desc;
+        ? `${oz} oz${bw ? ' ' + bw : ''} (${f.serving_desc})`
+        : `${f.serving_desc}${bw ? ' ' + bw : ''}`;
       html += nOptHtml('f', f.id, false, f.name,
         `${Math.round(f.kcal)} kcal · ${Math.round(f.protein_g)}P per ${per}` +
         (f.approval_status === 'pending' ? ' · ⏳ pending review' : ''));

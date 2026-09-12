@@ -65,6 +65,13 @@ function nNiceServing(desc, factor) {
 // Nobody cooks "4 medium potatoes"; they weigh out 24 oz. Foods whose serving is already
 // oz-denominated ("4 oz") need nothing, and counted foods (eggs, scoops, tortillas,
 // patties) are deliberately excluded — nOzPerServing returns null for those.
+// "45 oz (2.8 lb)" — ounces are the kitchen-scale unit; pounds appear once it's shop-sized.
+function nOzLbl(g) {
+  const oz = g / 28.3495;
+  const shown = oz >= 10 ? Math.round(oz) : Math.round(oz * 10) / 10;
+  return `${shown} oz` + (oz >= 16 ? ` (${Math.round(oz / 16 * 10) / 10} lb)` : '');
+}
+
 function nBatchOzNote(f, factor) {
   if (typeof nOzPerServing !== 'function') return '';
   const ozPer = nOzPerServing(f);
@@ -112,35 +119,49 @@ function nRecipeBatchHtml(r, labelName) {
   const cookLine = Math.abs(batches - 1) <= 0.05
     ? `<b>one standard batch</b> \u2014 the Ingredients list below is exactly what to buy`
     : `<b>\u2248${Math.round(batches * 20) / 20}\u00d7 the standard batch</b> \u2014 buy the amounts below (the Ingredients list covers a single batch)`;
+  // Every quantity here is what you BUY AND COOK WITH — raw weight (or dry, for rice and
+  // other goods that gain weight cooking). Troy, 2026-09-12: the batch card and the prep
+  // plan always speak raw; only the food picker speaks cooked. Library macros are stated on
+  // the cooked basis, so raw = cooked ÷ yield_factor; a food with no yield_factor is eaten
+  // as purchased and needs no conversion.
   const comps = (NS.components || {})[r.id] || [];
-  let pulls = '', anyRaw = false, anyFinished = false;
+  let pulls = '', anyConv = false;
   for (const c of comps) {
     const f = nFoodById(c.food_item_id);
     if (!f) continue;
     const cookedFactor = grand * (Number(c.qty) || 0);
     const yf = Number(f.yield_factor) || 0;
-    let qtyHtml;
-    if (yf > 0) {
-      anyRaw = true;
-      const raw = nNiceServing(f.serving_desc, cookedFactor / yf);
-      const cooked = nNiceServing(f.serving_desc, cookedFactor);
-      qtyHtml = `<span class="n-rec-pullqty">${nEsc(raw)} raw</span>`
-              + `<span style="margin-left:8px;color:var(--n-muted);font-size:11px">\u2248${nEsc(cooked)} cooked</span>`;
+    const grams = Number(f.grams_per_serving) || 0;
+    const countUnit = !/^\d+(?:\.\d+)?\s*oz\b/i.test(String(f.serving_desc || ''));
+    let primary, secondary = '';
+    if (yf > 0 && Math.abs(yf - 1) > 0.01) {
+      anyConv = true;
+      const word = yf > 1 ? 'dry' : 'raw';   // yield > 1 = absorbs water (rice, pasta, oats)
+      if (grams) {
+        primary = `${nOzLbl(cookedFactor * grams / yf)} ${word}`;
+        const bits = [];
+        if (countUnit) bits.push('≈' + nNiceServing(f.serving_desc, cookedFactor));
+        bits.push(`${nOzLbl(cookedFactor * grams)} cooked`);
+        secondary = bits.join(' · ');
+      } else {
+        primary = `${nNiceServing(f.serving_desc, cookedFactor / yf)} ${word}`;
+        secondary = `≈${nNiceServing(f.serving_desc, cookedFactor)} cooked`;
+      }
     } else {
-      anyFinished = true;
-      // Count-served but scale-weighed foods (potatoes, sweet potatoes, rice) show the
-      // ounces too — that's the number the kitchen actually measures.
+      // Eaten as purchased — the amount IS the buy amount. Add ounces for anything the
+      // household weighs rather than counts.
+      primary = nNiceServing(f.serving_desc, cookedFactor);
       const ozNote = nBatchOzNote(f, cookedFactor);
-      qtyHtml = `<span class="n-rec-pullqty">${nEsc(nNiceServing(f.serving_desc, cookedFactor))}</span>`
-              + (ozNote ? `<span style="margin-left:8px;color:var(--n-muted);font-size:11px">= ${nEsc(ozNote)}</span>` : '');
+      if (ozNote) secondary = `= ${ozNote}`;
     }
-    pulls += `<div class="n-rec-pull"><span>${nEsc(f.name)}</span>${qtyHtml}</div>`;
+    pulls += `<div class="n-rec-pull"><span>${nEsc(f.name)}</span>`
+           + `<span class="n-rec-pullqty">${nEsc(primary)}</span>`
+           + (secondary ? `<span style="margin-left:8px;color:var(--n-muted);font-size:11px">${nEsc(secondary)}</span>` : '')
+           + `</div>`;
   }
-  const note = anyRaw && anyFinished
-    ? 'Meats are raw buy/pull amounts (cooked \u00f7 yield); other items are finished quantities. Includes any freezer portions.'
-    : anyRaw
-    ? 'Raw buy/pull amounts (cooked \u00f7 yield). Includes any freezer portions.'
-    : 'Finished-food quantities. Includes any freezer portions.';
+  const note = 'Buy / pull amounts — raw weight (dry for rice), the way you shop and cook. '
+    + (anyConv ? 'Cooked weight in grey; the food picker logs cooked. ' : '')
+    + 'Includes any freezer portions.';
   return `<div class="n-panel"><div class="n-panel-title">${title}</div>
     <div class="n-rec-batchline"><b>Makes:</b> ${nEsc(makes)}</div>
     <div class="n-rec-batchline"><b>Cook:</b> ${cookLine}</div>
