@@ -386,7 +386,7 @@ function nmTdee(o) {
   // must say why it is hidden (N09 §1 "suppression over guessing").
   if (conf === 'low')
     return { ...base, reason: o.confidenceReason
-      ? `data quality is low — ${o.confidenceReason}` : 'data quality is low' };
+      ? `data quality is low (${o.confidenceReason})` : 'data quality is low' };
   if (eligible.length < NM_TDEE_MIN_DAYS)
     return { ...base, reason: `${nmPlural(NM_TDEE_MIN_DAYS - eligible.length, 'more fully-logged day')} needed in the last ${NM_TDEE_WINDOW_DAYS}` };
   if (wp.length < NM_TDEE_MIN_WEIGH_INS)

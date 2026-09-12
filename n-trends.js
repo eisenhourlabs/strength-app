@@ -431,66 +431,251 @@ function nOverviewBanner(D) {
 }
 
 // ────────────────── Card 2 — Weight + Energy balance (combined) ───────────────
-// Two panels, ONE <svg>, one shared x scale, one set of phase rects spanning
-// both. They are not two charts stacked: sharing the element is what guarantees
-// the axes actually line up, so "the phase changed / activity dropped / the
-// trend bent" can be read as one vertical story.
+// Two panels, one shared x scale, one shared set of phase bands. They are drawn
+// as two <svg> elements rather than one so each panel can carry its own header,
+// legend and axis the way a chart normally does — alignment is guaranteed
+// instead by both using the identical viewBox width, PADL/PADR and X() below,
+// and both rendering at width:100%. Same geometry in, same pixels out.
 //
 // Weight (lb) and energy (kcal) NEVER share a y-axis — different units, and a
 // dual axis invites a slope comparison that means nothing.
 //
-// Colour vocabulary, deliberately small and reused from elsewhere in this app:
-//   red   #ff2712  what actually happened (weight trend, actual calories)
-//   blue  #2a6fb0  what the plan said (target line, target-change ticks)
-//   gray  #dcdcd7  uncertainty (the TDEE band)
-//   pale tints     phase identity (phaseFill, unchanged from the weight chart)
-// Deficit/surplus deliberately gets NO background wash: the phase tints already
-// own flat pale colour in this exact view (pale green = fat-loss phase), a wash
-// would re-state what the line-vs-band geometry already shows, and a two-state
-// wash has no honest rendering for a week that lands INSIDE a ±100–200 kcal
-// band. It is a baseline glyph instead, absent when the answer is "too close
-// to call", with the kcal gap itself in the table below.
+// Colour vocabulary, deliberately small:
+//   red    #ff2712  the weight trend (the app's existing brand accent — unchanged)
+//   orange #c2410c  calories actually eaten
+//   blue   #2a6fb0  the plan (target line, target-change ticks)
+//   gray   #dcdcd7  uncertainty (the maintenance band)
+//   pale tints      phase identity, labelled in-band in BOTH panels
+// Deficit/surplus gets no background wash: the phase tints already own flat pale
+// colour here, a wash restates what the line-vs-band geometry shows, and it has
+// no honest state for a week landing INSIDE a ±100–200 kcal band. Baseline
+// glyph instead, absent when the answer is "too close to call".
+const NT_RED = '#ff2712', NT_ORANGE = '#c2410c', NT_BLUE = '#2a6fb0', NT_GRAY = '#dcdcd7';
+const NT_W = 340, NT_PADL = 32, NT_PADR = 12;
+
+// Round, human y-axis values — 1/2/5×10ⁿ steps, the standard nice-number rule.
+function nNiceTicks(lo, hi, want) {
+  if (!(hi > lo)) return [];
+  const raw = (hi - lo) / Math.max(1, want);
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
+  const out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(Math.round(v * 100) / 100);
+  return out;
+}
+const NT_MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function nMonthDay(ymd) { const d = nmDate(ymd); return `${NT_MON[d.getMonth()]} ${d.getDate()}`; }
+
+// Phase bands, resolved once and drawn identically in both panels.
+function nPhaseBands(D, d0, d1, X) {
+  const fill = { fat_loss: '#eaf4ea', maintenance: '#eef1f6', diet_break: '#fdf3e6',
+    lean_gain: '#f2ecf8', recomp: '#eaf2f6', baseline: '#f4f4f2' };
+  const bands = [];
+  for (const ph of D.phases || []) {
+    if (!ph.start_date) continue;
+    const s = ph.start_date > d0 ? ph.start_date : d0;
+    const e = ph.end_date && ph.end_date < d1 ? ph.end_date : d1;
+    if (s > e) continue;
+    const x1 = X(s), x2 = X(e);
+    if (x2 - x1 < 1) continue;
+    bands.push({ x1, x2, type: ph.phase_type, boundary: ph.start_date > d0 ? x1 : null,
+      fill: fill[ph.phase_type] || '#f4f4f2', active: ph.status === 'active' });
+  }
+  return bands;
+}
+
+// In-band phase labels. This card renders at 340px on a phone, so a year view
+// with six phases cannot fit "MAINTENANCE" six times — narrow bands get the
+// abbreviation and very narrow ones get nothing rather than overlapping text.
+const NT_PHASE_SHORT = { fat_loss: 'FAT LOSS', maintenance: 'MAINT', diet_break: 'BREAK',
+  lean_gain: 'GAIN', recomp: 'RECOMP', baseline: 'BASE' };
+function nBandLabels(bands, y) {
+  let out = '';
+  for (const b of bands) {
+    const w = b.x2 - b.x1;
+    const full = nPhaseLabel(b.type).toUpperCase();
+    const label = w >= full.length * 5.2 + 8 ? full
+      : w >= (NT_PHASE_SHORT[b.type] || '').length * 5.2 + 8 ? (NT_PHASE_SHORT[b.type] || '')
+      : null;
+    if (!label) continue;
+    out += `<text x="${(b.x1 + 4).toFixed(1)}" y="${y}" font-size="7" fill="#8a8a84"
+      letter-spacing="0.6">${label}</text>`;
+  }
+  return out;
+}
+
+function nBandRects(bands, top, bot) {
+  let out = '';
+  for (const b of bands) {
+    out += `<rect x="${b.x1.toFixed(1)}" y="${top}" width="${(b.x2 - b.x1).toFixed(1)}"
+      height="${bot - top}" fill="${b.fill}"/>`;
+    if (b.boundary != null)
+      out += `<line x1="${b.boundary.toFixed(1)}" y1="${top}" x2="${b.boundary.toFixed(1)}" y2="${bot}"
+        stroke="#c9c9c4" stroke-width="1" stroke-dasharray="2,3"/>`;
+  }
+  return out;
+}
+
+function nLegend(items) {
+  return `<div style="display:flex;flex-wrap:wrap;gap:9px;justify-content:flex-end;
+    font-size:10px;color:var(--n-muted);align-items:center">${items.map(i => {
+    const sw = i.kind === 'dot'
+      ? `<span style="width:7px;height:7px;border-radius:50%;background:${i.color};display:inline-block"></span>`
+      : i.kind === 'band'
+      ? `<span style="width:12px;height:8px;background:${i.color};border:1px solid #b9b9b3;display:inline-block"></span>`
+      : i.kind === 'dash'
+      ? `<span style="width:14px;height:0;border-top:2px dashed ${i.color};display:inline-block"></span>`
+      : `<span style="width:14px;height:0;border-top:2px solid ${i.color};display:inline-block"></span>`;
+    return `<span style="display:inline-flex;align-items:center;gap:4px">${sw}${nEsc(i.label)}</span>`;
+  }).join('')}</div>`;
+}
+
+function nPanelHead(title, sub, legendItems) {
+  return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap">
+      <div><div style="font-size:13px;font-weight:600;color:var(--n-text)">${nEsc(title)}</div>
+        <div style="font-size:11px;color:var(--n-muted);margin-top:1px">${sub}</div></div>
+      ${nLegend(legendItems)}</div>`;
+}
+
 function nWeightEnergyCardHtml(D) {
   const ranges = Object.keys(NT_RANGES).map(r =>
     `<button class="n-chip${NT.range === r ? ' active' : ''}" onclick="nSetRange('${r}')">${r}</button>`).join('');
-  const head = `<div class="n-panel-title">⚖️ Weight &amp; energy balance</div>
-    <div class="n-prompt-row" style="gap:4px;margin-bottom:8px">${ranges}</div>`;
 
   const pts = D.trend.points;
   const EW = D.energyWeeks || [];
   const haveEnergy = EW.some(w => w.actualAvg != null || w.target != null);
+  const head = `<div class="n-panel-title">⚖️ Weight &amp; energy balance</div>
+    <div class="n-prompt-row" style="gap:4px;margin-bottom:4px">${ranges}</div>
+    <div style="font-size:11px;color:var(--n-muted);margin-bottom:10px">${
+      D.goalLow != null ? `Long-term goal <b style="color:var(--n-text)">${D.goalLow}–${D.goalHigh} lb</b> · ` : ''
+    }trend window ${D.windowDays}-day</div>`;
+
   if (!pts.length && !haveEnergy)
     return `<div class="n-panel">${head}<div style="font-size:13px;color:var(--n-text)">
       No weigh-ins or logged meals in this range. Weigh in and log on the Today tab — same scale,
       on waking, after the bathroom, before food or water.</div></div>`;
 
-  // ── geometry ──
-  const W = 340, PADL = 30, PADR = 10;
-  const TOP = 10, WB = 152;            // weight panel
-  const ET = 176, EB = 268;            // energy panel
-  const CY = 282, H = 296;             // caret row, total height
-
+  // ── ONE shared x scale, used by both panels ──
   const fc = D.forecast && !D.forecast.suppressed ? D.forecast : null;
   const dataDates = pts.map(p => p.date)
     .concat(EW.filter(w => w.actualAvg != null || w.target != null).map(w => w.week_of));
   const d0 = dataDates.length ? dataDates.slice().sort()[0] : nAddDays(D.today, -30);
-  const dEndData = D.today;
-  const d1 = fc && fc.phaseEnd > dEndData ? fc.phaseEnd : dEndData;
+  const dEnd = D.today;
+  const d1 = fc && fc.phaseEnd > dEnd ? fc.phaseEnd : dEnd;
   const span = Math.max(1, nmDayDiff(d1, d0));
-  const X = d => PADL + (W - PADL - PADR) * (Math.max(0, Math.min(span, nmDayDiff(d, d0))) / span);
+  const X = d => NT_PADL + (NT_W - NT_PADL - NT_PADR) * (Math.max(0, Math.min(span, nmDayDiff(d, d0))) / span);
+  const bands = nPhaseBands(D, d0, d1, X);
+  const todayX = X(dEnd);
 
-  // ── weight scale ──
+  // Shared x-axis ticks — five evenly spaced dates, same positions in both panels.
+  const xTicks = [];
+  for (let i = 0; i <= 4; i++) xTicks.push(nAddDays(d0, Math.round(span * i / 4)));
+  const xAxis = y => xTicks.map((t, i) => {
+    const x = X(t);
+    const anchor = i === 0 ? 'start' : i === 4 ? 'end' : 'middle';
+    return `<text x="${x.toFixed(1)}" y="${y}" font-size="8" fill="#8a8a84" text-anchor="${anchor}">${nMonthDay(t)}</text>`;
+  }).join('');
+  const todayMark = (top, bot, labelY) =>
+    todayX > NT_PADL + 6 && todayX < NT_W - NT_PADR - 6
+      ? `<line x1="${todayX.toFixed(1)}" y1="${top}" x2="${todayX.toFixed(1)}" y2="${bot}"
+           stroke="#8a8a84" stroke-width="1" stroke-dasharray="2,2"/>
+         <text x="${todayX.toFixed(1)}" y="${labelY}" font-size="7" fill="#8a8a84"
+           text-anchor="middle" letter-spacing="0.5">TODAY</text>` : '';
+
+  // ═══════════════ Panel 1 — Scale weight ═══════════════
+  const H1 = 196, T1 = 26, B1 = 158;          // label row above plot, axis below
   const wVals = pts.map(p => p.raw).concat(pts.map(p => p.trend));
   if (D.goalLow != null && D.trend.displayable) { wVals.push(D.goalLow); wVals.push(D.goalHigh); }
   if (fc) { wVals.push(fc.low); wVals.push(fc.high); }
-  let wLo, wHi;
+  let wLo = 0, wHi = 1;
   if (wVals.length) {
     wLo = Math.min(...wVals) - 1; wHi = Math.max(...wVals) + 1;
-    if (wHi - wLo < 4) { const mid = (wHi + wLo) / 2; wLo = mid - 2; wHi = mid + 2; }
-  } else { wLo = 0; wHi = 1; }
-  const YW = v => TOP + (WB - TOP) * (1 - (v - wLo) / (wHi - wLo));
+    if (wHi - wLo < 4) { const m = (wHi + wLo) / 2; wLo = m - 2; wHi = m + 2; }
+  }
+  const YW = v => T1 + (B1 - T1) * (1 - (v - wLo) / (wHi - wLo));
+  const wTicks = nNiceTicks(wLo, wHi, 4);
+  const wGrid = wTicks.map(v =>
+    `<line x1="${NT_PADL}" y1="${YW(v).toFixed(1)}" x2="${NT_W - NT_PADR}" y2="${YW(v).toFixed(1)}"
+       stroke="#e6e6e1" stroke-width="0.75"/>
+     <text x="${NT_PADL - 4}" y="${(YW(v) + 3).toFixed(1)}" font-size="8" fill="#8a8a84"
+       text-anchor="end">${v.toFixed(v % 1 ? 1 : 0)}</text>`).join('');
 
-  // ── energy scale ──
+  let goalBand = '';
+  if (D.activePhase && D.rateGoal && D.activePhase.phase_type === 'fat_loss'
+      && D.activePhase.start_date && D.trend.displayable) {
+    const st = D.activePhase.start_date > d0 ? D.activePhase.start_date : d0;
+    const seed = pts.find(p => p.date >= st);
+    if (seed) {
+      const wks = nmDayDiff(dEnd, seed.date) / 7;
+      goalBand = `<polygon points="${X(seed.date).toFixed(1)},${YW(seed.trend).toFixed(1)}
+        ${todayX.toFixed(1)},${YW(seed.trend - D.rateGoal * 0.6 * wks).toFixed(1)}
+        ${todayX.toFixed(1)},${YW(seed.trend - D.rateGoal * 1.4 * wks).toFixed(1)}"
+        fill="#4caf50" opacity="0.13"/>`;
+    }
+  }
+
+  let cone = '';
+  if (fc) {
+    const x1c = X(fc.phaseEnd), y0 = YW(D.trend.current);
+    cone = `<polygon points="${todayX.toFixed(1)},${y0.toFixed(1)} ${x1c.toFixed(1)},${YW(fc.high).toFixed(1)}
+        ${x1c.toFixed(1)},${YW(fc.low).toFixed(1)}" fill="${NT_RED}" opacity="0.10"/>
+      <line x1="${todayX.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${x1c.toFixed(1)}" y2="${YW(fc.high).toFixed(1)}"
+        stroke="${NT_RED}" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>
+      <line x1="${todayX.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${x1c.toFixed(1)}" y2="${YW(fc.low).toFixed(1)}"
+        stroke="${NT_RED}" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>
+      <text x="${(x1c - 2).toFixed(1)}" y="${T1 - 14}" font-size="7" fill="#8a8a84"
+        text-anchor="end" letter-spacing="0.5">PHASE END</text>`;
+  }
+
+  const dots = pts.map(p =>
+    `<circle cx="${X(p.date).toFixed(1)}" cy="${YW(p.raw).toFixed(1)}" r="2" fill="#9a9a94"
+      ><title>${p.date}: ${p.raw.toFixed(1)} lb</title></circle>`).join('');
+
+  let trendPath = '';
+  if (pts.length >= 2) {
+    let seg = [];
+    for (const p of pts) { if (p.restarted && seg.length) { trendPath += nPathFrom(seg, X, YW); seg = []; } seg.push(p); }
+    if (seg.length) trendPath += nPathFrom(seg, X, YW);
+  }
+
+  // "Fat loss · wk 3 of 7" — the block position, using the same phase-end the
+  // forecast aims at, so the two can never tell different stories.
+  const ph = D.activePhase;
+  let phaseTxt = 'No active phase';
+  if (ph) {
+    const n = ph.start_date ? Math.floor(nmDayDiff(D.today, ph.start_date) / 7) + 1 : null;
+    const tot = D.phaseEnd && D.phaseEnd.date && ph.start_date
+      ? Math.round(nmDayDiff(D.phaseEnd.date, ph.start_date) / 7) : null;
+    // A phase that has run past its block shows that plainly rather than
+    // rendering "wk 9 of 3". Overdue is information, not a formatting problem.
+    let wk = '';
+    if (n && tot && n <= tot) wk = ` · wk ${n} of ${tot}`;
+    else if (n && tot) wk = ` · wk ${n}, past a typical ${tot}-wk block`;
+    else if (n) wk = ` · wk ${n}`;
+    phaseTxt = nPhaseLabel(ph.phase_type) + wk;
+  }
+  const wSub = D.trend.displayable
+    ? `Trend <b style="color:var(--n-text)">${D.trend.current.toFixed(1)} lb</b>${
+        D.rate != null ? ` · ${D.rate > 0 ? '+' : ''}${D.rate.toFixed(1)} lb/wk` : ''} · ${nEsc(phaseTxt)}`
+    : `${nEsc(D.trend.reason || 'Trend not established yet')} · ${nEsc(phaseTxt)}`;
+
+  const wLegend = [{ kind: 'dot', color: '#9a9a94', label: 'Weigh-in' },
+    { kind: 'line', color: NT_RED, label: 'Trend (EWMA)' }];
+  if (goalBand) wLegend.push({ kind: 'band', color: '#bfe0c0', label: 'Goal corridor' });
+  if (cone) wLegend.push({ kind: 'dash', color: NT_RED, label: 'Forecast' });
+
+  const panel1 = `${nPanelHead('Scale weight', wSub, wLegend)}
+    <svg viewBox="0 0 ${NT_W} ${H1}" style="width:100%;margin-top:2px">
+      ${nBandRects(bands, T1, B1)}${nBandLabels(bands, T1 - 5)}${wGrid}${goalBand}${cone}
+      ${todayMark(T1, B1, T1 - 14)}${dots}
+      ${D.trend.displayable ? `<path d="${trendPath}" fill="none" stroke="${NT_RED}" stroke-width="2.5" stroke-linejoin="round"/>` : ''}
+      <line x1="${NT_PADL}" y1="${B1}" x2="${NT_W - NT_PADR}" y2="${B1}" stroke="#c9c9c4" stroke-width="1"/>
+      ${xAxis(B1 + 13)}
+    </svg>`;
+
+  // ═══════════════ Panel 2 — Energy balance ═══════════════
+  const H2 = 186, T2 = 26, B2 = 132, CY = 148;
   const eVals = [];
   for (const w of EW) {
     if (w.actualAvg != null) eVals.push(w.actualAvg);
@@ -500,254 +685,127 @@ function nWeightEnergyCardHtml(D) {
   let eLo = 0, eHi = 1;
   if (eVals.length) {
     eLo = Math.min(...eVals); eHi = Math.max(...eVals);
-    const pad = Math.max(120, (eHi - eLo) * 0.15);
+    const pad = Math.max(150, (eHi - eLo) * 0.18);
     eLo -= pad; eHi += pad;
   }
-  const YE = v => ET + (EB - ET) * (1 - (v - eLo) / (eHi - eLo));
+  const YE = v => T2 + (B2 - T2) * (1 - (v - eLo) / (eHi - eLo));
+  const eTicks = eVals.length ? nNiceTicks(eLo, eHi, 4) : [];
+  const eGrid = eTicks.map(v =>
+    `<line x1="${NT_PADL}" y1="${YE(v).toFixed(1)}" x2="${NT_W - NT_PADR}" y2="${YE(v).toFixed(1)}"
+       stroke="#e6e6e1" stroke-width="0.75"/>
+     <text x="${NT_PADL - 4}" y="${(YE(v) + 3).toFixed(1)}" font-size="8" fill="#8a8a84"
+       text-anchor="end">${v >= 1000 ? (v / 1000).toFixed(1) + 'k' : Math.round(v)}</text>`).join('');
 
-  // Each week occupies the x span of its own Wed->Tue bucket.
-  const wx = w => {
-    const end = nAddDays(w.week_of, 6);
-    return { x1: X(w.week_of), x2: X(end > D.today ? D.today : end) };
-  };
+  const wx = w => { const e = nAddDays(w.week_of, 6); return { x1: X(w.week_of), x2: X(e > D.today ? D.today : e) }; };
   const wmid = w => { const s = wx(w); return (s.x1 + s.x2) / 2; };
 
-  // ── phase shading: one set of rects, spanning BOTH panels ──
-  const phaseFill = { fat_loss: '#eaf4ea', maintenance: '#eef1f6', diet_break: '#fdf3e6',
-    lean_gain: '#f2ecf8', recomp: '#eaf2f6', baseline: '#f4f4f2' };
-  let shading = ''; const legend = [];
-  for (const ph of D.phases) {
-    if (!ph.start_date) continue;
-    const s = ph.start_date > d0 ? ph.start_date : d0;
-    const e = ph.end_date && ph.end_date < d1 ? ph.end_date : d1;
-    if (s > e) continue;
-    const x1 = X(s), x2 = X(e);
-    if (x2 - x1 < 1) continue;
-    shading += `<rect x="${x1.toFixed(1)}" y="${TOP}" width="${(x2 - x1).toFixed(1)}"
-      height="${EB - TOP}" fill="${phaseFill[ph.phase_type] || '#f4f4f2'}"/>`;
-    if (ph.start_date > d0)
-      shading += `<line x1="${x1.toFixed(1)}" y1="${TOP}" x2="${x1.toFixed(1)}" y2="${EB}"
-        stroke="#c9c9c4" stroke-width="1" stroke-dasharray="2,3"/>`;
-    if (!legend.includes(ph.phase_type)) legend.push(ph.phase_type);
-  }
-  // White gutter between the panels so the shading reads as two fields, not one.
-  shading += `<rect x="0" y="${WB}" width="${W}" height="${ET - WB}" fill="var(--n-card,#fff)"/>`;
-
-  // ── weight panel ──
-  let goalBand = '';
-  if (D.activePhase && D.rateGoal && D.activePhase.phase_type === 'fat_loss'
-      && D.activePhase.start_date && D.trend.displayable) {
-    const st = D.activePhase.start_date > d0 ? D.activePhase.start_date : d0;
-    const seed = pts.find(p => p.date >= st);
-    if (seed) {
-      const wks = nmDayDiff(dEndData, seed.date) / 7;
-      const fast = seed.trend - D.rateGoal * 1.4 * wks;
-      const slow = seed.trend - D.rateGoal * 0.6 * wks;
-      goalBand = `<polygon points="${X(seed.date).toFixed(1)},${YW(seed.trend).toFixed(1)}
-        ${X(dEndData).toFixed(1)},${YW(slow).toFixed(1)} ${X(dEndData).toFixed(1)},${YW(fast).toFixed(1)}"
-        fill="#4caf50" opacity="0.12"/>`;
-    }
-  }
-
-  // Forecast cone — the SAME §3.8 rate bounds as the goal ETA, aimed at the
-  // phase boundary. Red, because it is this trend continued, and dashed/washed
-  // because it is a projection, not data.
-  let cone = '';
-  if (fc) {
-    const x0 = X(dEndData), x1c = X(fc.phaseEnd);
-    const y0 = YW(D.trend.current), yl = YW(fc.low), yh = YW(fc.high);
-    cone = `<polygon points="${x0.toFixed(1)},${y0.toFixed(1)} ${x1c.toFixed(1)},${yh.toFixed(1)}
-        ${x1c.toFixed(1)},${yl.toFixed(1)}" fill="#ff2712" opacity="0.10"/>
-      <line x1="${x0.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${x1c.toFixed(1)}" y2="${yh.toFixed(1)}"
-        stroke="#ff2712" stroke-width="1" stroke-dasharray="3,3" opacity="0.55"/>
-      <line x1="${x0.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${x1c.toFixed(1)}" y2="${yl.toFixed(1)}"
-        stroke="#ff2712" stroke-width="1" stroke-dasharray="3,3" opacity="0.55"/>
-      <line x1="${x1c.toFixed(1)}" y1="${TOP}" x2="${x1c.toFixed(1)}" y2="${EB}"
-        stroke="#9a9a94" stroke-width="1" stroke-dasharray="1,3"/>
-      <text x="${Math.min(W - PADR, x1c + 2).toFixed(1)}" y="${TOP + 8}" font-size="8"
-        fill="#6b6b66" text-anchor="end">phase end</text>`;
-  }
-
-  const dots = pts.map(p =>
-    `<circle cx="${X(p.date).toFixed(1)}" cy="${YW(p.raw).toFixed(1)}" r="2" fill="#9a9a94"><title>${p.date}: ${p.raw.toFixed(1)} lb</title></circle>`).join('');
-
-  let trendPath = '';
-  if (pts.length >= 2) {
-    let seg = [];
-    for (const p of pts) {
-      if (p.restarted && seg.length) { trendPath += nPathFrom(seg, X, YW); seg = []; }
-      seg.push(p);
-    }
-    if (seg.length) trendPath += nPathFrom(seg, X, YW);
-  }
-  const showTrend = D.trend.displayable;
-
-  // ── energy panel ──
-  // TDEE band: stepped, drawn only across runs of consecutive weeks that have a
-  // number. A gap week breaks the band rather than interpolating across it.
-  let tdeeBand = '';
-  let run = [];
+  let tdeeBand = '', run = [];
   const flushBand = () => {
     if (run.length) {
       const top = [], bot = [];
       for (const w of run) {
         const s = wx(w);
-        top.push(`${s.x1.toFixed(1)},${YE(w.tdee.shownHigh).toFixed(1)}`);
-        top.push(`${s.x2.toFixed(1)},${YE(w.tdee.shownHigh).toFixed(1)}`);
-        bot.push(`${s.x2.toFixed(1)},${YE(w.tdee.shownLow).toFixed(1)}`);
-        bot.push(`${s.x1.toFixed(1)},${YE(w.tdee.shownLow).toFixed(1)}`);
+        top.push(`${s.x1.toFixed(1)},${YE(w.tdee.shownHigh).toFixed(1)}`, `${s.x2.toFixed(1)},${YE(w.tdee.shownHigh).toFixed(1)}`);
+        bot.push(`${s.x2.toFixed(1)},${YE(w.tdee.shownLow).toFixed(1)}`, `${s.x1.toFixed(1)},${YE(w.tdee.shownLow).toFixed(1)}`);
       }
-      tdeeBand += `<polygon points="${top.concat(bot.reverse()).join(' ')}"
-        fill="#dcdcd7" opacity="0.85" stroke="#b9b9b3" stroke-width="0.75"/>`;
+      tdeeBand += `<polygon points="${top.concat(bot.reverse()).join(' ')}" fill="${NT_GRAY}"
+        opacity="0.9" stroke="#b9b9b3" stroke-width="0.75"/>`;
     }
     run = [];
   };
-  for (const w of EW) {
-    if (w.tdee && w.tdee.shown != null) run.push(w); else flushBand();
-  }
+  for (const w of EW) { if (w.tdee && w.tdee.shown != null) run.push(w); else flushBand(); }
   flushBand();
 
-  // Planned calories: a per-day step, not one value per week. N09 §3.0 measures
-  // adherence against what was prescribed on each day; a smooth weekly line
-  // would quietly re-import the calendar-week framing §3.0 calls the defect.
-  let planLine = '';
-  let planRun = [];
+  let planLine = '', planRun = [];
   const flushPlan = () => {
-    if (planRun.length) {
-      const d = planRun.map(w => { const s = wx(w); const y = YE(w.target).toFixed(1);
-        return `M${s.x1.toFixed(1)},${y} L${s.x2.toFixed(1)},${y}`; }).join(' ');
-      planLine += `<path d="${d}" fill="none" stroke="#2a6fb0" stroke-width="1.5"
-        stroke-dasharray="4,3" opacity="0.9"/>`;
-    }
+    if (planRun.length) planLine += `<path d="${planRun.map(w => { const s = wx(w), y = YE(w.target).toFixed(1);
+      return `M${s.x1.toFixed(1)},${y} L${s.x2.toFixed(1)},${y}`; }).join(' ')}"
+      fill="none" stroke="${NT_BLUE}" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.9"/>`;
     planRun = [];
   };
   for (const w of EW) { if (w.target != null) planRun.push(w); else flushPlan(); }
   flushPlan();
 
-  // Actual calories: broken at any week with no interpretable days, so an
-  // unlogged stretch never renders as a line implying intake we never saw.
-  let actLine = '', actDots = '';
-  let actRun = [];
+  let actLine = '', actDots = '', actRun = [];
   const flushAct = () => {
-    if (actRun.length >= 2) {
-      actLine += `<path d="${actRun.map((w, i) => `${i ? 'L' : 'M'}${wmid(w).toFixed(1)},${YE(w.actualAvg).toFixed(1)}`).join(' ')}"
-        fill="none" stroke="#ff2712" stroke-width="2" stroke-linejoin="round"/>`;
-    }
+    if (actRun.length >= 2) actLine += `<path d="${actRun.map((w, i) =>
+      `${i ? 'L' : 'M'}${wmid(w).toFixed(1)},${YE(w.actualAvg).toFixed(1)}`).join(' ')}"
+      fill="none" stroke="${NT_ORANGE}" stroke-width="2" stroke-linejoin="round"/>`;
     actRun = [];
   };
   for (const w of EW) { if (w.actualAvg != null) actRun.push(w); else flushAct(); }
   flushAct();
   for (const w of EW) {
     if (w.actualAvg == null) continue;
-    actDots += `<circle cx="${wmid(w).toFixed(1)}" cy="${YE(w.actualAvg).toFixed(1)}" r="2" fill="#ff2712"
+    actDots += `<circle cx="${wmid(w).toFixed(1)}" cy="${YE(w.actualAvg).toFixed(1)}" r="2" fill="${NT_ORANGE}"
       ><title>wk ${w.week_of}: ${w.actualAvg.toLocaleString()} kcal/day over ${w.actualDays} day${w.actualDays === 1 ? '' : 's'}</title></circle>`;
   }
 
-  // Balance carets. Nothing is drawn when the week's average lands inside the
-  // band — at ±100–200 kcal that genuinely means "can't tell", and a glyph
-  // there would be a point-estimate claim in a range's clothing.
   let carets = '';
   for (const w of EW) {
     if (w.actualAvg == null || !w.tdee || w.tdee.shown == null) continue;
     const x = wmid(w);
-    if (w.actualAvg < w.tdee.shownLow) {
+    if (w.actualAvg < w.tdee.shownLow)
       carets += `<polygon points="${(x - 3).toFixed(1)},${CY - 4} ${(x + 3).toFixed(1)},${CY - 4} ${x.toFixed(1)},${CY + 1}"
         fill="#6b6b66"><title>wk ${w.week_of}: ~${(w.tdee.shown - w.actualAvg).toLocaleString()} kcal/day under maintenance</title></polygon>`;
-    } else if (w.actualAvg > w.tdee.shownHigh) {
+    else if (w.actualAvg > w.tdee.shownHigh)
       carets += `<polygon points="${(x - 3).toFixed(1)},${CY + 1} ${(x + 3).toFixed(1)},${CY + 1} ${x.toFixed(1)},${CY - 4}"
         fill="#6b6b66"><title>wk ${w.week_of}: ~${(w.actualAvg - w.tdee.shown).toLocaleString()} kcal/day over maintenance</title></polygon>`;
-    }
-  }
-
-  // ── axes ──
-  const axes = `
-    <text x="2" y="${(YW(wHi - 1) + 4).toFixed(1)}" font-size="9" fill="#777">${(wHi - 1).toFixed(0)}</text>
-    <text x="2" y="${(YW(wLo + 1) + 4).toFixed(1)}" font-size="9" fill="#777">${(wLo + 1).toFixed(0)}</text>
-    <text x="2" y="${TOP + 8}" font-size="8" fill="#9a9a94">lb</text>
-    ${eVals.length ? `<text x="2" y="${(YE(eHi) + 8).toFixed(1)}" font-size="9" fill="#777">${Math.round(eHi / 100) * 100}</text>
-    <text x="2" y="${(YE(eLo) - 1).toFixed(1)}" font-size="9" fill="#777">${Math.round(eLo / 100) * 100}</text>` : ''}
-    <text x="2" y="${ET + 8}" font-size="8" fill="#9a9a94">kcal</text>
-    <line x1="${PADL}" y1="${EB}" x2="${W - PADR}" y2="${EB}" stroke="#dcdcd7" stroke-width="1"/>
-    <text x="${PADL}" y="${H - 3}" font-size="9" fill="#777">${d0.slice(5)}</text>
-    <text x="${W - PADR}" y="${H - 3}" font-size="9" fill="#777" text-anchor="end">${d1.slice(5)}</text>`;
-
-  let ticks = '';
-  for (const tk of D.ticks) {
-    if (tk.week_of < d0 || tk.week_of > d1) continue;
-    const x = X(tk.week_of);
-    ticks += `<line x1="${x.toFixed(1)}" y1="${EB}" x2="${x.toFixed(1)}" y2="${EB + 5}"
-      stroke="#2a6fb0" stroke-width="2"><title>Target ${tk.delta > 0 ? '+' : ''}${tk.delta} kcal on ${tk.week_of}</title></line>`;
-  }
-
-  // ── sub-lines ──
-  const wi = D.weighInsByWeek[D.thisWeek] || 0;
-  const wiTxt = `${wi} weigh-in${wi === 1 ? '' : 's'} this week`;
-  let sub;
-  if (showTrend) {
-    const rateTxt = D.rate == null ? ''
-      : ` · <b>${D.rate > 0 ? '+' : ''}${D.rate.toFixed(1)} lb/wk</b> over ${D.windowDays} days`;
-    sub = `Trend weight <b>${D.trend.current.toFixed(1)} lb</b>${rateTxt} · ${wiTxt}`;
-  } else {
-    sub = `${nEsc(D.trend.reason || 'Trend not established yet')} · ${wiTxt}`;
   }
 
   const T = D.tdeeNow;
-  let tdeeLine;
-  if (T && T.sufficient) {
-    const rc = T.recalibrating
-      ? ` <span style="color:#7a5200" title="the estimate moved more than 100 kcal in a week — the previous range is held while the coach reviews the inputs">· recalibrating</span>` : '';
-    tdeeLine = `Maintenance <b>${T.low.toLocaleString()}–${T.high.toLocaleString()} kcal/day</b>
-      <span style="color:var(--n-muted)">(from ${T.nDays} logged days and ${T.nWeighIns} weigh-ins)</span>${rc}`;
-  } else {
-    const est = D.activePhase && D.activePhase.maintenance_estimate_kcal;
-    tdeeLine = `<span style="color:var(--n-muted)">Maintenance estimate not available yet — ${nEsc((T && T.reason) || 'not enough data')}.${
-      est ? ` Coach's working estimate: <b style="color:var(--n-text)">~${est.toLocaleString()} kcal/day</b>.` : ''}</span>`;
-  }
+  const eSub = T && T.sufficient
+    ? `Maintenance <b style="color:var(--n-text)">${T.low.toLocaleString()}–${T.high.toLocaleString()} kcal</b> · confidence ${T.confidence}${
+        T.recalibrating ? ' · <span style="color:#7a5200">recalibrating</span>' : ''}`
+    : `Maintenance not available yet — ${nEsc((T && T.reason) || 'not enough data')}${
+        ph && ph.maintenance_estimate_kcal ? ` · coach's estimate ~${ph.maintenance_estimate_kcal.toLocaleString()}` : ''}`;
 
+  const eLegend = [];
+  if (tdeeBand) eLegend.push({ kind: 'band', color: NT_GRAY, label: 'Maintenance' });
+  eLegend.push({ kind: 'line', color: NT_ORANGE, label: 'Calories actual' },
+    { kind: 'dash', color: NT_BLUE, label: 'Calories planned' });
+
+  const panel2 = `<div style="margin-top:14px;border-top:1px solid var(--n-line,#e6e6e1);padding-top:10px">
+    ${nPanelHead('Energy balance', eSub, eLegend)}
+    <svg viewBox="0 0 ${NT_W} ${H2}" style="width:100%;margin-top:2px">
+      ${nBandRects(bands, T2, B2)}${nBandLabels(bands, T2 - 5)}${eGrid}${tdeeBand}
+      ${todayMark(T2, B2, T2 - 14)}${planLine}${actLine}${actDots}${carets}
+      <line x1="${NT_PADL}" y1="${B2}" x2="${NT_W - NT_PADR}" y2="${B2}" stroke="#c9c9c4" stroke-width="1"/>
+      ${D.ticks.map(tk => (tk.week_of < d0 || tk.week_of > d1) ? '' :
+        `<line x1="${X(tk.week_of).toFixed(1)}" y1="${B2}" x2="${X(tk.week_of).toFixed(1)}" y2="${B2 + 5}"
+           stroke="${NT_BLUE}" stroke-width="2"><title>Target ${tk.delta > 0 ? '+' : ''}${tk.delta} kcal on ${tk.week_of}</title></line>`).join('')}
+      ${xAxis(B2 + 30)}
+      ${carets ? `<text x="${NT_PADL - 4}" y="${CY + 2}" font-size="7" fill="#8a8a84" text-anchor="end">bal</text>` : ''}
+    </svg></div>`;
+
+  // ── projection sub-lines ──
   const F = D.forecast || {};
   let fcLine;
   if (fc) {
-    const src = fc.source === 'default'
-      ? ` <span style="color:var(--n-muted)" title="this phase has no end date set, so a typical block length for its type is assumed (N06)">(assumed ${fc.weeks ? Math.round(fc.weeks) : ''}-week block)</span>` : '';
-    fcLine = `At this rate, <b>${fc.low.toFixed(1)}–${fc.high.toFixed(1)} lb</b> by ${fc.phaseEnd}${src}`;
+    // nmPhaseEnd already returns the block length it assumed — don't recompute it.
+    const src = fc.source === 'default' && D.phaseEnd && D.phaseEnd.weeks
+      ? ` <span style="color:var(--n-muted)">(assumed ${D.phaseEnd.weeks}-week block — no end date set)</span>` : '';
+    fcLine = `<b>${fc.low.toFixed(1)}–${fc.high.toFixed(1)} lb</b> by ${fc.phaseEnd} at this rate${src}`;
   } else if (F.holding) {
-    fcLine = `<span style="color:var(--n-muted)">Holding, not heading somewhere — no projection during a ${nEsc(nPhaseLabel(D.activePhase && D.activePhase.phase_type).toLowerCase())}.</span>`;
+    fcLine = `<span style="color:var(--n-muted)">Holding, not heading somewhere — no projection during a ${
+      nEsc(nPhaseLabel(ph && ph.phase_type).toLowerCase())}.</span>`;
   } else {
     fcLine = `<span style="color:var(--n-muted)">No projection yet — ${nEsc(F.reason || 'not enough data')}.</span>`;
   }
-
   const GE = D.goalEta || {};
   const goalLine = (!GE.suppressed && GE.label)
-    ? `<div style="font-size:11px;color:var(--n-muted);margin-top:2px">Goal range (${D.goalLow}–${D.goalHigh} lb) around <b style="color:var(--n-text)">${nEsc(GE.label)}</b> if this rate holds.</div>`
-    : '';
-
+    ? `<div style="font-size:11px;color:var(--n-muted);margin-top:2px">Goal range around
+        <b style="color:var(--n-text)">${nEsc(GE.label)}</b> if this rate holds.</div>` : '';
   const reEst = D.trend.restarts.length && !D.trend.displayable
     ? `<div style="font-size:11px;color:#7a5200;margin-top:3px">Trend re-establishing after a gap in weigh-ins.</div>` : '';
 
-  const legendBits = [];
-  if (legend.length) legendBits.push(`shaded bands = ${legend.map(l => nEsc(nPhaseLabel(l).toLowerCase())).join(' / ')} phases`);
-  legendBits.push('red = actual · blue dashed = planned');
-  if (tdeeBand) legendBits.push('gray band = maintenance range · ▼ under / ▲ over for the week');
-  if (cone) legendBits.push('red wedge = projection to phase end');
-  if (D.ticks.length) legendBits.push('blue ticks = calorie target changed');
-
-  return `<div class="n-panel">${head}
-    <svg viewBox="0 0 ${W} ${H}" style="width:100%">
-      ${shading}${goalBand}${tdeeBand}${cone}${axes}${ticks}
-      ${planLine}${actLine}${dots}${actDots}
-      ${showTrend ? `<path d="${trendPath}" fill="none" stroke="#ff2712" stroke-width="2.5" stroke-linejoin="round"/>` : ''}
-      ${carets}
-    </svg>
-    <div style="font-size:13px;color:var(--n-text)">${sub}</div>${reEst}
-    <div style="font-size:13px;color:var(--n-text);margin-top:4px">${tdeeLine}</div>
-    <div style="font-size:13px;color:var(--n-text);margin-top:4px">${fcLine}</div>${goalLine}
-    <div style="font-size:11px;color:var(--n-muted);margin-top:5px">${legendBits.join(' · ')}</div>
+  return `<div class="n-panel">${head}${panel1}${panel2}
+    <div style="font-size:12px;color:var(--n-text);margin-top:9px">${fcLine}</div>${goalLine}${reEst}
     ${nEnergyTableHtml(D)}
-    <div style="font-size:11px;color:var(--n-muted);margin-top:6px">Sodium, carbs, cycle, and digestion
+    <div style="font-size:11px;color:var(--n-muted);margin-top:8px">Sodium, carbs, cycle, and digestion
     move the scale 2–5 lb day to day. The line is the signal; the dots are noise. Activity is context
     only — it is already inside the scale-based maintenance range, so adding it would double-count.</div></div>`;
 }
-
 // ── The weekly numbers behind both panels ──
 // Default collapsed. This exists so that NOTHING in the chart is reachable only
 // by hovering: this app is used on a phone, where hover does not exist. It is
@@ -763,12 +821,15 @@ function nWeightEnergyCardHtml(D) {
 function nEnergyTableHtml(D) {
   const EW = (D.energyWeeks || []).slice().reverse();     // newest first
   if (!EW.length) return '';
-  const caret = NT.energyTable ? '▾' : '▸';
-  const head = `<div onclick="nToggleEnergyTable()" style="cursor:pointer;display:flex;
-      justify-content:space-between;align-items:center;margin-top:8px;
-      border-top:1px solid var(--n-line,#e6e6e1);padding-top:7px">
-      <span style="font-size:12px;color:var(--n-muted)">Weekly numbers</span>
-      <span style="font-size:11px;color:var(--n-muted)">${caret}</span></div>`;
+  const open = NT.energyTable;
+  const head = `<div onclick="nToggleEnergyTable()" role="button" tabindex="0" style="cursor:pointer;
+      display:flex;align-items:center;gap:7px;margin-top:10px;padding:8px 10px;
+      border:1px solid var(--n-border,#dcdcd7);border-radius:6px;background:var(--n-bg,#f4f4f1)">
+      <span style="font-size:12px;color:var(--n-muted);transform:rotate(${open ? 90 : 0}deg);
+        display:inline-block;transition:transform .15s">▶</span>
+      <span style="font-size:12px;font-weight:600;color:var(--n-text)">${open ? 'Hide' : 'View'} weekly numbers</span>
+      <span style="font-size:11px;color:var(--n-muted)">(${EW.length} week${EW.length === 1 ? '' : 's'})</span>
+    </div>`;
   if (!NT.energyTable) return head;
 
   const tierColor = { full: '#2e9e3e', mostly: '#7aa32e', partial: '#e8940a', none: '#b9b9b3' };
