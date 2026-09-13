@@ -705,6 +705,10 @@ function fmtRestRange(minS, maxS) {
 // "30 sec" / "45s" / "1 min" -> time; "20 yds" / "40 yards" -> dist; else reps.
 function inferMeasureType(pe) {
   if (pe.measure_type) return pe.measure_type;   // explicit column, if present
+  // Copied sessions record the measure type on each set_detail entry.
+  if (Array.isArray(pe.set_detail) && pe.set_detail[0] && pe.set_detail[0].mt) {
+    return pe.set_detail[0].mt;
+  }
   const t = (pe.reps_display || '').toLowerCase();
   if (/\b(sec|secs|second|seconds|min|mins|minute|minutes)\b/.test(t) || /\d\s*s\b/.test(t)) return 'time';
   if (/\b(yd|yds|yard|yards|meter|meters)\b/.test(t) || /\d\s*m\b/.test(t)) return 'dist';
@@ -789,7 +793,14 @@ async function renderSessionBody() {
         ? `<div class="ex-swap-note">↕ swapped from ${ex.name}</div>` : '';
 
       let targetParts = [];
-      if (pe.target_load)  targetParts.push(`${pe.target_load} lb`);
+      // A copied exercise with varying loads shows them all (e.g. "135/185/225 lb")
+      // rather than a single number that only matches the first set.
+      const detailLoads = Array.isArray(pe.set_detail)
+        ? pe.set_detail.map(d => (d && d.load != null ? d.load : null)) : null;
+      const loadsVary   = detailLoads && detailLoads.every(l => l != null)
+        && new Set(detailLoads).size > 1;
+      if (loadsVary)            targetParts.push(`${detailLoads.join('/')} lb`);
+      else if (pe.target_load)  targetParts.push(`${pe.target_load} lb`);
       if (pe.reps_display) targetParts.push(pe.reps_display);
       else if (pe.reps_low) targetParts.push(
         pe.reps_high && pe.reps_high !== pe.reps_low
@@ -968,24 +979,33 @@ async function renderSessionBody() {
   if (firstEditable) firstEditable.classList.remove('ex-collapsed');
 
   // Pre-fill planned load and reps into editable set rows.
+  // A copied session carries set_detail — one entry per set with that set's own
+  // weight and reps — so each row is filled individually. Without it, fall back
+  // to the single target_load / reps_low for every set. RPE is never pre-filled.
   // restoreDraft() runs after this and will overwrite with any values the
-  // athlete already entered, so planned values are only the initial default.
+  // athlete already entered, so these are only the initial defaults.
   S.plannedExercises.forEach(pe => {
     if (S.savedExercises[pe.id]) return;  // already saved — read-only card
     const st = S.exState[pe.id];
     if (!st || st.skipped) return;
     const key      = `p-${pe.id}`;
     const count    = st.setCount || 0;
+    const detail   = Array.isArray(pe.set_detail) ? pe.set_detail : null;
     const fillLoad = pe.target_load != null ? pe.target_load : null;
     const fillReps = pe.reps_low   != null ? pe.reps_low    : null;
     for (let i = 0; i < count; i++) {
-      if (fillLoad != null) {
+      const d    = detail ? detail[i] : null;
+      const load = d ? (d.load != null ? d.load : null) : fillLoad;
+      const reps = d
+        ? (d.reps != null ? d.reps : (d.value != null ? d.value : null))
+        : fillReps;
+      if (load != null) {
         const el = document.getElementById(`load-${key}-${i}`);
-        if (el) el.value = fillLoad;
+        if (el) el.value = load;
       }
-      if (fillReps != null) {
+      if (reps != null) {
         const el = document.getElementById(`reps-${key}-${i}`);
-        if (el) el.value = fillReps;
+        if (el) el.value = reps;
       }
     }
   });

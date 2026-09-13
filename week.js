@@ -536,7 +536,9 @@ async function createUserSession() {
   }
 }
 
-// Copy a previous completed session's exercises into a new session
+// Copy a previous completed session into a brand-new session in this week.
+// Exercises, their order, set count, per-set weights and per-set reps all carry
+// over exactly; RPE never does.
 async function copyPreviousSession(completedSessionId, sessionType, plannedSessionId) {
   if (isOffline) { toast('Cannot create sessions offline.'); return; }
   try { await ensureActiveCycle(); } catch (e) { toast('Could not start a week — check connection.', 4000); return; }
@@ -552,76 +554,16 @@ async function copyPreviousSession(completedSessionId, sessionType, plannedSessi
   showScreen('session');
 
   try {
-    // Create the new planned session
-    const { data: ps, error: psErr } = await db.from('planned_sessions').insert({
-      athlete_id:            S.athlete.id,
-      cycle_id:              S.cycle?.id,
-      week_of:               S.cycle?.start_date || today(),
-      day_label:             sessionType,
-      session_order:         null,
-      session_type:          sessionType,
-      includes_conditioning: sessionType === 'Conditioning Only',
-      session_notes:         null,
-    }).select().single();
-    if (psErr) throw psErr;
-
-    // Load the source session's completed sets (real data only, not placeholders)
-    const { data: sets } = await db.from('completed_strength_sets')
-      .select('exercise_id, set_number, actual_load, actual_reps')
-      .eq('completed_session_id', completedSessionId)
-      .gt('set_number', 0)
-      .eq('is_skipped', false)
-      .order('set_number');
-
-    let copiedCount = 0;
-
-    if (sets && sets.length > 0) {
-      // Build from completed sets — use actual loads as targets
-      const seen = new Set();
-      const uniqueExes = [];
-      sets.forEach(s => {
-        if (s.exercise_id && !seen.has(s.exercise_id)) {
-          seen.add(s.exercise_id);
-          const exSets    = sets.filter(r => r.exercise_id === s.exercise_id);
-          const topLoad   = Math.max(...exSets.map(r => r.actual_load || 0)) || null;
-          const firstReps = exSets[0]?.actual_reps || null;
-          uniqueExes.push({ exercise_id: s.exercise_id, topLoad, firstReps, setCount: exSets.length });
-        }
-      });
-      const peRows = uniqueExes.map((ex, i) => ({
-        session_id:  ps.id,
-        exercise_id: ex.exercise_id,
-        item_order:  i + 1,
-        target_load: ex.topLoad,
-        target_sets: ex.setCount,
-        reps_low:    ex.firstReps,
-      }));
-      await db.from('planned_exercises').insert(peRows);
-      copiedCount = uniqueExes.length;
-
-    } else if (plannedSessionId) {
-      // Fallback: copy directly from planned_exercises of the source session
-      const { data: srcPEs } = await db.from('planned_exercises')
-        .select('exercise_id, target_load, target_sets, reps_low, item_order')
-        .eq('session_id', plannedSessionId)
-        .order('item_order');
-      if (srcPEs && srcPEs.length > 0) {
-        const peRows = srcPEs.map((ex, i) => ({
-          session_id:  ps.id,
-          exercise_id: ex.exercise_id,
-          item_order:  i + 1,
-          target_load: ex.target_load,
-          target_sets: ex.target_sets,
-          reps_low:    ex.reps_low,
-        }));
-        await db.from('planned_exercises').insert(peRows);
-        copiedCount = srcPEs.length;
-      }
-    }
-
-    S.sessions.push(ps);
-    toast(`Copied ${copiedCount} exercise${copiedCount !== 1 ? 's' : ''} ✓`, 1500);
-    await openSession(ps.id);
+    const res = await cloneSessionIntoCurrentWeek({
+      plannedSessionId:     plannedSessionId || null,
+      completedSessionId:   completedSessionId,
+      sessionType:          sessionType,
+      dayLabel:             sessionType,
+      includesConditioning: sessionType === 'Conditioning Only',
+    });
+    S.sessions.push(res.ps);
+    toast(`Copied ${res.count} exercise${res.count !== 1 ? 's' : ''} ✓`, 1500);
+    await openSession(res.ps.id);
   } catch (err) {
     console.error(err);
     toast('Error copying session.', 4000);
@@ -684,8 +626,28 @@ async function ensureActiveCycle() {
   return newCycle;
 }
 
-// Clone a session (planned structure preferred, completed sets as fallback)
-// into the current week. Returns { ps, count }.
+// Insert planned_exercises rows. If the database has not had the set_detail
+// column added yet, retry without it rather than losing the whole copy.
+async function insertPlannedExercises(rows) {
+  if (!rows.length) return;
+  const { error } = await db.from('planned_exercises').insert(rows);
+  if (!error) return;
+  if (!rows.some(function (r) { return r.set_detail != null; })) throw error;
+  console.warn('planned_exercises insert failed — retrying without set_detail:', error);
+  const { error: err2 } = await db.from('planned_exercises').insert(rows.map(function (r) {
+    const c = Object.assign({}, r); delete c.set_detail; return c;
+  }));
+  if (err2) throw err2;
+}
+
+// Clone a session into the current week as an exact copy.
+//
+// Every exercise from the source comes across in the same order, with the same
+// number of sets, and each set pre-filled with the weight and reps that were
+// actually logged for THAT set. Exercises the athlete added by hand mid-session
+// are included, as are exercises that were skipped (they come across empty).
+// RPE is deliberately never carried over — target RPE is cleared and the RPE
+// inputs stay blank. Returns { ps, count }.
 async function cloneSessionIntoCurrentWeek(opts) {
   await ensureActiveCycle();
   const { data: ps, error: psErr } = await db.from('planned_sessions').insert({
@@ -700,25 +662,104 @@ async function cloneSessionIntoCurrentWeek(opts) {
   }).select().single();
   if (psErr) throw psErr;
 
-  let count = 0;
+  // ── Source structure: the prescription, and what was actually logged ──────
+  let srcPEs = [];
   if (opts.plannedSessionId) {
-    // Full-fidelity clone: all planned_exercises columns (supersets, rest, adaptation, intent)
-    const { data: srcPEs } = await db.from('planned_exercises')
+    const { data } = await db.from('planned_exercises')
       .select('*').eq('session_id', opts.plannedSessionId).order('item_order');
-    if (srcPEs && srcPEs.length) {
-      const rows = srcPEs.map(function(e) {
-        const r = Object.assign({}, e);
-        delete r.id; delete r.created_at;
-        r.session_id = ps.id;
-        return r;
-      });
-      await db.from('planned_exercises').insert(rows);
-      count = rows.length;
+    srcPEs = data || [];
+  }
+
+  let srcSets = [];
+  if (opts.completedSessionId) {
+    const { data } = await db.from('completed_strength_sets')
+      .select('*')
+      .eq('completed_session_id', opts.completedSessionId)
+      .order('created_at', { ascending: true })
+      .order('set_number',  { ascending: true });
+    srcSets = data || [];
+  }
+
+  // Bucket the logged sets: prescribed exercises by planned_exercise_id,
+  // hand-added ones by exercise_id.
+  const byPlanned = {};
+  const byAdded   = {};
+  srcSets.forEach(function (s) {
+    if (s.planned_exercise_id) {
+      if (!byPlanned[s.planned_exercise_id]) byPlanned[s.planned_exercise_id] = [];
+      byPlanned[s.planned_exercise_id].push(s);
+    } else if (s.exercise_id) {
+      const k = String(s.exercise_id);
+      if (!byAdded[k]) byAdded[k] = [];
+      byAdded[k].push(s);
     }
+  });
+
+  // Ordered exercise list — prescribed items by item_order, then hand-added
+  // ones in the order they were added. Same rule the History screen uses, so a
+  // copy shows up in exactly the order the source session did.
+  const items = [];
+  srcPEs.forEach(function (pe) {
+    items.push({ planned: pe, logged: byPlanned[pe.id] || [], order: pe.item_order, at: '' });
+  });
+  Object.keys(byAdded).forEach(function (exId) {
+    const rows = byAdded[exId];
+    items.push({ planned: null, exerciseId: rows[0].exercise_id, logged: rows,
+                 order: null, at: rows[0].created_at || '' });
+  });
+  items.sort(function (a, b) {
+    if (a.order != null && b.order != null) return a.order - b.order;
+    if (a.order != null) return -1;
+    if (b.order != null) return 1;
+    return String(a.at).localeCompare(String(b.at));
+  });
+
+  const rows = [];
+  items.forEach(function (it) {
+    const base = it.planned ? Object.assign({}, it.planned) : {};
+    delete base.id; delete base.created_at; delete base.exercise;
+    base.session_id  = ps.id;
+    base.exercise_id = it.planned ? it.planned.exercise_id : it.exerciseId;
+    base.item_order  = rows.length + 1;
+    base.rpe_low     = null;    // RPE never carries over
+    base.rpe_high    = null;
+
+    const real = it.logged.filter(function (s) {
+      return (s.set_number || 0) > 0 && !s.is_skipped;
+    });
+
+    if (real.length) {
+      base.set_detail = real.map(function (s) {
+        return {
+          load:  s.actual_load  != null ? s.actual_load  : null,
+          reps:  s.actual_reps  != null ? s.actual_reps  : null,
+          value: s.actual_value != null ? s.actual_value : null,
+          mt:    s.measure_type || 'reps',
+        };
+      });
+      base.target_sets  = real.length;
+      // If the athlete swapped this lift for another, copy what they actually did.
+      if (real[0].exercise_id) base.exercise_id = real[0].exercise_id;
+      // Single-value fallbacks, for anywhere that still reads the old fields.
+      base.target_load  = real[0].actual_load != null ? real[0].actual_load : null;
+      base.reps_low     = real[0].actual_reps != null ? real[0].actual_reps : null;
+      base.reps_high    = base.reps_low;
+      base.reps_display = null;
+    } else if (!it.planned) {
+      // Added exercise with nothing logged — carry it across as an empty tile.
+      base.target_sets = 1;
+    }
+    rows.push(base);
+  });
+
+  await insertPlannedExercises(rows);
+  const count = rows.length;
+
+  if (opts.plannedSessionId) {
     const { data: srcCB } = await db.from('planned_conditioning_blocks')
       .select('*').eq('session_id', opts.plannedSessionId);
     if (srcCB && srcCB.length) {
-      const cbRows = srcCB.map(function(c) {
+      const cbRows = srcCB.map(function (c) {
         const r = Object.assign({}, c);
         delete r.id; delete r.created_at;
         r.session_id = ps.id;
@@ -729,33 +770,6 @@ async function cloneSessionIntoCurrentWeek(opts) {
     }
   }
 
-  if (!count && opts.completedSessionId) {
-    // Fallback: rebuild structure from what was actually logged
-    const { data: sets } = await db.from('completed_strength_sets')
-      .select('exercise_id, set_number, actual_load, actual_reps')
-      .eq('completed_session_id', opts.completedSessionId)
-      .gt('set_number', 0).eq('is_skipped', false).order('set_number');
-    if (sets && sets.length) {
-      const seen = new Set(); const uniq = [];
-      sets.forEach(function(s) {
-        if (s.exercise_id && !seen.has(s.exercise_id)) {
-          seen.add(s.exercise_id);
-          const exSets = sets.filter(function(r){ return r.exercise_id === s.exercise_id; });
-          uniq.push({
-            exercise_id: s.exercise_id,
-            topLoad:     Math.max.apply(null, exSets.map(function(r){ return r.actual_load || 0; })) || null,
-            firstReps:   exSets[0] ? exSets[0].actual_reps : null,
-            setCount:    exSets.length,
-          });
-        }
-      });
-      await db.from('planned_exercises').insert(uniq.map(function(ex, i) {
-        return { session_id: ps.id, exercise_id: ex.exercise_id, item_order: i + 1,
-                 target_load: ex.topLoad, target_sets: ex.setCount, reps_low: ex.firstReps };
-      }));
-      count = uniq.length;
-    }
-  }
   return { ps: ps, count: count };
 }
 
@@ -775,9 +789,23 @@ async function repeatLastWeek() {
     const { data: srcSessions } = await db.from('planned_sessions')
       .select('*').eq('cycle_id', prev.id).order('session_order');
     if (!srcSessions || !srcSessions.length) { toast('Previous week has no sessions.', 3500); return; }
+
+    // Pair each planned session with what was actually logged against it, so the
+    // copy carries real per-set weights and reps rather than just the plan.
+    const { data: prevCompleted } = await db.from('completed_sessions')
+      .select('id, planned_session_id, created_at')
+      .eq('athlete_id', S.athlete.id)
+      .in('planned_session_id', srcSessions.map(function (s) { return s.id; }))
+      .order('created_at', { ascending: true });
+    const completedByPlanned = {};
+    (prevCompleted || []).forEach(function (c) {
+      if (c.planned_session_id) completedByPlanned[c.planned_session_id] = c.id;
+    });
+
     for (const s of srcSessions) {
       await cloneSessionIntoCurrentWeek({
         plannedSessionId:     s.id,
+        completedSessionId:   completedByPlanned[s.id] || null,
         sessionType:          s.session_type,
         dayLabel:             s.day_label,
         sessionOrder:         s.session_order,
