@@ -458,6 +458,11 @@ async function syncQueue() {
               distance_meters:      isCircuit2 ? null : (b.distanceMeters || null),
               load_lbs:             isCircuit2 ? null : (b.load || null),
               intervals_completed:  isCircuit2 ? (b.circuitRounds || null) : (isIntervals2 ? (b.intRounds || null) : null),
+              // Kept in step with buildCondRows() in conditioning.js — this offline
+              // replay path is a SECOND row builder, and it silently omitting these
+              // columns would lose the work:rest ratio for any session logged offline.
+              work_duration_sec:    isIntervals2 ? (b.intWork || null) : null,
+              rest_duration_sec:    isIntervals2 ? (b.intRest || null) : null,
               max_heart_rate:       isIntervals2 ? (b.intMaxHR || null) : null,
               avg_heart_rate:       p.session.avg_heart_rate || null,
               rpe:                  p.session.overall_rpe    || null,
@@ -492,6 +497,11 @@ async function syncQueue() {
               distance_meters:      isCircuit3 ? null : (b.distanceMeters || null),
               load_lbs:             isCircuit3 ? null : (b.load || null),
               intervals_completed:  isCircuit3 ? (b.circuitRounds || null) : (isIntervals3 ? (b.intRounds || null) : null),
+              // Kept in step with buildCondRows() in conditioning.js — this offline
+              // replay path is a SECOND row builder, and it silently omitting these
+              // columns would lose the work:rest ratio for any session logged offline.
+              work_duration_sec:    isIntervals3 ? (b.intWork || null) : null,
+              rest_duration_sec:    isIntervals3 ? (b.intRest || null) : null,
               max_heart_rate:       isIntervals3 ? (b.intMaxHR || null) : null,
               avg_heart_rate:       p.avg_heart_rate || null,
               rpe:                  p.overall_rpe    || null,

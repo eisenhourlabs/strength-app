@@ -24,7 +24,13 @@ function renderCondBlock(b, idx, total) {
     + '<option value="">Select…</option>' + wtOpts + '</select></div>';
 
   // Interval-specific fields per block
-  const intFields = '<div class="form-field" id="cond-int-rounds-row-' + b.id + '" style="' + (isIntervals ? '' : 'display:none') + '">'
+  const intFields = '<div class="form-field" id="cond-int-work-row-' + b.id + '" style="' + (isIntervals ? '' : 'display:none') + '">'
+    + '<label>Work (sec)</label>'
+    + '<input type="number" inputmode="numeric" id="cond-int-work-' + b.id + '" placeholder="—" value="' + (b.intWork || '') + '"></div>'
+    + '<div class="form-field" id="cond-int-rest-row-' + b.id + '" style="' + (isIntervals ? '' : 'display:none') + '">'
+    + '<label>Rest (sec)</label>'
+    + '<input type="number" inputmode="numeric" id="cond-int-rest-' + b.id + '" placeholder="—" value="' + (b.intRest || '') + '"></div>'
+    + '<div class="form-field" id="cond-int-rounds-row-' + b.id + '" style="' + (isIntervals ? '' : 'display:none') + '">'
     + '<label>Rounds completed</label>'
     + '<input type="number" inputmode="numeric" id="cond-int-rounds-' + b.id + '" placeholder="—" value="' + (b.intRounds || '') + '"></div>'
     + '<div class="form-field" id="cond-int-maxhr-row-' + b.id + '" style="' + (isIntervals ? '' : 'display:none') + '">'
@@ -75,11 +81,20 @@ function renderCondBlock(b, idx, total) {
 function renderCondSessionFields(pc) {
   let planHtml = '';
   if (pc) {
-    const hrRange = (pc.target_hr_low && pc.target_hr_high) ? pc.target_hr_low + '–' + pc.target_hr_high + ' bpm' : null;
+    const hrRange = (pc.target_hr_low && pc.target_hr_high)
+      ? pc.target_hr_low + '–' + pc.target_hr_high + ' bpm'
+      : (pc.target_hr_high ? '≤ ' + pc.target_hr_high + ' bpm' : (pc.target_hr_low ? '≥ ' + pc.target_hr_low + ' bpm' : null));
+    // Prescribed interval structure — previously invisible to the athlete, which is
+    // why a prescribed ratio could only be contradicted in a free-text note.
+    const structure = (pc.work_duration_sec && pc.rest_duration_sec)
+      ? 'Prescribed: ' + pc.work_duration_sec + 's work / ' + pc.rest_duration_sec + 's rest'
+        + (pc.target_rounds ? ' × ' + pc.target_rounds : '')
+      : (pc.target_rounds ? 'Prescribed: ' + pc.target_rounds + ' rounds' : null);
     planHtml = '<div class="cond-plan">'
       + '<div class="cond-plan-label">Coach Plan</div>'
       + '<div class="cond-plan-val">' + (pc.modality || '—') + ' · ' + (pc.workout_type || '—') + '</div>'
       + '<div class="cond-plan-sub">' + (pc.target_duration_min ? pc.target_duration_min + ' min' : '') + (hrRange ? ' · HR ' + hrRange : '') + '</div>'
+      + (structure ? '<div class="cond-plan-sub">' + structure + '</div>' : '')
       + (pc.coach_notes ? '<div class="cond-plan-sub" style="color:var(--accent);margin-top:6px">' + pc.coach_notes + '</div>' : '')
       + '</div>';
   }
@@ -128,7 +143,8 @@ function updateCondBlockFields(id) {
     const loadRow = document.getElementById('cond-load-row-' + id);
     if (loadRow) loadRow.style.display = (!isCircuit && COND_LOAD_MODS.includes(mod)) ? '' : 'none';
     // Interval-specific rows per block
-    ['cond-int-rounds-row-' + id, 'cond-int-maxhr-row-' + id].forEach(function(rid) {
+    ['cond-int-work-row-' + id, 'cond-int-rest-row-' + id,
+     'cond-int-rounds-row-' + id, 'cond-int-maxhr-row-' + id].forEach(function(rid) {
       const el = document.getElementById(rid);
       if (el) el.style.display = isIntervals ? '' : 'none';
     });
@@ -147,6 +163,8 @@ function syncCondBlocksFromDOM() {
     const loadEl       = document.getElementById('cond-load-'           + b.id);
     const circDescEl   = document.getElementById('cond-circuit-desc-'   + b.id);
     const circRoundsEl = document.getElementById('cond-circuit-rounds-' + b.id);
+    const intWorkEl    = document.getElementById('cond-int-work-'       + b.id);
+    const intRestEl    = document.getElementById('cond-int-rest-'       + b.id);
     const intRoundsEl  = document.getElementById('cond-int-rounds-'     + b.id);
     const intMaxHREl   = document.getElementById('cond-int-maxhr-'      + b.id);
     if (modEl)        b.modality     = modEl.value;
@@ -160,6 +178,8 @@ function syncCondBlocksFromDOM() {
     if (loadEl)       b.load         = loadEl.value;
     if (circDescEl)   b.circuitDesc   = circDescEl.value;
     if (circRoundsEl) b.circuitRounds = circRoundsEl.value;
+    if (intWorkEl)    b.intWork       = intWorkEl.value;
+    if (intRestEl)    b.intRest       = intRestEl.value;
     if (intRoundsEl)  b.intRounds     = intRoundsEl.value;
     if (intMaxHREl)   b.intMaxHR      = intMaxHREl.value;
   });
@@ -168,7 +188,7 @@ function syncCondBlocksFromDOM() {
 function addCondBlock() {
   syncCondBlocksFromDOM();
   S.condBlockCounter++;
-  S.condBlocks.push({ id: S.condBlockCounter, modality: '', workoutType: '', duration: '', distance: '', distUnit: 'mi', load: '', circuitDesc: '', circuitRounds: '', intRounds: '', intMaxHR: '' });
+  S.condBlocks.push({ id: S.condBlockCounter, modality: '', workoutType: '', duration: '', distance: '', distUnit: 'mi', load: '', circuitDesc: '', circuitRounds: '', intWork: '', intRest: '', intRounds: '', intMaxHR: '' });
   const list = document.getElementById('cond-blocks-list');
   if (list) list.innerHTML = S.condBlocks.map(function(b, i) { return renderCondBlock(b, i, S.condBlocks.length); }).join('');
 }
@@ -197,12 +217,16 @@ function getCondBlockValues() {
       ? ((document.getElementById('cond-circuit-desc-'   + b.id) || {value:''}).value.trim() || null) : null;
     const circuitRounds = isCircuit
       ? (parseInt((document.getElementById('cond-circuit-rounds-' + b.id) || {value:''}).value) || null) : null;
+    const intWork      = isIntervals
+      ? (parseInt((document.getElementById('cond-int-work-' + b.id) || {value:''}).value) || null) : null;
+    const intRest      = isIntervals
+      ? (parseInt((document.getElementById('cond-int-rest-' + b.id) || {value:''}).value) || null) : null;
     const intRounds    = isIntervals
       ? (parseInt((document.getElementById('cond-int-rounds-' + b.id) || {value:''}).value) || null) : null;
     const intMaxHR     = isIntervals
       ? (parseInt((document.getElementById('cond-int-maxhr-' + b.id) || {value:''}).value) || null) : null;
     return { modality: mod, workoutType: isCircuit ? 'Circuit' : (wt || null), duration: dur,
-      distanceMeters: dm, load: load, circuitDesc, circuitRounds, intRounds, intMaxHR };
+      distanceMeters: dm, load: load, circuitDesc, circuitRounds, intWork, intRest, intRounds, intMaxHR };
   }).filter(function(b) { return b.modality; });
 }
 
@@ -236,6 +260,12 @@ function buildCondRows(csId, sv) {
       distance_meters:      isCircuit ? null : b.distanceMeters,
       load_lbs:             isCircuit ? null : b.load,
       intervals_completed:  isCircuit ? b.circuitRounds : (isIntervals ? b.intRounds : null),
+      // These columns have existed on completed_conditioning since the schema was
+      // written and nothing ever populated them, so a prescribed work:rest ratio
+      // could only be contradicted in prose. Populating them is what lets the pull
+      // report diff planned vs actual structure and raise the calibration flag.
+      work_duration_sec:    isIntervals ? b.intWork : null,
+      rest_duration_sec:    isIntervals ? b.intRest : null,
       max_heart_rate:       isIntervals ? b.intMaxHR : null,
       rpe:                  sv.rpe,
       avg_heart_rate:       sv.avgHR,
@@ -295,7 +325,16 @@ async function renderConditioningSessionBody() {
   }
 
   S._editingConditioning = false;
-  S.condBlocks = [{ id: 1, modality: (pc && pc.modality) || '', workoutType: '', duration: '', distance: '', distUnit: 'mi', load: '', circuitDesc: '', circuitRounds: '', intRounds: '', intMaxHR: '' }];
+  // Prefill from the planned block so a compliant session is still Log -> done,
+  // and so a DEVIATION is a quick edit of a number rather than a sentence in a note.
+  S.condBlocks = [{ id: 1,
+    modality:      (pc && pc.modality) || '',
+    workoutType:   (pc && pc.workout_type) || '',
+    duration: '', distance: '', distUnit: 'mi', load: '', circuitDesc: '', circuitRounds: '',
+    intWork:       (pc && pc.work_duration_sec != null) ? String(pc.work_duration_sec) : '',
+    intRest:       (pc && pc.rest_duration_sec != null) ? String(pc.rest_duration_sec) : '',
+    intRounds:     (pc && pc.target_rounds     != null) ? String(pc.target_rounds)     : '',
+    intMaxHR: '' }];
   S.condBlockCounter = 1;
 
   const readinessHtml = await resolveInlineReadinessCard();
@@ -328,6 +367,8 @@ async function editConditioningSession() {
           load:          r.load_lbs != null ? String(r.load_lbs) : '',
           circuitDesc:   isCircuit ? (r.notes || '') : '',
           circuitRounds: isCircuit && r.intervals_completed != null ? String(r.intervals_completed) : '',
+          intWork:       isIntervals && r.work_duration_sec != null ? String(r.work_duration_sec) : '',
+          intRest:       isIntervals && r.rest_duration_sec != null ? String(r.rest_duration_sec) : '',
           intRounds:     isIntervals && r.intervals_completed != null ? String(r.intervals_completed) : '',
           intMaxHR:      isIntervals && r.max_heart_rate     != null ? String(r.max_heart_rate) : '',
         };
