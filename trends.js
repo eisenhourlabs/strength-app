@@ -776,18 +776,31 @@ function renderTrendsReadiness(readiness, weekKeys, weekLabels) {
   return trendSection('readiness', 'Readiness &amp; Recovery', pillHtml + chartHtml);
 }
 
-function condAdaptation(workoutType, modality) {
-  // Derive adaptation zone from workout_type / modality
-  if (!workoutType && !modality) return 'Unknown';
+// Labels for the intensity_domain column (added 2026-09-14). This used to be
+// reverse-engineered from workout_type, which could not work: workout_type is a
+// FORMAT vocabulary and this is an INTENSITY question. It also mis-keyed
+// 'skierge' (the value lowercases to 'skierg'), so SkiErg — along with
+// VersaClimber, Sled and Jump Rope — silently fell through to 'Other'.
+const COND_DOMAIN_LABELS = {
+  Z1_Recovery:      'Z1 Recovery',
+  Z2_Aerobic_Base:  'Z2 Aerobic Base',
+  Z3_Upper_Aerobic: 'Z3 Upper Aerobic',
+  Z4_Threshold:     'Z4 Threshold',
+  Z5_VO2:           'Z5 VO2',
+  Z6_Anaerobic:     'Z6 Anaerobic',
+};
+
+// Legacy fallback for rows logged before the taxonomy existed. Deliberately
+// coarse and deliberately NOT dressed up as a real reading — a row with no
+// intensity_domain is unclassified, not secretly known.
+function condAdaptation(workoutType, modality, intensityDomain) {
+  if (intensityDomain) return COND_DOMAIN_LABELS[intensityDomain] || intensityDomain;
   const wt = (workoutType || '').toLowerCase();
-  const mo = (modality || '').toLowerCase();
-  if (wt === 'intervals') return 'Anaerobic / Mixed';
-  if (wt === 'circuit' || mo === 'circuit training') return 'Mixed / GPP';
-  if (wt === 'tempo') return 'Threshold';
-  if (wt === 'steady state' || mo === 'run' || mo === 'ruck' || mo === 'walk'
-      || mo === 'rower' || mo === 'skierge' || mo === 'cycling'
-      || mo === 'echo bike' || mo === 'swimming') return 'Aerobic Base';
-  return 'Other';
+  if (wt === 'intervals')   return 'Unclassified (legacy)';
+  if (wt === 'circuit')     return 'Unclassified (legacy)';
+  if (wt === 'tempo')       return 'Unclassified (legacy)';
+  if (wt === 'steady state')return 'Unclassified (legacy)';
+  return 'Unclassified (legacy)';
 }
 
 function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
@@ -880,7 +893,7 @@ function buildConditioningBreakdown(conditioning, weekKeys, period) {
   // ── Adaptation breakdown ──────────────────────────────────────────────────
   const adaptMap = {};
   recent.forEach(function(row) {
-    const zone = condAdaptation(row.workout_type, row.modality);
+    const zone = condAdaptation(row.workout_type, row.modality, row.intensity_domain);
     adaptMap[zone] = (adaptMap[zone] || 0) + (row.duration_minutes || 1);
   });
   const adaptColors = {
