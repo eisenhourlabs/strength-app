@@ -1,5 +1,71 @@
 // ── Conditioning-only session ─────────────────────────────────────────────────
 const COND_MODALITIES = ['Echo Bike','SkiErg','Rower','Run','Ruck','Walk','Cycling','Sled','Jump Rope','Versaclimber','Swimming','Circuit Training','Other'];
+
+// ── Conditioning taxonomy ────────────────────────────────────────────────────
+// Three INDEPENDENT axes. workout_type above is a FORMAT vocabulary; coaching
+// reasons in INTENSITY DOMAINS, and the two are not the same question. The case
+// that broke the old single field: a run-walk held at Zone 2 is Intervals
+// STRUCTURE at Z2 INTENSITY, and "Intervals" alone implied hard while "Steady
+// State" alone implied continuous.
+// MIRRORS 05_Scripts/conditioning_enums.json and the SQL CHECK constraints in
+// 05_Scripts/sql/2026-09-14_conditioning_taxonomy.sql — change all three together.
+const COND_INTENSITY = [
+  ['Z1_Recovery',      'Z1 · Recovery — easy, restorative'],
+  ['Z2_Aerobic_Base',  'Z2 · Aerobic base — conversational, under AeT'],
+  ['Z3_Upper_Aerobic', 'Z3 · Upper aerobic — at or just over AeT'],
+  ['Z4_Threshold',     'Z4 · Threshold — hard but sustainable'],
+  ['Z5_VO2',           'Z5 · VO2 — hard, repeatable 3–8 min'],
+  ['Z6_Anaerobic',     'Z6 · Anaerobic — short and maximal'],
+];
+const COND_STRUCTURE = [
+  ['Continuous', 'Continuous — one unbroken effort'],
+  ['Intervals',  'Intervals — timed work and rest'],
+  ['Repeats',    'Repeats — the trip back is the recovery (hills, stairs, descents)'],
+  ['Fartlek',    'Fartlek — surges inside a continuous session'],
+  ['Circuit',    'Circuit — mixed-modal rounds'],
+];
+const COND_PURPOSE = [
+  ['Aerobic_Development', 'Aerobic development'],
+  ['Recovery',            'Recovery / flush'],
+  ['Work_Capacity',       'Work capacity / GPP'],
+  ['Event_Specific',      'Event specific'],
+  ['Durability',          'Durability — tissue, judged on next-day response'],
+  ['Benchmark',           'Benchmark / test — excluded from volume totals'],
+  ['Rehab_Support',       'Rehab support'],
+];
+const COND_LEGACY_MAP = {
+  'Steady State': ['Z2_Aerobic_Base', 'Continuous', 'Aerobic_Development'],
+  'Tempo':        ['Z4_Threshold',    'Continuous', 'Aerobic_Development'],
+  'Intervals':    ['Z5_VO2',          'Intervals',  'Work_Capacity'],
+  'Circuit':      ['Z5_VO2',          'Circuit',    'Work_Capacity'],
+};
+const COND_IMPACT_BY_MODALITY = {
+  'Run': 'High_Eccentric',
+  'Ruck': 'Moderate', 'Sled': 'Moderate', 'Jump Rope': 'Moderate',
+  'Circuit Training': 'Moderate',
+};
+
+function condDomainLabel(v) {
+  const row = COND_INTENSITY.find(function(x) { return x[0] === v; });
+  return row ? row[1].split(' — ')[0] : (v || '—');
+}
+function condShortLabel(list, v) {
+  const row = list.find(function(x) { return x[0] === v; });
+  return row ? row[1].split(' — ')[0] : (v || '—');
+}
+
+// Defaults for a block: the coach's prescription if there is one, else the same
+// mechanical map the SQL backfill uses. Derived values are marked as such when
+// saved — they are a guess from the format field, not an observation.
+function condTaxonomyDefaults(workoutType, modality, pc) {
+  const legacy = COND_LEGACY_MAP[workoutType] || [null, null, null];
+  return {
+    intensityDomain:  (pc && pc.intensity_domain)  || legacy[0] || '',
+    sessionStructure: (pc && pc.session_structure) || legacy[1] || '',
+    sessionPurpose:   (pc && pc.session_purpose)   || legacy[2] || '',
+    impactLoad:       (pc && pc.impact_load)       || COND_IMPACT_BY_MODALITY[modality] || 'Low',
+  };
+}
 const COND_LOAD_MODS  = ['Ruck','Sled'];
 const COND_DIST_CONV  = { mi: 1609.34, km: 1000, m: 1, ft: 0.3048 };
 
@@ -66,6 +132,32 @@ function renderCondBlock(b, idx, total) {
     + '<label>Total time (min)</label>'
     + '<input type="number" inputmode="decimal" id="cond-circuit-dur-' + b.id + '" placeholder="—" value="' + (b.duration || '') + '"></div>';
 
+  // Taxonomy: collapsed to a one-line summary so a session that matches the
+  // prescription is still Log -> done. It only costs taps when you are deviating,
+  // which is exactly when the detail is worth recording.
+  const sel = function(id, list, cur) {
+    return '<select id="' + id + '" onchange="markCondTaxonomyEdited(' + b.id + ')">'
+      + list.map(function(o) {
+          return '<option value="' + o[0] + '"' + (cur === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
+        }).join('')
+      + '</select>';
+  };
+  const summary = condShortLabel(COND_INTENSITY, b.intensityDomain) + ' · '
+                + condShortLabel(COND_STRUCTURE, b.sessionStructure) + ' · '
+                + condShortLabel(COND_PURPOSE,   b.sessionPurpose);
+  const taxFields = '<div class="form-field wide cond-tax-wrap">'
+    + '<button type="button" class="cond-tax-toggle" id="cond-tax-btn-' + b.id + '"'
+    + ' onclick="toggleCondTaxonomy(' + b.id + ')"'
+    + ' style="width:100%;text-align:left;background:none;border:1px dashed var(--border,#ccc);'
+    + 'border-radius:6px;padding:8px 10px;font-size:13px;color:var(--muted,#666)">'
+    + '<span id="cond-tax-summary-' + b.id + '">' + summary + '</span>'
+    + '<span style="float:right">▾</span></button>'
+    + '<div id="cond-tax-body-' + b.id + '" style="display:none;margin-top:8px">'
+    + '<div class="form-field"><label>Intensity</label>'   + sel('cond-dom-' + b.id, COND_INTENSITY, b.intensityDomain)  + '</div>'
+    + '<div class="form-field"><label>Structure</label>'   + sel('cond-str-' + b.id, COND_STRUCTURE, b.sessionStructure) + '</div>'
+    + '<div class="form-field"><label>Purpose</label>'     + sel('cond-pur-' + b.id, COND_PURPOSE,   b.sessionPurpose)   + '</div>'
+    + '</div></div>';
+
   return '<div class="cond-block" id="cond-block-' + b.id + '">'
     + '<div class="cond-block-hdr"><span class="cond-block-num">Block ' + (idx + 1) + '</span>' + removeBtn + '</div>'
     + '<div class="form-grid">'
@@ -75,6 +167,7 @@ function renderCondBlock(b, idx, total) {
     + stdFields
     + intFields
     + circuitFields
+    + taxFields
     + '</div></div>';
 }
 
@@ -123,6 +216,34 @@ function renderCondFormHtml(pc) {
   return renderCondBlocksHtml() + renderCondSessionFields(pc);
 }
 
+function toggleCondTaxonomy(id) {
+  const body = document.getElementById('cond-tax-body-' + id);
+  if (body) body.style.display = (body.style.display === 'none') ? '' : 'none';
+}
+
+// Provenance matters: a value the athlete actually chose is evidence, a value
+// carried over from the plan is the coach's intent, and a value derived from
+// workout_type is neither. The pull report labels them differently.
+function markCondTaxonomyEdited(id) {
+  const b = S.condBlocks.find(function(x) { return x.id === id; });
+  if (!b) return;
+  b.taxonomyEdited = true;
+  syncCondTaxonomyFromDOM(b);
+  const sm = document.getElementById('cond-tax-summary-' + id);
+  if (sm) sm.textContent = condShortLabel(COND_INTENSITY, b.intensityDomain) + ' · '
+                         + condShortLabel(COND_STRUCTURE, b.sessionStructure) + ' · '
+                         + condShortLabel(COND_PURPOSE,   b.sessionPurpose);
+}
+
+function syncCondTaxonomyFromDOM(b) {
+  const d = document.getElementById('cond-dom-' + b.id);
+  const s = document.getElementById('cond-str-' + b.id);
+  const u = document.getElementById('cond-pur-' + b.id);
+  if (d) b.intensityDomain  = d.value;
+  if (s) b.sessionStructure = s.value;
+  if (u) b.sessionPurpose   = u.value;
+}
+
 function updateCondBlockFields(id) {
   const modEl = document.getElementById('cond-mod-' + id);
   const wtEl  = document.getElementById('cond-wt-'  + id);
@@ -150,7 +271,22 @@ function updateCondBlockFields(id) {
     });
   }
   const b = S.condBlocks.find(function(x) { return x.id === id; });
-  if (b) { b.modality = mod; b.workoutType = wt; }
+  if (b) {
+    b.modality = mod; b.workoutType = wt;
+    // Re-derive from the new format/modality — but never overwrite a choice the
+    // athlete made by hand.
+    if (!b.taxonomyEdited) {
+      const d = condTaxonomyDefaults(isCircuit ? 'Circuit' : wt, mod, S.plannedConditioning);
+      b.intensityDomain  = d.intensityDomain;
+      b.sessionStructure = d.sessionStructure;
+      b.sessionPurpose   = d.sessionPurpose;
+      b.impactLoad       = d.impactLoad;
+      const list = document.getElementById('cond-blocks-list');
+      if (list) list.innerHTML = S.condBlocks.map(function(x, i) {
+        return renderCondBlock(x, i, S.condBlocks.length);
+      }).join('');
+    }
+  }
 }
 
 function syncCondBlocksFromDOM() {
@@ -178,6 +314,7 @@ function syncCondBlocksFromDOM() {
     if (loadEl)       b.load         = loadEl.value;
     if (circDescEl)   b.circuitDesc   = circDescEl.value;
     if (circRoundsEl) b.circuitRounds = circRoundsEl.value;
+    syncCondTaxonomyFromDOM(b);
     if (intWorkEl)    b.intWork       = intWorkEl.value;
     if (intRestEl)    b.intRest       = intRestEl.value;
     if (intRoundsEl)  b.intRounds     = intRoundsEl.value;
@@ -188,7 +325,10 @@ function syncCondBlocksFromDOM() {
 function addCondBlock() {
   syncCondBlocksFromDOM();
   S.condBlockCounter++;
-  S.condBlocks.push({ id: S.condBlockCounter, modality: '', workoutType: '', duration: '', distance: '', distUnit: 'mi', load: '', circuitDesc: '', circuitRounds: '', intWork: '', intRest: '', intRounds: '', intMaxHR: '' });
+  S.condBlocks.push(Object.assign({ id: S.condBlockCounter, modality: '', workoutType: '', duration: '',
+    distance: '', distUnit: 'mi', load: '', circuitDesc: '', circuitRounds: '',
+    intWork: '', intRest: '', intRounds: '', intMaxHR: '', taxonomyEdited: false },
+    condTaxonomyDefaults('', '', null)));
   const list = document.getElementById('cond-blocks-list');
   if (list) list.innerHTML = S.condBlocks.map(function(b, i) { return renderCondBlock(b, i, S.condBlocks.length); }).join('');
 }
@@ -225,8 +365,16 @@ function getCondBlockValues() {
       ? (parseInt((document.getElementById('cond-int-rounds-' + b.id) || {value:''}).value) || null) : null;
     const intMaxHR     = isIntervals
       ? (parseInt((document.getElementById('cond-int-maxhr-' + b.id) || {value:''}).value) || null) : null;
+    const domEl = document.getElementById('cond-dom-' + b.id);
+    const strEl = document.getElementById('cond-str-' + b.id);
+    const purEl = document.getElementById('cond-pur-' + b.id);
     return { modality: mod, workoutType: isCircuit ? 'Circuit' : (wt || null), duration: dur,
-      distanceMeters: dm, load: load, circuitDesc, circuitRounds, intWork, intRest, intRounds, intMaxHR };
+      distanceMeters: dm, load: load, circuitDesc, circuitRounds, intWork, intRest, intRounds, intMaxHR,
+      intensityDomain:  domEl ? domEl.value : b.intensityDomain,
+      sessionStructure: strEl ? strEl.value : b.sessionStructure,
+      sessionPurpose:   purEl ? purEl.value : b.sessionPurpose,
+      impactLoad:       b.impactLoad || COND_IMPACT_BY_MODALITY[mod] || 'Low',
+      taxonomyEdited:   !!b.taxonomyEdited };
   }).filter(function(b) { return b.modality; });
 }
 
@@ -267,6 +415,17 @@ function buildCondRows(csId, sv) {
       work_duration_sec:    isIntervals ? b.intWork : null,
       rest_duration_sec:    isIntervals ? b.intRest : null,
       max_heart_rate:       isIntervals ? b.intMaxHR : null,
+      intensity_domain:     b.intensityDomain  || null,
+      session_structure:    b.sessionStructure || null,
+      session_purpose:      b.sessionPurpose   || null,
+      impact_load:          b.impactLoad       || null,
+      // Provenance, and it is deliberately not flattering: 'athlete' only when
+      // they opened the panel and chose; 'coach' when it came from the
+      // prescription untouched; 'backfill' when it is the same mechanical guess
+      // from workout_type that the SQL backfill makes. The pull report labels
+      // the last of those provisional rather than treating it as observed.
+      taxonomy_source:      b.taxonomyEdited ? 'athlete'
+                             : (S.plannedConditioning ? 'coach' : 'backfill'),
       rpe:                  sv.rpe,
       avg_heart_rate:       sv.avgHR,
       notes:                notesVal,
@@ -334,7 +493,9 @@ async function renderConditioningSessionBody() {
     intWork:       (pc && pc.work_duration_sec != null) ? String(pc.work_duration_sec) : '',
     intRest:       (pc && pc.rest_duration_sec != null) ? String(pc.rest_duration_sec) : '',
     intRounds:     (pc && pc.target_rounds     != null) ? String(pc.target_rounds)     : '',
-    intMaxHR: '' }];
+    intMaxHR: '',
+    taxonomyEdited: false,
+    ...condTaxonomyDefaults((pc && pc.workout_type) || '', (pc && pc.modality) || '', pc) }];
   S.condBlockCounter = 1;
 
   const readinessHtml = await resolveInlineReadinessCard();
@@ -371,11 +532,19 @@ async function editConditioningSession() {
           intRest:       isIntervals && r.rest_duration_sec != null ? String(r.rest_duration_sec) : '',
           intRounds:     isIntervals && r.intervals_completed != null ? String(r.intervals_completed) : '',
           intMaxHR:      isIntervals && r.max_heart_rate     != null ? String(r.max_heart_rate) : '',
+          intensityDomain:  r.intensity_domain  || '',
+          sessionStructure: r.session_structure || '',
+          sessionPurpose:   r.session_purpose   || '',
+          impactLoad:       r.impact_load       || 'Low',
+          taxonomyEdited:   r.taxonomy_source === 'athlete',
         };
       });
       S.condBlockCounter = rows.length;
     } else {
-      S.condBlocks = [{ id: 1, modality: '', duration: '', distance: '', distUnit: 'mi', load: '', circuitDesc: '', circuitRounds: '' }];
+      S.condBlocks = [Object.assign({ id: 1, modality: '', workoutType: '', duration: '', distance: '',
+        distUnit: 'mi', load: '', circuitDesc: '', circuitRounds: '',
+        intWork: '', intRest: '', intRounds: '', intMaxHR: '', taxonomyEdited: false },
+        condTaxonomyDefaults('', '', null))];
       S.condBlockCounter = 1;
     }
     S._editingConditioning = true;

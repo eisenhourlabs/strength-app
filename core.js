@@ -464,6 +464,12 @@ async function syncQueue() {
               work_duration_sec:    isIntervals2 ? (b.intWork || null) : null,
               rest_duration_sec:    isIntervals2 ? (b.intRest || null) : null,
               max_heart_rate:       isIntervals2 ? (b.intMaxHR || null) : null,
+              intensity_domain:     b.intensityDomain  || null,
+              session_structure:    b.sessionStructure || null,
+              session_purpose:      b.sessionPurpose   || null,
+              impact_load:          b.impactLoad       || null,
+              taxonomy_source:      b.taxonomyEdited ? 'athlete'
+                                     : (p.isPlanned ? 'coach' : 'backfill'),
               avg_heart_rate:       p.session.avg_heart_rate || null,
               rpe:                  p.session.overall_rpe    || null,
               notes:                notesVal2,
@@ -503,6 +509,13 @@ async function syncQueue() {
               work_duration_sec:    isIntervals3 ? (b.intWork || null) : null,
               rest_duration_sec:    isIntervals3 ? (b.intRest || null) : null,
               max_heart_rate:       isIntervals3 ? (b.intMaxHR || null) : null,
+              intensity_domain:     b.intensityDomain  || null,
+              session_structure:    b.sessionStructure || null,
+              session_purpose:      b.sessionPurpose   || null,
+              impact_load:          b.impactLoad       || null,
+              // Standalone log: no prescription to inherit from, so an unedited
+              // value is the mechanical guess, not the coach's intent.
+              taxonomy_source:      b.taxonomyEdited ? 'athlete' : 'backfill',
               avg_heart_rate:       p.avg_heart_rate || null,
               rpe:                  p.overall_rpe    || null,
               notes:                notesVal3,
