@@ -22,6 +22,21 @@ const AUTH_LINK = (() => {
 })();
 
 // Reliable connectivity probe — navigator.onLine lies on mobile (especially iOS)
+// Mirrors deriveWorkoutType() in 06_App/conditioning.js. Kept here because this
+// file has its own conditioning row builders for the offline replay queue, and
+// the two must agree or an offline-logged session lands with a different
+// workout_type than the same session logged online.
+function deriveLegacyWorkoutType(b, isCircuit) {
+  if (isCircuit || b.sessionStructure === 'Circuit') return 'Circuit';
+  if (b.sessionStructure === 'Intervals'
+      || b.sessionStructure === 'Repeats'
+      || b.sessionStructure === 'Fartlek') return 'Intervals';
+  if (b.sessionStructure === 'Continuous') {
+    return b.intensityDomain === 'Z4_Threshold' ? 'Tempo' : 'Steady State';
+  }
+  return 'Steady State';
+}
+
 async function checkOnline() {
   if (!navigator.onLine) return false;
   try {
@@ -452,7 +467,9 @@ async function syncQueue() {
               conditioning_system:  p.session.conditioning_system || null,
               conditioning_phase:   p.session.conditioning_phase  || null,
               modality:             b.modality,
-              workout_type:         isCircuit2 ? 'Circuit' : (b.workoutType || null),
+              // conditioning.js derives workout_type from structure; trust that, and
+              // fall back to the same rule rather than re-deciding from modality.
+              workout_type:         b.workoutType || deriveLegacyWorkoutType(b, isCircuit2),
               is_planned:           !!p.isPlanned,
               duration_minutes:     b.duration       || null,
               distance_meters:      isCircuit2 ? null : (b.distanceMeters || null),
@@ -497,7 +514,9 @@ async function syncQueue() {
               conditioning_date:    p.conditioning_date,
               week_of:              p.week_of,
               modality:             b.modality,
-              workout_type:         isCircuit3 ? 'Circuit' : (b.workoutType || null),
+              // conditioning.js derives workout_type from structure; trust that, and
+              // fall back to the same rule rather than re-deciding from modality.
+              workout_type:         b.workoutType || deriveLegacyWorkoutType(b, isCircuit3),
               is_planned:           false,
               duration_minutes:     b.duration       || null,
               distance_meters:      isCircuit3 ? null : (b.distanceMeters || null),

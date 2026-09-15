@@ -57,6 +57,17 @@ function condShortLabel(list, v) {
 // Defaults for a block: the coach's prescription if there is one, else the same
 // mechanical map the SQL backfill uses. Derived values are marked as such when
 // saved — they are a guess from the format field, not an observation.
+// The legacy workout_type column is no longer set by the athlete — it is derived
+// from structure and intensity so that history.js and conditioning_summary_view,
+// which still read it, keep working. Direction of truth is structure -> type;
+// never the reverse, or we are back to a format field deciding intensity.
+function deriveWorkoutType(structure, intensity, modality) {
+  if (modality === 'Circuit Training' || structure === 'Circuit') return 'Circuit';
+  if (structure === 'Intervals' || structure === 'Repeats' || structure === 'Fartlek') return 'Intervals';
+  if (structure === 'Continuous') return intensity === 'Z4_Threshold' ? 'Tempo' : 'Steady State';
+  return 'Steady State';
+}
+
 function condTaxonomyDefaults(workoutType, modality, pc) {
   const legacy = COND_LEGACY_MAP[workoutType] || [null, null, null];
   return {
@@ -70,58 +81,79 @@ const COND_LOAD_MODS  = ['Ruck','Sled'];
 const COND_DIST_CONV  = { mi: 1609.34, km: 1000, m: 1, ft: 0.3048 };
 
 function renderCondBlock(b, idx, total) {
+  // STRUCTURE drives this form, not the legacy workout_type field.
+  //
+  // Until 2026-09-15 the form had a "Type" dropdown (Steady State / Intervals /
+  // Tempo) gating every input, and the new taxonomy sat beside it doing nothing:
+  // two dropdowns both saying "Intervals" where only one had any effect. Type is
+  // gone from the UI now and workout_type is DERIVED on save, purely so older
+  // code that reads it (history.js, conditioning_summary_view) keeps working.
   const modOpts = ['<option value="">Select modality…</option>']
     .concat(COND_MODALITIES.map(function(m) { return '<option value="' + m + '"' + (b.modality === m ? ' selected' : '') + '>' + m + '</option>'; }))
     .join('');
   const showLoad    = COND_LOAD_MODS.includes(b.modality);
-  const isCircuit   = b.modality === 'Circuit Training';
-  const isIntervals = !isCircuit && b.workoutType === 'Intervals';
+  const isCircuit   = b.modality === 'Circuit Training' || b.sessionStructure === 'Circuit';
+  const isIntervals = !isCircuit && b.sessionStructure === 'Intervals';
+  const isRepeats   = !isCircuit && b.sessionStructure === 'Repeats';
+  const hasRounds   = isIntervals || isRepeats;
   const removeBtn   = total > 1
     ? '<button class="sess-del-btn" onclick="removeCondBlock(' + b.id + ')" style="margin-left:auto" title="Remove">&#x2715;</button>'
     : '';
 
-  // Workout type selector (hidden for circuit — auto Circuit)
-  const wtOpts = ['Steady State','Intervals','Tempo'].map(function(t) {
-    return '<option value="' + t + '"' + (b.workoutType === t ? ' selected' : '') + '>' + t + '</option>';
-  }).join('');
-  const wtField = isCircuit ? '' :
-    '<div class="form-field"><label>Type</label>'
-    + '<select id="cond-wt-' + b.id + '" onchange="updateCondBlockFields(' + b.id + ')">'
-    + '<option value="">Select…</option>' + wtOpts + '</select></div>';
+  const sel = function(id, list, cur, handler) {
+    return '<select id="' + id + '" onchange="' + handler + '">'
+      + list.map(function(o) {
+          return '<option value="' + o[0] + '"' + (cur === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
+        }).join('')
+      + '</select>';
+  };
 
-  // Interval-specific fields per block
-  const intFields = '<div class="form-field" id="cond-int-work-row-' + b.id + '" style="' + (isIntervals ? '' : 'display:none') + '">'
-    + '<label>Work (sec)</label>'
-    + '<input type="number" inputmode="numeric" id="cond-int-work-' + b.id + '" placeholder="—" value="' + (b.intWork || '') + '"></div>'
-    + '<div class="form-field" id="cond-int-rest-row-' + b.id + '" style="' + (isIntervals ? '' : 'display:none') + '">'
-    + '<label>Rest (sec)</label>'
-    + '<input type="number" inputmode="numeric" id="cond-int-rest-' + b.id + '" placeholder="—" value="' + (b.intRest || '') + '"></div>'
-    + '<div class="form-field" id="cond-int-rounds-row-' + b.id + '" style="' + (isIntervals ? '' : 'display:none') + '">'
-    + '<label>Rounds completed</label>'
-    + '<input type="number" inputmode="numeric" id="cond-int-rounds-' + b.id + '" placeholder="—" value="' + (b.intRounds || '') + '"></div>'
-    + '<div class="form-field" id="cond-int-maxhr-row-' + b.id + '" style="' + (isIntervals ? '' : 'display:none') + '">'
-    + '<label>Max HR (bpm)</label>'
-    + '<input type="number" inputmode="numeric" id="cond-int-maxhr-' + b.id + '" placeholder="—" value="' + (b.intMaxHR || '') + '"></div>';
+  // ── Primary: what, how hard, how organised ────────────────────────────────
+  // Intensity is first among equals: weekly volume is aggregated by it, so
+  // "Z2 minutes per week" is only as good as this field.
+  const primary = '<div class="form-field wide"><label>Modality</label>'
+    + '<select id="cond-mod-' + b.id + '" onchange="updateCondBlockFields(' + b.id + ')">' + modOpts + '</select></div>'
+    + '<div class="form-field wide"><label>Intensity</label>'
+    + sel('cond-dom-' + b.id, COND_INTENSITY, b.intensityDomain, 'markCondTaxonomyEdited(' + b.id + ')') + '</div>'
+    + '<div class="form-field wide"><label>Structure</label>'
+    + sel('cond-str-' + b.id, COND_STRUCTURE, b.sessionStructure, 'updateCondBlockFields(' + b.id + ')') + '</div>';
 
-  // Standard modality fields (hidden for circuit)
-  const stdFields = '<div class="form-field' + (isCircuit ? ' cond-std-fields" style="display:none' : ' cond-std-fields') + '">'
+  // ── Dose fields, chosen by structure ──────────────────────────────────────
+  const durField = '<div class="form-field cond-std-fields" style="' + (isCircuit ? 'display:none' : '') + '">'
     + '<label>Duration (min)</label>'
-    + '<input type="number" inputmode="decimal" id="cond-dur-' + b.id + '" placeholder="—" value="' + (b.duration || '') + '"></div>'
-    + '<div class="form-field cond-std-fields' + (isCircuit ? '" style="display:none' : '') + '">'
-    + '<label>Distance</label>'
-    + '<div class="dist-row">'
+    + '<input type="number" inputmode="decimal" id="cond-dur-' + b.id + '" placeholder="—" value="' + (b.duration || '') + '"></div>';
+
+  const distField = '<div class="form-field cond-std-fields" id="cond-dist-row-' + b.id + '" style="' + ((isCircuit || hasRounds) ? 'display:none' : '') + '">'
+    + '<label>Distance</label><div class="dist-row">'
     + '<input type="number" inputmode="decimal" id="cond-dist-' + b.id + '" placeholder="—" value="' + (b.distance || '') + '">'
     + '<select id="cond-dunit-' + b.id + '">'
     + '<option value="mi"' + (b.distUnit === 'mi' ? ' selected' : '') + '>mi</option>'
     + '<option value="km"' + (b.distUnit === 'km' ? ' selected' : '') + '>km</option>'
     + '<option value="m"'  + (b.distUnit === 'm'  ? ' selected' : '') + '>m</option>'
     + '<option value="ft"' + (b.distUnit === 'ft' ? ' selected' : '') + '>ft</option>'
-    + '</select></div></div>'
-    + '<div class="form-field cond-std-fields" id="cond-load-row-' + b.id + '" style="' + (showLoad && !isCircuit ? '' : 'display:none') + '">'
+    + '</select></div></div>';
+
+  const loadField = '<div class="form-field cond-std-fields" id="cond-load-row-' + b.id + '" style="' + (showLoad && !isCircuit ? '' : 'display:none') + '">'
     + '<label>Load (lb)</label>'
     + '<input type="number" inputmode="decimal" id="cond-load-' + b.id + '" placeholder="—" value="' + (b.load || '') + '"></div>';
 
-  // Circuit-specific fields
+  // Intervals: seconds are the dose. Repeats: reps are the dose and the trip
+  // back is the recovery, so work/rest are optional rather than required.
+  const workRest = '<div class="form-field" id="cond-int-work-row-' + b.id + '" style="' + (isIntervals ? '' : 'display:none') + '">'
+    + '<label>Work (sec)</label>'
+    + '<input type="number" inputmode="numeric" id="cond-int-work-' + b.id + '" placeholder="—" value="' + (b.intWork || '') + '"></div>'
+    + '<div class="form-field" id="cond-int-rest-row-' + b.id + '" style="' + (isIntervals ? '' : 'display:none') + '">'
+    + '<label>Rest (sec)</label>'
+    + '<input type="number" inputmode="numeric" id="cond-int-rest-' + b.id + '" placeholder="—" value="' + (b.intRest || '') + '"></div>';
+
+  const roundsField = '<div class="form-field" id="cond-int-rounds-row-' + b.id + '" style="' + (hasRounds ? '' : 'display:none') + '">'
+    + '<label>' + (isRepeats ? 'Reps completed' : 'Rounds completed') + '</label>'
+    + '<input type="number" inputmode="numeric" id="cond-int-rounds-' + b.id + '" placeholder="—" value="' + (b.intRounds || '') + '"></div>';
+
+  const maxHrField = '<div class="form-field" id="cond-int-maxhr-row-' + b.id + '" style="' + (hasRounds ? '' : 'display:none') + '">'
+    + '<label>Max HR (bpm)</label>'
+    + '<input type="number" inputmode="numeric" id="cond-int-maxhr-' + b.id + '" placeholder="—" value="' + (b.intMaxHR || '') + '"></div>';
+
   const circuitFields = '<div class="form-field wide cond-circuit-fields" style="' + (isCircuit ? '' : 'display:none') + '">'
     + '<label>Describe the circuit (exercises, reps, format…)</label>'
     + '<textarea class="circuit-desc" id="cond-circuit-desc-' + b.id + '" placeholder="e.g. AMRAP 20min: 10 pull-ups, 15 push-ups, 20 air squats…">' + (b.circuitDesc || '') + '</textarea></div>'
@@ -132,42 +164,28 @@ function renderCondBlock(b, idx, total) {
     + '<label>Total time (min)</label>'
     + '<input type="number" inputmode="decimal" id="cond-circuit-dur-' + b.id + '" placeholder="—" value="' + (b.duration || '') + '"></div>';
 
-  // Taxonomy: collapsed to a one-line summary so a session that matches the
-  // prescription is still Log -> done. It only costs taps when you are deviating,
-  // which is exactly when the detail is worth recording.
-  const sel = function(id, list, cur) {
-    return '<select id="' + id + '" onchange="markCondTaxonomyEdited(' + b.id + ')">'
-      + list.map(function(o) {
-          return '<option value="' + o[0] + '"' + (cur === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
-        }).join('')
-      + '</select>';
-  };
-  const summary = condShortLabel(COND_INTENSITY, b.intensityDomain) + ' · '
-                + condShortLabel(COND_STRUCTURE, b.sessionStructure) + ' · '
-                + condShortLabel(COND_PURPOSE,   b.sessionPurpose);
-  const taxFields = '<div class="form-field wide cond-tax-wrap">'
-    + '<button type="button" class="cond-tax-toggle" id="cond-tax-btn-' + b.id + '"'
-    + ' onclick="toggleCondTaxonomy(' + b.id + ')"'
+  // ── Secondary: purpose. Almost always whatever the plan said; it matters at
+  // the edges (Benchmark is excluded from volume totals, Durability is judged
+  // on the next-day tissue response rather than heart rate).
+  const purposeBlock = '<div class="form-field wide cond-tax-wrap">'
+    + '<button type="button" id="cond-tax-btn-' + b.id + '" onclick="toggleCondTaxonomy(' + b.id + ')"'
     + ' style="width:100%;text-align:left;background:none;border:1px dashed var(--border,#ccc);'
     + 'border-radius:6px;padding:8px 10px;font-size:13px;color:var(--muted,#666)">'
-    + '<span id="cond-tax-summary-' + b.id + '">' + summary + '</span>'
+    + 'Purpose: <span id="cond-tax-summary-' + b.id + '">' + condShortLabel(COND_PURPOSE, b.sessionPurpose) + '</span>'
     + '<span style="float:right">▾</span></button>'
     + '<div id="cond-tax-body-' + b.id + '" style="display:none;margin-top:8px">'
-    + '<div class="form-field"><label>Intensity</label>'   + sel('cond-dom-' + b.id, COND_INTENSITY, b.intensityDomain)  + '</div>'
-    + '<div class="form-field"><label>Structure</label>'   + sel('cond-str-' + b.id, COND_STRUCTURE, b.sessionStructure) + '</div>'
-    + '<div class="form-field"><label>Purpose</label>'     + sel('cond-pur-' + b.id, COND_PURPOSE,   b.sessionPurpose)   + '</div>'
+    + '<div class="form-field wide">'
+    + sel('cond-pur-' + b.id, COND_PURPOSE, b.sessionPurpose, 'markCondTaxonomyEdited(' + b.id + ')') + '</div>'
     + '</div></div>';
 
   return '<div class="cond-block" id="cond-block-' + b.id + '">'
     + '<div class="cond-block-hdr"><span class="cond-block-num">Block ' + (idx + 1) + '</span>' + removeBtn + '</div>'
     + '<div class="form-grid">'
-    + '<div class="form-field wide"><label>Modality</label>'
-    + '<select id="cond-mod-' + b.id + '" onchange="updateCondBlockFields(' + b.id + ')">' + modOpts + '</select></div>'
-    + wtField
-    + stdFields
-    + intFields
+    + primary
+    + durField + distField + loadField
+    + workRest + roundsField + maxHrField
     + circuitFields
-    + taxFields
+    + purposeBlock
     + '</div></div>';
 }
 
@@ -229,10 +247,9 @@ function markCondTaxonomyEdited(id) {
   if (!b) return;
   b.taxonomyEdited = true;
   syncCondTaxonomyFromDOM(b);
+  b.workoutType = deriveWorkoutType(b.sessionStructure, b.intensityDomain, b.modality);
   const sm = document.getElementById('cond-tax-summary-' + id);
-  if (sm) sm.textContent = condShortLabel(COND_INTENSITY, b.intensityDomain) + ' · '
-                         + condShortLabel(COND_STRUCTURE, b.sessionStructure) + ' · '
-                         + condShortLabel(COND_PURPOSE,   b.sessionPurpose);
+  if (sm) sm.textContent = condShortLabel(COND_PURPOSE, b.sessionPurpose);
 }
 
 function syncCondTaxonomyFromDOM(b) {
@@ -245,54 +262,36 @@ function syncCondTaxonomyFromDOM(b) {
 }
 
 function updateCondBlockFields(id) {
-  const modEl = document.getElementById('cond-mod-' + id);
-  const wtEl  = document.getElementById('cond-wt-'  + id);
-  const mod   = modEl ? modEl.value : '';
-  const wt    = wtEl  ? wtEl.value  : '';
-  const isCircuit   = mod === 'Circuit Training';
-  const isIntervals = !isCircuit && wt === 'Intervals';
-  // Toggle standard vs circuit field sets
-  const block = document.getElementById('cond-block-' + id);
-  if (block) {
-    block.querySelectorAll('.cond-std-fields').forEach(function(el) {
-      el.style.display = isCircuit ? 'none' : '';
-    });
-    block.querySelectorAll('.cond-circuit-fields').forEach(function(el) {
-      el.style.display = isCircuit ? '' : 'none';
-    });
-    // Load row visibility within standard fields
-    const loadRow = document.getElementById('cond-load-row-' + id);
-    if (loadRow) loadRow.style.display = (!isCircuit && COND_LOAD_MODS.includes(mod)) ? '' : 'none';
-    // Interval-specific rows per block
-    ['cond-int-work-row-' + id, 'cond-int-rest-row-' + id,
-     'cond-int-rounds-row-' + id, 'cond-int-maxhr-row-' + id].forEach(function(rid) {
-      const el = document.getElementById(rid);
-      if (el) el.style.display = isIntervals ? '' : 'none';
-    });
-  }
   const b = S.condBlocks.find(function(x) { return x.id === id; });
-  if (b) {
-    b.modality = mod; b.workoutType = wt;
-    // Re-derive from the new format/modality — but never overwrite a choice the
-    // athlete made by hand.
-    if (!b.taxonomyEdited) {
-      const d = condTaxonomyDefaults(isCircuit ? 'Circuit' : wt, mod, S.plannedConditioning);
-      b.intensityDomain  = d.intensityDomain;
-      b.sessionStructure = d.sessionStructure;
-      b.sessionPurpose   = d.sessionPurpose;
-      b.impactLoad       = d.impactLoad;
-      const list = document.getElementById('cond-blocks-list');
-      if (list) list.innerHTML = S.condBlocks.map(function(x, i) {
-        return renderCondBlock(x, i, S.condBlocks.length);
-      }).join('');
-    }
+  if (!b) return;
+  const modEl = document.getElementById('cond-mod-' + id);
+  const strEl = document.getElementById('cond-str-' + id);
+  const domEl = document.getElementById('cond-dom-' + id);
+  if (modEl) b.modality         = modEl.value;
+  if (strEl) b.sessionStructure = strEl.value;
+  if (domEl) b.intensityDomain  = domEl.value;
+
+  // Selecting the Circuit Training modality implies Circuit structure — the two
+  // said the same thing under the old model and users expect that to hold.
+  if (b.modality === 'Circuit Training' && b.sessionStructure !== 'Circuit') {
+    b.sessionStructure = 'Circuit';
   }
+  b.impactLoad = b.impactLoad || COND_IMPACT_BY_MODALITY[b.modality] || 'Low';
+  b.workoutType = deriveWorkoutType(b.sessionStructure, b.intensityDomain, b.modality);
+
+  // Which dose fields apply changed, so re-render this block. Values already in
+  // the DOM were captured above and in syncCondBlocksFromDOM.
+  syncCondBlocksFromDOM();
+  const list = document.getElementById('cond-blocks-list');
+  if (list) list.innerHTML = S.condBlocks.map(function(x, k) {
+    return renderCondBlock(x, k, S.condBlocks.length);
+  }).join('');
 }
 
 function syncCondBlocksFromDOM() {
   S.condBlocks.forEach(function(b) {
     const modEl        = document.getElementById('cond-mod-'            + b.id);
-    const wtEl         = document.getElementById('cond-wt-'             + b.id);
+
     const durEl        = document.getElementById('cond-dur-'            + b.id);
     const distEl       = document.getElementById('cond-dist-'           + b.id);
     const dunitEl      = document.getElementById('cond-dunit-'          + b.id);
@@ -304,7 +303,7 @@ function syncCondBlocksFromDOM() {
     const intRoundsEl  = document.getElementById('cond-int-rounds-'     + b.id);
     const intMaxHREl   = document.getElementById('cond-int-maxhr-'      + b.id);
     if (modEl)        b.modality     = modEl.value;
-    if (wtEl)         b.workoutType  = wtEl.value;
+    b.workoutType = deriveWorkoutType(b.sessionStructure, b.intensityDomain, b.modality);
     const circDurEl = document.getElementById('cond-circuit-dur-' + b.id);
     const activeDur = (b.modality === 'Circuit Training' ? circDurEl : durEl);
     if (activeDur)    b.duration     = activeDur.value;
@@ -344,9 +343,12 @@ function removeCondBlock(id) {
 function getCondBlockValues() {
   return S.condBlocks.map(function(b) {
     const mod          = (document.getElementById('cond-mod-'            + b.id) || {value:''}).value.trim();
-    const wt           = (document.getElementById('cond-wt-'             + b.id) || {value:''}).value.trim() || b.workoutType || null;
-    const isCircuit    = mod === 'Circuit Training';
-    const isIntervals  = !isCircuit && wt === 'Intervals';
+    const structure    = (document.getElementById('cond-str-' + b.id) || {value:''}).value || b.sessionStructure || 'Continuous';
+    const isCircuit    = mod === 'Circuit Training' || structure === 'Circuit';
+    const isIntervals  = !isCircuit && structure === 'Intervals';
+    const isRepeats    = !isCircuit && structure === 'Repeats';
+    const hasRounds    = isIntervals || isRepeats;
+    const wt           = deriveWorkoutType(structure, (document.getElementById('cond-dom-' + b.id) || {value:''}).value || b.intensityDomain, mod);
     const durId        = isCircuit ? 'cond-circuit-dur-' : 'cond-dur-';
     const dur          = parseFloat((document.getElementById(durId + b.id) || {value:''}).value) || null;
     const dv           = parseFloat((document.getElementById('cond-dist-'  + b.id) || {value:''}).value) || null;
@@ -361,17 +363,17 @@ function getCondBlockValues() {
       ? (parseInt((document.getElementById('cond-int-work-' + b.id) || {value:''}).value) || null) : null;
     const intRest      = isIntervals
       ? (parseInt((document.getElementById('cond-int-rest-' + b.id) || {value:''}).value) || null) : null;
-    const intRounds    = isIntervals
+    const intRounds    = hasRounds
       ? (parseInt((document.getElementById('cond-int-rounds-' + b.id) || {value:''}).value) || null) : null;
-    const intMaxHR     = isIntervals
+    const intMaxHR     = hasRounds
       ? (parseInt((document.getElementById('cond-int-maxhr-' + b.id) || {value:''}).value) || null) : null;
     const domEl = document.getElementById('cond-dom-' + b.id);
     const strEl = document.getElementById('cond-str-' + b.id);
     const purEl = document.getElementById('cond-pur-' + b.id);
-    return { modality: mod, workoutType: isCircuit ? 'Circuit' : (wt || null), duration: dur,
+    return { modality: mod, workoutType: wt || null, duration: dur,
       distanceMeters: dm, load: load, circuitDesc, circuitRounds, intWork, intRest, intRounds, intMaxHR,
       intensityDomain:  domEl ? domEl.value : b.intensityDomain,
-      sessionStructure: strEl ? strEl.value : b.sessionStructure,
+      sessionStructure: structure,
       sessionPurpose:   purEl ? purEl.value : b.sessionPurpose,
       impactLoad:       b.impactLoad || COND_IMPACT_BY_MODALITY[mod] || 'Low',
       taxonomyEdited:   !!b.taxonomyEdited };
@@ -388,8 +390,9 @@ function getCondSessionValues() {
 
 function buildCondRows(csId, sv) {
   return getCondBlockValues().map(function(b) {
-    const isCircuit   = b.modality === 'Circuit Training';
-    const isIntervals = b.workoutType === 'Intervals';
+    const isCircuit   = b.modality === 'Circuit Training' || b.sessionStructure === 'Circuit';
+    const isIntervals = !isCircuit && b.sessionStructure === 'Intervals';
+    const hasRounds   = isIntervals || (!isCircuit && b.sessionStructure === 'Repeats');
     // For circuit: merge description into notes
     const notesVal = isCircuit
       ? [b.circuitDesc, sv.notes].filter(Boolean).join(' | ') || null
@@ -407,14 +410,14 @@ function buildCondRows(csId, sv) {
       duration_minutes:     b.duration,
       distance_meters:      isCircuit ? null : b.distanceMeters,
       load_lbs:             isCircuit ? null : b.load,
-      intervals_completed:  isCircuit ? b.circuitRounds : (isIntervals ? b.intRounds : null),
+      intervals_completed:  isCircuit ? b.circuitRounds : (hasRounds ? b.intRounds : null),
       // These columns have existed on completed_conditioning since the schema was
       // written and nothing ever populated them, so a prescribed work:rest ratio
       // could only be contradicted in prose. Populating them is what lets the pull
       // report diff planned vs actual structure and raise the calibration flag.
       work_duration_sec:    isIntervals ? b.intWork : null,
       rest_duration_sec:    isIntervals ? b.intRest : null,
-      max_heart_rate:       isIntervals ? b.intMaxHR : null,
+      max_heart_rate:       hasRounds ? b.intMaxHR : null,
       intensity_domain:     b.intensityDomain  || null,
       session_structure:    b.sessionStructure || null,
       session_purpose:      b.sessionPurpose   || null,
@@ -516,8 +519,12 @@ async function editConditioningSession() {
       .order('created_at');
     if (rows && rows.length) {
       S.condBlocks = rows.map(function(r, i) {
-        const isCircuit   = r.modality === 'Circuit Training';
-        const isIntervals = r.workout_type === 'Intervals';
+        const struct      = r.session_structure
+                              || (r.modality === 'Circuit Training' ? 'Circuit'
+                                  : (r.workout_type === 'Intervals' ? 'Intervals' : 'Continuous'));
+        const isCircuit   = r.modality === 'Circuit Training' || struct === 'Circuit';
+        const isIntervals = !isCircuit && struct === 'Intervals';
+        const hasRounds   = isIntervals || (!isCircuit && struct === 'Repeats');
         return {
           id:            i + 1,
           modality:      r.modality || '',
@@ -530,10 +537,10 @@ async function editConditioningSession() {
           circuitRounds: isCircuit && r.intervals_completed != null ? String(r.intervals_completed) : '',
           intWork:       isIntervals && r.work_duration_sec != null ? String(r.work_duration_sec) : '',
           intRest:       isIntervals && r.rest_duration_sec != null ? String(r.rest_duration_sec) : '',
-          intRounds:     isIntervals && r.intervals_completed != null ? String(r.intervals_completed) : '',
-          intMaxHR:      isIntervals && r.max_heart_rate     != null ? String(r.max_heart_rate) : '',
+          intRounds:     hasRounds && r.intervals_completed != null ? String(r.intervals_completed) : '',
+          intMaxHR:      hasRounds && r.max_heart_rate     != null ? String(r.max_heart_rate) : '',
           intensityDomain:  r.intensity_domain  || '',
-          sessionStructure: r.session_structure || '',
+          sessionStructure: struct,
           sessionPurpose:   r.session_purpose   || '',
           impactLoad:       r.impact_load       || 'Low',
           taxonomyEdited:   r.taxonomy_source === 'athlete',
