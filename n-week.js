@@ -59,11 +59,13 @@ function renderNWeek() {
     if (blk) {
       // Batch card(s) first: what this cook makes and what to pull (n-recipes.js).
       // The prep plan below is then purely the steps (N07 §1b).
-      if (typeof nPrepBatchCardsHtml === 'function') html += nPrepBatchCardsHtml(blk);
+      if (typeof nPrepBatchCardsHtml === 'function') html += nPrepBatchCardsHtml(blk, NS.selDay);
       html += `<div class="n-panel"><div class="n-panel-title">🔪 Prep plan</div>${nPrepBlockBodyHtml(blk, notes)}</div>`;
     } else if (dated.length) {
       const next = dated.find(b => b.date >= nToday()) || dated[dated.length - 1];
       const label = next.date >= nToday() ? 'Next prep' : 'Last prep';
+      // No prep block today, but a recipe cooked fresh today (salmon night) still gets its card.
+      if (typeof nPrepBatchCardsHtml === 'function') html += nPrepBatchCardsHtml(null, NS.selDay);
       html += `<div class="n-panel n-prep-next" onclick="NS.selDay='${next.date}';renderNWeek()">🔪 ${label}: <b>${nEsc(next.head.split('(')[0].trim())}</b> · tap to view</div>`;
     } else if (['Sun', 'Wed'].includes(nDayName(NS.selDay, true))) {
       html += `<div class="n-panel"><div class="n-panel-title">🔪 Prep plan</div><pre>${nEsc(NS.planWeek.prep_plan)}</pre></div>`;
