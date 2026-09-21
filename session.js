@@ -882,7 +882,7 @@ async function renderSessionBody() {
       <div class="ex-card added-card ex-collapsed" id="ex-card-${key}">
         <div class="ex-header">
           <span class="drag-handle">≡</span>
-          <span class="ex-name">${ae.exName}</span>
+          <span class="ex-name" onclick="openExerciseHistory('${ae.exId}','${String(ae.exName).replace(/'/g, "\\'")}')">${ae.exName}</span>
           <div class="ex-header-right">
             <span class="ex-swap" onclick="openAddedSwap('${ae.localId}')">⇄ swap</span>
             <button class="ex-collapse-btn" onclick="toggleExCard('${key}')">&#9660;</button>
@@ -1529,6 +1529,7 @@ async function loadExerciseHistory(exId) {
       .select('completed_session_id,set_number,actual_load,actual_reps,actual_rpe,notes')
       .eq('exercise_id', exId)
       .eq('is_skipped', false)
+      .gt('set_number', 0)
       .in('completed_session_id', sessionIds)
       .order('set_number');
 

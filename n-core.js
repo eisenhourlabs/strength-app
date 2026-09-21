@@ -19,7 +19,6 @@ let NS = {
   target: null,        // my nutrition_targets row for this week
   planWeek: null,      // meal_plan_weeks row
   meals: [],           // planned_meals, whole household, whole week
-  alternates: {},      // planned_meal_id -> [alternate rows]
   logs: {},            // planned_meal_id -> my meal_log row
   addedLogs: [],       // my meal_logs with no planned_meal_id, this week
   settings: null,      // my nutrition_settings
@@ -262,14 +261,6 @@ async function nLoadAll() {
   NS.settings = settingsQ.data || null;
   NS.recipes  = recipesQ.data || [];
   NS.foods    = foodsQ.data || [];
-
-  // Alternates for this week's meals
-  const ids = NS.meals.map(m => m.id);
-  NS.alternates = {};
-  if (ids.length) {
-    const { data: alts } = await ndb.from('planned_meal_alternates').select('*').in('planned_meal_id', ids);
-    for (const a of (alts || [])) (NS.alternates[a.planned_meal_id] ||= []).push(a);
-  }
 
   // My logs this week (planned-linked and added)
   const { data: logs } = await ndb.from('meal_logs').select('*')

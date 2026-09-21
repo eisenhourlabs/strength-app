@@ -797,17 +797,6 @@ function nBasketAdd(kind, id) {
       qty: 1, kcal: r.kcal || 0, protein_g: r.protein_g || 0,
       carbs_g: r.carbs_g || 0, fat_g: r.fat_g || 0,
       unit: 'portion', maxPortions: r.portions || 1, invRecipeId: r.recipe_id || null };
-  } else if (kind === 'a') {
-    const alts = NS.alternates[NS.sheet.meal?.id] || [];
-    const a = alts.find(x => x.id === id);
-    if (a) {
-      const nm = a.recipe_id ? (NS.recipes.find(r => r.id === a.recipe_id)?.name || 'Recipe')
-                             : (NS.foods.find(f => f.id === a.food_item_id)?.name || 'Food');
-      item = { srcKind: 'a', srcId: id, kind: a.recipe_id ? 'r' : 'f',
-        id: a.recipe_id || a.food_item_id, name: nm, qty: 1,
-        kcal: a.kcal, protein_g: a.protein_g, carbs_g: a.carbs_g, fat_g: a.fat_g,
-        unit: `${a.servings} srv (coach portion)` };
-    }
   }
   if (item) { b.push(item); renderNSheetList(); }
 }
@@ -927,10 +916,8 @@ function renderNSheetList() {
   }
 
   // Filter chips
-  const hasAlts = mode === 'swap' && meal && (NS.alternates[meal.id] || []).length;
   const myFrozen = (typeof nInvForAthlete === 'function') ? nInvForAthlete(NS.me.id) : [];
   const filters = [['all', 'All']];
-  if (hasAlts) filters.push(['alts', '★ Coach picks']);
   filters.push(['recipes', 'Recipes'], ['foods', 'Foods'], ['restaurants', 'Restaurants']);
   if (myFrozen.length) filters.push(['freezer', '🧊 Freezer']);
   html += `<div class="n-filter-row">${filters.map(([f, l]) =>
@@ -938,18 +925,6 @@ function renderNSheetList() {
     <button class="n-chip${NS.sheet && NS.sheet.customOpen ? ' active' : ''}" onclick="nToggleCustomPanel()">＋ Custom</button></div>`;
 
   const show = s => filter === 'all' || filter === s;
-
-  // ★ Coach alternates
-  if (hasAlts && show('alts')) {
-    html += `<div class="n-sheet-section">★ Coach alternates</div>`;
-    for (const a of NS.alternates[meal.id]) {
-      const nm = a.recipe_id ? (NS.recipes.find(r => r.id === a.recipe_id)?.name || 'Recipe')
-                             : (NS.foods.find(f => f.id === a.food_item_id)?.name || 'Food');
-      if (q && !nm.toLowerCase().includes(q)) continue;
-      html += nOptHtml('a', a.id, true, nm,
-        `${Math.round(a.kcal)} kcal · ${Math.round(a.protein_g)}P${a.note ? ' — ' + a.note : ''}`);
-    }
-  }
 
   // 🧊 My freezer portions — ready to eat; logging one decrements the inventory
   if (myFrozen.length && show('freezer')) {

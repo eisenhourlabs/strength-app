@@ -258,7 +258,7 @@ function selectExercise(exId, exName) {
       <div class="ex-card added-card" id="ex-card-${key}">
         <div class="ex-header">
           <span class="drag-handle">≡</span>
-          <span class="ex-name">${exName}</span>
+          <span class="ex-name" onclick="openExerciseHistory('${exId}','${String(exName).replace(/'/g, "\\'")}')">${exName}</span>
           <div class="ex-header-right">
             <span class="ex-swap" onclick="openAddedSwap('${localId}')">&#8644; swap</span>
             <button class="ex-collapse-btn" onclick="toggleExCard('${key}')">&#9660;</button>
@@ -308,7 +308,11 @@ function selectExercise(exId, exName) {
       const key  = `a-${ae.localId}`;
       const card = document.getElementById(`ex-card-${key}`);
       if (card) {
-        card.querySelector('.ex-name').textContent = exName;
+        const nameEl = card.querySelector('.ex-name');
+        nameEl.textContent = exName;
+        // Keep the history popup pointed at the swapped-in exercise
+        nameEl.setAttribute('onclick',
+          "openExerciseHistory('" + exId + "','" + String(exName).replace(/'/g, "\\'") + "')");
         let swapNote = card.querySelector('.ex-swap-note');
         if (!swapNote) {
           card.querySelector('.ex-header').insertAdjacentHTML(
