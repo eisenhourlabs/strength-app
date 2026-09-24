@@ -96,7 +96,7 @@ function mvApplyPlanLocal(plans, a) {
   }
   const fields = {
     schedule_days: a.days.slice().sort(), target_minutes: a.minutes, mode: a.mode || null,
-    notes: a.notes || null, equipment: (a.equipment || []).slice(), set_by: 'athlete',
+    notes: a.notes || null, equipment: (a.equipment || []).slice(), set_by: a.setBy === 'coach' ? 'coach' : 'athlete',
   };
   if (cur && cur.effective_from >= a.today) { Object.assign(cur, fields); return out; }
   if (cur) { cur.effective_to = mvAddDays(a.today, -1); cur.closed_by = 'athlete'; }
@@ -390,7 +390,7 @@ function mvParseHoldSeconds(dose) {
 const MV = {
   loaded: false, loading: null, lastLoad: 0, unavailable: false,
   plans: [], areas: [], logs: [], cautions: [], recs: [], drillMap: [], daily: null,
-  sheet: null, addArea: null, timers: {}, planTimers: {},
+  sheet: null, addArea: null, review: null, timers: {}, planTimers: {},
 };
 
 function mvToday() { return typeof today === 'function' ? today() : mvFmt(Date.now()); }
@@ -474,6 +474,10 @@ async function mvSyncOp(op, p) {
     r = await db.rpc('movement_save_plan', p);
   } else if (op === 'movement_area_write') {
     r = await db.from('movement_focus_areas').upsert(p, { onConflict: 'athlete_id,region' });
+  } else if (op === 'movement_rec_status') {
+    r = await db.from('movement_recommendations').update({ status: p.status, resolved_at: p.resolved_at }).eq('id', p.id);
+  } else if (op === 'movement_caution_override') {
+    r = await db.from('movement_cautions').update({ athlete_override: p.athlete_override, override_at: p.override_at }).eq('id', p.id);
   } else {
     throw new Error('unknown movement op ' + op);
   }
@@ -1209,6 +1213,226 @@ async function mvAreaAddBack(region) {
   if (mvCount(p) >= MV_CAPS[p]) { toast('Max ' + MV_CAPS[p] + ' ' + p + ' areas — remove one first', 3000); return; }
   await mvWriteArea(region, { is_active: true, started_on: mvToday() });
   mvRenderScreen(); mvPaintCard();
+}
+
+// ── Coach recommendation + cautions (Phase 2) ───────────────────────────────
+// The coach only recommends. push_program.py auto-applies when the athlete
+// never set a habit up or is still on the last coach plan; otherwise the
+// recommendation waits here as 'pending' (dot on the 🚶 button). Cautions are
+// soft: "Include anyway" is allowed and reported to the coach.
+
+const MV_TAG_WORDS = {
+  hip_endrange_flexion_ir: 'deep hip bending with inward rotation', deep_hip_flexion_loaded: 'deep loaded hip bending',
+  deep_knee_flexion: 'deep knee bending', knee_loaded_endrange: 'loaded deep knee work',
+  lumbar_endrange_flexion: 'full spine rounding', lumbar_endrange_extension: 'full back arching',
+  shoulder_endrange_loaded: 'loaded overhead end range', shoulder_impingement_position: 'overhead reaching with inward rotation',
+  wrist_flexor_stretch_loaded: 'loaded wrist and forearm stretches', grip_loaded: 'heavy gripping',
+  calf_stretch_aggressive: 'hard calf stretches', achilles_loaded_endrange: 'loaded Achilles end range',
+  neck_endrange: 'end-range neck movement',
+};
+const MV_DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+function mvDaysLabel(days) {
+  const d = (days || []).map(Number).sort();
+  if (d.length === 7) return 'every day';
+  if (d.join(',') === '1,2,3,4,5') return 'Mon–Fri';
+  return d.map(function (x) { return MV_DAY_NAMES[x - 1]; }).join(' ');
+}
+
+// ENGINE (pure): the pending parts of a recommendation as selectable changes.
+function mvRecChanges(payload, plans, areas) {
+  payload = payload || {};
+  const dec = payload._decision || {};
+  const out = [];
+  ['walk', 'mobility'].forEach(function (kind) {
+    const part = payload[kind];
+    if (!part || (dec[kind] && dec[kind] !== 'pending')) return;
+    const label = kind === 'walk' ? 'Walk' : 'Mobility';
+    if (!part.enabled) {
+      if (mvCurrentPlan(plans, kind)) out.push({ id: kind, type: 'plan', kind: kind, part: part, label: label + ': turn off', checked: true });
+      return;
+    }
+    const mode = kind === 'mobility' ? (part.mode || ((part.areas || []).length ? 'targeted' : 'general')) : null;
+    out.push({ id: kind, type: 'plan', kind: kind, part: part, mode: mode, checked: true,
+      label: label + ': ' + mvDaysLabel(part.days) + ' · ' + part.target_minutes + ' min'
+        + (kind === 'mobility' ? (mode === 'targeted' ? ' · focus areas' : ' · general flow') : '') });
+    if (kind === 'mobility' && mode === 'targeted') {
+      const recRegions = {};
+      (part.areas || []).forEach(function (ra) {
+        recRegions[ra.region] = true;
+        const cur = (areas || []).filter(function (a) { return a.region === ra.region; })[0];
+        const lvl = Number(ra.level || 1);
+        const same = cur && cur.is_active !== false && cur.priority === ra.priority && Number(cur.level) === lvl
+          && (cur.drill_mobility || null) === (ra.drill_mobility || null) && (cur.drill_control || null) === (ra.drill_control || null);
+        if (same) return;
+        const drills = [ra.drill_mobility, ra.drill_control].filter(Boolean).join(' + ');
+        out.push({ id: 'area:' + ra.region, type: 'area', region: ra.region, rec: ra, checked: true,
+          label: (cur && cur.is_active !== false ? 'Change ' : 'Add ') + mvRegion(ra.region).label + ' — ' + ra.priority + ', level ' + lvl
+            + (drills ? ' (' + drills + ')' : ''), why: ra.why || null });
+      });
+      (areas || []).forEach(function (a) {
+        if (a.is_active === false || recRegions[a.region]) return;
+        out.push({ id: 'drop:' + a.region, type: 'drop', region: a.region, checked: false,
+          label: 'Turn off ' + mvRegion(a.region).label + ' (not in the coach\'s plan)' });
+      });
+    }
+  });
+  return out;
+}
+
+async function mvApplyRecChange(ch) {
+  const t = mvToday();
+  if (ch.type === 'plan') {
+    const p = ch.part;
+    const prev = mvCurrentPlan(MV.plans, ch.kind) || mvLastPlan(MV.plans, ch.kind);
+    const equipment = (prev && prev.equipment) || [];
+    if (!p.enabled) {
+      MV.plans = mvApplyPlanLocal(MV.plans, { kind: ch.kind, enabled: false, today: t, athleteId: S.athlete.id });
+      return mvWrite('movement_plan_write', { p_kind: ch.kind, p_enabled: false, p_days: null, p_minutes: null,
+        p_mode: null, p_notes: null, p_today: t, p_equipment: null, p_set_by: 'coach' });
+    }
+    MV.plans = mvApplyPlanLocal(MV.plans, { kind: ch.kind, enabled: true, days: p.days, minutes: p.target_minutes,
+      mode: ch.mode, notes: p.notes || null, equipment: equipment, today: t, athleteId: S.athlete.id, setBy: 'coach' });
+    return mvWrite('movement_plan_write', { p_kind: ch.kind, p_enabled: true, p_days: p.days.slice().sort(), p_minutes: p.target_minutes,
+      p_mode: ch.mode, p_notes: p.notes || null, p_today: t, p_equipment: equipment, p_set_by: 'coach' });
+  }
+  if (ch.type === 'area') {
+    const ra = ch.rec;
+    const cur = MV.areas.filter(function (a) { return a.region === ra.region; })[0];
+    const lvl = Number(ra.level || 1);
+    const keepClock = cur && cur.is_active !== false && Number(cur.level) === lvl;
+    return mvWriteArea(ra.region, { priority: ra.priority, level: lvl, source: 'coach_rec', athlete_edited: false,
+      drill_mobility: ra.drill_mobility || null, drill_control: ra.drill_control || null, why: ra.why || null,
+      is_active: true, started_on: keepClock ? cur.started_on : t }, true);
+  }
+  if (ch.type === 'drop') return mvWriteArea(ch.region, { is_active: false });
+  return true;
+}
+
+async function mvResolveRec(rec, status) {
+  const patch = { status: status, resolved_at: new Date().toISOString() };
+  const ok = await mvWrite('movement_rec_status', Object.assign({ id: rec.id }, patch));
+  if (ok) Object.assign(rec, patch);
+  await mvSaveCache();
+  return ok;
+}
+
+function mvRecBannerHtml() {
+  const rec = mvPendingRec();
+  if (!rec) return '';
+  const ch = mvRecChanges(rec.payload, MV.plans, MV.areas);
+  const when = (rec.pushed_at || '').slice(0, 10);
+  const whenLbl = when ? new Date(mvUtc(when) + 12 * 3600000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : '';
+  if (MV.review && MV.review.id === rec.id) {
+    return '<div class="card mv-rec"><div class="card-label">Coach recommendation · ' + mvEsc(whenLbl) + ' — review</div>'
+      + (ch.length ? ch.map(function (c) {
+        const on = MV.review.checked[c.id] !== undefined ? MV.review.checked[c.id] : c.checked;
+        return '<div class="mv-rec-item" onclick="mvReviewToggle(\'' + c.id + '\')"><span class="mv-check mv-check-sm' + (on ? ' on' : '') + '">' + (on ? '✓' : '') + '</span>'
+          + '<div><div>' + mvEsc(c.label) + '</div>' + (c.why ? '<div class="mv-area-why">' + mvEsc(c.why) + '</div>' : '') + '</div></div>';
+      }).join('') : '<div class="card-sub">Nothing left to change — your plan already matches.</div>')
+      + '<button class="btn" onclick="mvReviewApply()">Apply selected</button>'
+      + '<button class="btn secondary" onclick="mvReviewCancel()">Back</button></div>';
+  }
+  const bits = ch.filter(function (c) { return c.type === 'plan'; }).map(function (c) { return '<div>' + mvEsc(c.label) + '</div>'; }).join('');
+  const areaBits = ch.filter(function (c) { return c.type === 'area'; }).map(function (c) {
+    return mvRegion(c.region).label + ' (' + c.rec.priority + ')';
+  });
+  const cautions = (MV.cautions || []).filter(function (c) { return c.is_active !== false; }).map(function (c) { return c.reason; });
+  return '<div class="card mv-rec"><div class="card-label">Coach recommendation · ' + mvEsc(whenLbl) + '</div>'
+    + (bits || '<div class="card-sub">Your plan already matches — nothing to change.</div>')
+    + (areaBits.length ? '<div class="mv-rec-areas">+ ' + mvEsc(areaBits.join(' · ')) + '</div>' : '')
+    + (cautions.length ? '<div class="mv-rec-caution">⚠ Avoid: ' + mvEsc(cautions.join(' · ')) + '</div>' : '')
+    + '<div class="mv-rec-btns"><button class="btn" onclick="mvRecUse()">Use this plan</button>'
+    + '<button class="btn secondary" onclick="mvRecReview()">Review changes</button>'
+    + '<button class="btn secondary" onclick="mvRecNotNow()">Not now</button></div></div>';
+}
+
+async function mvRecUse() {
+  const rec = mvPendingRec(); if (!rec) return;
+  const ch = mvRecChanges(rec.payload, MV.plans, MV.areas);
+  const drops = ch.filter(function (c) { return c.type === 'drop'; });
+  const go = async function () {
+    for (let i = 0; i < ch.length; i++) { if (ch[i].type !== 'drop') await mvApplyRecChange(ch[i]); }
+    for (let i = 0; i < drops.length; i++) await mvApplyRecChange(drops[i]);
+    await mvResolveRec(rec, 'accepted');
+    await mvSaveCache();
+    toast('Coach plan applied — you can still change anything');
+    mvRenderScreen(); mvPaintCard();
+  };
+  if (drops.length) {
+    showConfirm('Use the coach\'s plan?', 'This also turns off ' + drops.map(function (d) { return mvRegion(d.region).label; }).join(', ')
+      + '. You can add them back anytime. Use Review changes to keep them.', 'Use this plan', go);
+  } else await go();
+}
+function mvRecReview() { const rec = mvPendingRec(); if (!rec) return; MV.review = { id: rec.id, checked: {} }; mvRenderScreen(); }
+function mvReviewCancel() { MV.review = null; mvRenderScreen(); }
+function mvReviewToggle(id) {
+  const rec = mvPendingRec(); if (!rec || !MV.review) return;
+  const c = mvRecChanges(rec.payload, MV.plans, MV.areas).filter(function (x) { return x.id === id; })[0];
+  const cur = MV.review.checked[id] !== undefined ? MV.review.checked[id] : (c ? c.checked : false);
+  MV.review.checked[id] = !cur;
+  mvRenderScreen();
+}
+async function mvReviewApply() {
+  const rec = mvPendingRec(); if (!rec || !MV.review) return;
+  const ch = mvRecChanges(rec.payload, MV.plans, MV.areas).filter(function (c) {
+    return MV.review.checked[c.id] !== undefined ? MV.review.checked[c.id] : c.checked;
+  });
+  // Caps (2 daily / 3 rotating) must still hold after the chosen changes.
+  const after = {};
+  MV.areas.forEach(function (x) { if (x.is_active !== false) after[x.region] = x.priority; });
+  ch.forEach(function (c) { if (c.type === 'area') after[c.region] = c.rec.priority; if (c.type === 'drop') delete after[c.region]; });
+  for (const pr in MV_CAPS) {
+    const n = Object.keys(after).filter(function (k) { return after[k] === pr; }).length;
+    if (n > MV_CAPS[pr]) { toast('That would give you ' + n + ' ' + pr + ' areas (max ' + MV_CAPS[pr] + ') — tick a "Turn off" item too', 4000); return; }
+  }
+  const hasAreas = ch.some(function (c) { return c.type === 'area'; });
+  const hasMobPlan = ch.some(function (c) { return c.type === 'plan' && c.kind === 'mobility'; });
+  for (let i = 0; i < ch.length; i++) await mvApplyRecChange(ch[i]);
+  // Taking coach areas without the mobility plan change still needs targeted mode to show them.
+  if (hasAreas && !hasMobPlan) {
+    const m = mvPlan('mobility');
+    if (m && m.mode !== 'targeted') mvSavePlan('mobility', { mode: 'targeted' });
+  }
+  await mvResolveRec(rec, 'accepted');
+  MV.review = null;
+  toast(ch.length ? 'Applied ' + ch.length + ' change' + (ch.length === 1 ? '' : 's') : 'Nothing applied — noted for your coach');
+  mvRenderScreen(); mvPaintCard();
+}
+async function mvRecNotNow() {
+  const rec = mvPendingRec(); if (!rec) return;
+  await mvResolveRec(rec, 'dismissed');
+  toast('Dismissed — your coach will see that');
+  mvRenderScreen(); mvPaintCard();
+}
+
+function mvCautionsHtml() {
+  const list = (MV.cautions || []).filter(function (c) { return c.is_active !== false; });
+  if (!list.length) return '';
+  return '<div class="card"><div class="card-title" style="font-size:16px">⚠ Coach cautions</div>'
+    + list.map(function (c) {
+      const words = (c.caution_tags || []).map(function (t) { return MV_TAG_WORDS[t] || t; }).join(', ');
+      return '<div class="mv-caution' + (c.athlete_override ? ' mv-caution-off' : '') + '">'
+        + '<div>' + mvEsc(c.reason) + '</div>'
+        + '<div class="mv-area-why">Leaves out: ' + mvEsc(words) + (c.athlete_override ? ' — <b>you\'re including these anyway</b>' : '') + '</div>'
+        + '<button class="mv-mini" onclick="mvToggleOverride(\'' + c.id + '\')">' + (c.athlete_override ? 'Follow caution again' : 'Include anyway') + '</button></div>';
+    }).join('') + '</div>';
+}
+
+function mvToggleOverride(id) {
+  const c = (MV.cautions || []).filter(function (x) { return x.id === id; })[0];
+  if (!c) return;
+  const apply = async function (val) {
+    const patch = { athlete_override: val, override_at: val ? new Date().toISOString() : null };
+    const ok = await mvWrite('movement_caution_override', Object.assign({ id: id }, patch));
+    if (!ok) return;
+    Object.assign(c, patch);
+    await mvSaveCache();
+    toast(val ? 'Included — your coach will see this choice' : 'Caution back on');
+    mvRenderScreen(); mvPaintCard();
+  };
+  if (c.athlete_override) apply(false);
+  else showConfirm('Include these drills anyway?', 'Your coach suggested avoiding them: ' + mvEsc(c.reason) + '. Keep pain at 2/10 or less. Your coach will see this choice.',
+    'Include anyway', function () { apply(true); });
 }
 
 // ── Trends section ──────────────────────────────────────────────────────────

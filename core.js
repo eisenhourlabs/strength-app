@@ -565,7 +565,9 @@ async function syncQueue() {
         case 'movement_log_upsert':
         case 'movement_log_delete':
         case 'movement_plan_write':
-        case 'movement_area_write': {
+        case 'movement_area_write':
+        case 'movement_rec_status':
+        case 'movement_caution_override': {
           await mvSyncOp(item.op, p);
           break;
         }

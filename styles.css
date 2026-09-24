@@ -858,3 +858,14 @@
 .mv-trend-area { display: flex; justify-content: space-between; font-size: 13px; padding: 5px 0; border-bottom: 1px solid var(--border); }
 .mv-checkin-line { font-size: 13px; background: var(--surface2); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
 .util-btn .mv-dot { position: absolute; top: 8px; right: 10px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent2); }
+.mv-rec { border-color: var(--accent); }
+.mv-rec > div { font-size: 14px; margin-bottom: 4px; }
+.mv-rec-areas { color: var(--text); }
+.mv-rec-caution { color: #d9a441; }
+.mv-rec-btns .btn { margin-top: 8px; padding: 12px; font-size: 14px; }
+.mv-rec-item { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+.mv-check-sm { width: 22px; height: 22px; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; }
+.mv-check-sm.on { background: var(--accent); border-color: var(--accent); }
+.mv-caution { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.mv-caution:last-child { border-bottom: none; }
+.mv-caution-off { opacity: .7; }
