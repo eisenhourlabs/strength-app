@@ -294,6 +294,20 @@ async function nLoadAll() {
     const { data: gi } = await ndb.from('grocery_items').select('*')
       .eq('list_id', gl.id).order('category').order('sort_order');
     NS.grocery.items = gi || [];
+    // The list is usually for the UPCOMING week; the "Cooking this week" card on the
+    // Grocery tab needs that week's prep plan + meal slots, not the current week's.
+    if (gl.week_of === wk) {
+      NS.grocery.planWeek = NS.planWeek; NS.grocery.meals = NS.meals;
+    } else {
+      try {
+        const [gw, gm] = await Promise.all([
+          ndb.from('meal_plan_weeks').select('week_of,prep_plan').eq('week_of', gl.week_of).maybeSingle(),
+          ndb.from('planned_meals').select('recipe_id,meal_slot,meal_date')
+            .gte('meal_date', gl.week_of).lte('meal_date', nAddDays(gl.week_of, 6)),
+        ]);
+        NS.grocery.planWeek = gw.data || null; NS.grocery.meals = gm.data || [];
+      } catch (_) { NS.grocery.planWeek = null; NS.grocery.meals = []; }
+    }
   }
 
   // Freezer pulls: household-shared thaw nudges. Tolerate a missing table so the
@@ -573,8 +587,11 @@ window.addEventListener('online',  () => { nOffline = false; nUpdateOffline(); }
 // prep_plan text convention: blocks separated by blank lines; a block whose first
 // line contains a date like "7/15" is pinned to that date in the plan week.
 // Undated sections (e.g. the salmon note) are shown as a footer on every prep card.
-function nPrepBlocks() {
-  const txt = NS.planWeek?.prep_plan;
+// Optional args (Grocery tab, 2026-09-23): parse another week's prep_plan — the grocery
+// list can be for the upcoming week while NS.planWeek is still the current one.
+function nPrepBlocks(txtArg, weekArg) {
+  const txt = txtArg !== undefined ? txtArg : NS.planWeek?.prep_plan;
+  const weekOf = weekArg || NS.weekOf;
   if (!txt) return { dated: [], notes: [] };
   const dated = [], notes = [];
   for (const sec of txt.split(/\n\s*\n/)) {
@@ -583,10 +600,10 @@ function nPrepBlocks() {
     const m = lines[0].match(/(\d{1,2})\/(\d{1,2})/);
     let date = null;
     if (m) {
-      const yr = +NS.weekOf.slice(0, 4);
+      const yr = +weekOf.slice(0, 4);
       for (const y of [yr, yr + 1]) {
         const d = `${y}-${String(+m[1]).padStart(2, '0')}-${String(+m[2]).padStart(2, '0')}`;
-        if (d >= NS.weekOf && d <= nAddDays(NS.weekOf, 6)) { date = d; break; }
+        if (d >= weekOf && d <= nAddDays(weekOf, 6)) { date = d; break; }
       }
     }
     if (date) dated.push({ date, head: lines[0], steps: lines.slice(1) });

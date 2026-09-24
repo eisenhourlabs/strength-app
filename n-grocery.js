@@ -14,7 +14,7 @@ function renderGrocery() {
   }
   const stock = items.filter(i => i.section === 'stock');
   const buys  = items.filter(i => i.section !== 'stock' || i.stock_status === 'need');
-  let html = '';
+  let html = nGroceryCooksHtml();
 
   // ── Check at Home ──
   if (stock.length) {
@@ -63,6 +63,42 @@ function renderGrocery() {
     <select id="g-new-cat">${N_GCATS.map(c => `<option value="${c}">${c}</option>`).join('')}</select>
     <button class="n-act small primary" onclick="addGroceryItem()">Add</button></div>`;
   body.innerHTML = html;
+}
+
+// ── Cooking this week (Troy, 2026-09-23) ──
+// While shopping, Amanda sees which recipes the list is for: the Wed and Sun prep-night
+// cooks only, with the night and a tap-through to the recipe. Recipes come from the
+// dated prep blocks for those two nights (same exact-name match as nPrepRecipeLinks).
+// Breakfasts and salmon night are deliberately left out: salmon is cooked fresh Sat/Tue
+// with no prep block, and a recipe whose planned meals are all breakfasts is dropped.
+function nGroceryCooksHtml() {
+  const wk = NS.grocery.list && NS.grocery.list.week_of;
+  const pw = NS.grocery.planWeek;
+  if (!wk || !pw || !pw.prep_plan) return '';
+  const meals = NS.grocery.meals || [];
+  const { dated } = nPrepBlocks(pw.prep_plan, wk);
+  const nights = [wk, nAddDays(wk, 4)];               // plan weeks start Wednesday -> Wed, Sun
+  const rows = [];
+  for (const d of nights) {
+    const txt = dated.filter(b => b.date === d)
+      .map(b => b.head + '\n' + b.steps.join('\n')).join('\n').toLowerCase();
+    const hits = !txt ? [] : (NS.recipes || []).filter(r => {
+      if (!r.name || r.kind === 'assembly' || !txt.includes(r.name.toLowerCase())) return false;
+      if (/salmon/i.test(r.name)) return false;
+      const rm = meals.filter(m => m.recipe_id === r.id);
+      return !(rm.length && rm.every(m => m.meal_slot === 'breakfast'));
+    });
+    const when = `${nDayName(d, true)} ${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
+    if (!hits.length) {
+      rows.push(`<div class="n-gcook none"><span class="n-gcook-day">${when}</span><span class="n-gname">No prep night</span></div>`);
+    } else {
+      for (const r of hits)
+        rows.push(`<div class="n-gcook" onclick="nOpenRecipe('${r.id}')"><span class="n-gcook-day">${when}</span>
+          <span class="n-gname">${nEsc(r.name)}</span><span class="n-gcook-link">📖 Recipe</span></div>`);
+    }
+  }
+  return `<div class="n-gsection">COOKING THIS WEEK</div>
+    <div class="n-ghint">The prep-night recipes this list is for. Tap one to open it.</div>${rows.join('')}`;
 }
 
 async function setStockStatus(id, status) {
