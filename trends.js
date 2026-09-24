@@ -237,6 +237,9 @@ async function loadTrends() {
     window._tConditioning = conditioning;
     window._tPainItems    = painItems;
 
+    // Daily Movement (movement.js) — reads v_movement_daily; never throws.
+    if (typeof loadMovementTrends === 'function') await loadMovementTrends();
+
     renderTrendsBody(body, allSessions, readiness, sets, weekKeys, weekLabels, conditioning, painItems);
 
     // Auto-render first exercise trend chart
@@ -296,6 +299,7 @@ function renderTrendsBody(body, allSessions, readiness, sets, weekKeys, weekLabe
     renderTrendsConsistency(allSessions, weekKeys, weekLabels, window._tPlannedPerWeek || 0),
     renderTrendsReadiness(readiness, weekKeys, weekLabels),
     renderTrendsConditioning(conditioning, weekKeys, weekLabels),
+    (typeof renderTrendsMovement === 'function' ? renderTrendsMovement(weekKeys, weekLabels) : ''),
     renderTrendsPain(painItems),
   ].join('');
 }

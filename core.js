@@ -184,6 +184,9 @@ async function onLogin(user) {
 
     try { await idbSet('athleteCache', { email: user.email, athlete, exerciseLib: S.exerciseLib }); } catch {}
 
+    // Daily Movement data (movement.js) — non-blocking; the Today card paints when it lands.
+    if (typeof loadMovement === 'function') loadMovement().then(() => { try { mvPaintCard(); } catch (_) {} }).catch(() => {});
+
     await loadProgram();
   } catch (_) {
     // Network unavailable — fall back to cached athlete data
@@ -556,6 +559,14 @@ async function syncQueue() {
         case 'test': {
           const { error: e8 } = await db.from('strength_tests').insert(p);
           if (e8) throw e8;
+          break;
+        }
+        // Daily Movement (movement.js) — mvSyncOp throws on failure so the item stays queued.
+        case 'movement_log_upsert':
+        case 'movement_log_delete':
+        case 'movement_plan_write':
+        case 'movement_area_write': {
+          await mvSyncOp(item.op, p);
           break;
         }
       }

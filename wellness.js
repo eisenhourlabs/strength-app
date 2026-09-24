@@ -190,6 +190,8 @@ function computeOpenInjuries(rows) {
       onset_date:    list[0].log_date,
       last_update:   latest.log_date,
       exercise_name: exName,
+      // Asked on the first row of an episode only; any yes flags the episode (Daily Movement red stop).
+      neuro_flag:    list.some(function(r){ return r.neuro_flag === true; }),
     });
   });
   open.sort(function(a, b){ return (b.pain_score || 0) - (a.pain_score || 0); });
@@ -429,6 +431,7 @@ function applyPainLocally(p) {
     S.openInjuries.push({
       injury_id: p.injury_id, body_region: p.body_region, pain_score: p.pain_score,
       status: p.status, onset_date: p.log_date, last_update: p.log_date, exercise_name: p.exercise_name || null,
+      neuro_flag: p.neuro_flag === true,
     });
   }
   S.openInjuries.sort(function(a, b){ return (b.pain_score || 0) - (a.pain_score || 0); });
@@ -436,6 +439,7 @@ function applyPainLocally(p) {
 
 function afterPainSave() {
   updatePainBadge();
+  if (typeof mvPaintCard === 'function') { try { mvPaintCard(); } catch (_) {} }   // pain can pause a movement region
   try { idbSet('openInjuriesCache', { athleteId: S.athlete.id, items: S.openInjuries }); } catch (_) {}
   if ((S.openInjuries || []).length) renderPainList();
   else closePainSheet();

@@ -2,7 +2,7 @@
 async function renderWeek() {
   // Apply any saved display order before rendering
   const savedOrder = await idbGet('sessionOrderCache');
-  if (savedOrder?.cycleId === S.cycle?.id && savedOrder.order?.length) {
+  if (savedOrder?.cycleId === S.cycle?.id && savedOrder?.order?.length) {
     const orderMap = {};
     savedOrder.order.forEach((id, i) => { orderMap[id] = i; });
     S.sessions = [...S.sessions].sort((a, b) =>
@@ -127,6 +127,10 @@ async function renderWeek() {
       <div class="util-btn" onclick="openExportSheet()">
         <span class="util-icon">📥</span>Export
       </div>
+      <div class="util-btn" onclick="openMovement()" style="position:relative">
+        <span class="mv-dot" id="mv-util-dot" style="display:none"></span>
+        <span class="util-icon">🚶</span>Movement
+      </div>
     </div>
     <button class="add-ex-btn" onclick="openNewSessionSheet()" style="margin-top:10px">
       ➕  New Session
@@ -135,7 +139,9 @@ async function renderWeek() {
       🗓  Start New Week
     </button>`;
 
-  body.innerHTML = progressHtml + `<div id="session-list">${sessHtml}</div>` + checkinCardHtml + utilHtml;
+  // Daily Movement Today card (movement.js) — renders nothing while both habits are off.
+  body.innerHTML = '<div id="mv-card-slot"></div>' + progressHtml + `<div id="session-list">${sessHtml}</div>` + checkinCardHtml + utilHtml;
+  if (typeof renderMovementCard === 'function') { try { renderMovementCard(); } catch (e) { console.error('renderMovementCard:', e); } }
   initSessionSort();
   showScreen('week');
 }

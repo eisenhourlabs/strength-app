@@ -187,6 +187,18 @@
   <div class="body" id="trends-body"></div>
 </div>
 
+<!-- ══════════════════ DAILY MOVEMENT (movement.js) ══════════════════ -->
+<div class="screen" id="screen-movement">
+  <div class="header">
+    <button class="back-btn" onclick="closeMovement()">&#8249;</button>
+    <div>
+      <div class="header-title">🚶 Movement</div>
+      <div class="header-sub">Daily walk &amp; mobility — your call</div>
+    </div>
+  </div>
+  <div class="body" id="mv-body"></div>
+</div>
+
 <!-- ══════════════════ SUCCESS ══════════════════ -->
 <div class="screen" id="screen-success">
   <div class="success-wrap">
@@ -385,6 +397,13 @@
 
 
 <!-- ══════════════════ SCRIPTS ══════════════════ -->
+<!-- ══════════════════ MOVEMENT LOG SHEET (movement.js) ══════════════════ -->
+<div class="sheet-overlay" id="mv-overlay" onclick="closeMvSheet()"></div>
+<div class="sheet" id="mv-sheet" style="max-height:88vh">
+  <div class="sheet-title" id="mv-sheet-title">Movement</div>
+  <div id="mv-sheet-body" style="overflow-y:auto;flex:1"></div>
+</div>
+
 <script src="core.js"></script>
 <script src="exercises.js"></script>
 <script src="wellness.js"></script>
@@ -394,6 +413,7 @@
 <script src="checkin.js"></script>
 <script src="trends.js"></script>
 <script src="session.js"></script>
+<script src="movement.js"></script>
 <script src="week.js"></script>
 
 </body>
