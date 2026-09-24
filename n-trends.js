@@ -665,14 +665,14 @@ function nWeightEnergyCardHtml(D) {
   if (goalBand) wLegend.push({ kind: 'band', color: '#bfe0c0', label: 'Goal corridor' });
   if (cone) wLegend.push({ kind: 'dash', color: NT_RED, label: 'Forecast' });
 
-  const panel1 = `${nPanelHead('Scale weight', wSub, wLegend)}
+  const panel1 = `<div class="n-zoomable" onclick="nChartZoomOpen(this)">${nPanelHead('Scale weight', wSub, wLegend)}
     <svg viewBox="0 0 ${NT_W} ${H1}" style="width:100%;margin-top:2px">
       ${nBandRects(bands, T1, B1)}${nBandLabels(bands, T1 - 5)}${wGrid}${goalBand}${cone}
       ${todayMark(T1, B1, T1 - 14)}${dots}
       ${D.trend.displayable ? `<path d="${trendPath}" fill="none" stroke="${NT_RED}" stroke-width="2.5" stroke-linejoin="round"/>` : ''}
       <line x1="${NT_PADL}" y1="${B1}" x2="${NT_W - NT_PADR}" y2="${B1}" stroke="#c9c9c4" stroke-width="1"/>
       ${xAxis(B1 + 13)}
-    </svg>`;
+    </svg>${nZoomHint()}</div>`;
 
   // ═══════════════ Panel 2 — Energy balance ═══════════════
   const H2 = 186, T2 = 26, B2 = 132, CY = 148;
@@ -766,7 +766,7 @@ function nWeightEnergyCardHtml(D) {
     { kind: 'dash', color: NT_BLUE, label: 'Calories planned' });
 
   const panel2 = `<div style="margin-top:14px;border-top:1px solid var(--n-line,#e6e6e1);padding-top:10px">
-    ${nPanelHead('Energy balance', eSub, eLegend)}
+    <div class="n-zoomable" onclick="nChartZoomOpen(this)">${nPanelHead('Energy balance', eSub, eLegend)}
     <svg viewBox="0 0 ${NT_W} ${H2}" style="width:100%;margin-top:2px">
       ${nBandRects(bands, T2, B2)}${nBandLabels(bands, T2 - 5)}${eGrid}${tdeeBand}
       ${todayMark(T2, B2, T2 - 14)}${planLine}${actLine}${actDots}${carets}
@@ -776,7 +776,7 @@ function nWeightEnergyCardHtml(D) {
            stroke="${NT_BLUE}" stroke-width="2"><title>Target ${tk.delta > 0 ? '+' : ''}${tk.delta} kcal on ${tk.week_of}</title></line>`).join('')}
       ${xAxis(B2 + 30)}
       ${carets ? `<text x="${NT_PADL - 4}" y="${CY + 2}" font-size="7" fill="#8a8a84" text-anchor="end">bal</text>` : ''}
-    </svg></div>`;
+    </svg>${nZoomHint()}</div></div>`;
 
   // ── projection sub-lines ──
   const F = D.forecast || {};
@@ -1194,4 +1194,221 @@ function nReportBodyHtml(r) {
     ${r.data_quality && r.data_quality !== 'high'
       ? `<div style="font-size:11px;color:#7a5200;margin-top:3px">Data quality: ${nEsc(r.data_quality)}</div>` : ''}
   </div>`;
+}
+
+// ─────────────── Full-screen chart viewer (tap a chart to enlarge) ───────────────
+// The Weight and Energy panels are 340 viewBox units wide — fine as a glance on a
+// phone, too small to read closely. Tapping either one opens THAT panel alone in
+// a full-screen layer, turned 90° into landscape when the phone is held upright
+// (no rotation if the browser is already landscape), with pinch-zoom, drag-to-pan,
+// double-tap zoom, and tap-a-point to read the value its <title> carries (hover
+// doesn't exist on a phone, so this is the only way to reach those numbers
+// in-chart).
+//
+// Zoom is done by resizing the SVG's box, not with a CSS scale(), so the vector
+// re-lays out and text/lines stay sharp at every zoom level. The page viewport
+// is user-scalable=no, so these gestures don't fight native browser zoom.
+// No DOM is touched at load time — test_trends_render.js runs this file in a
+// bare vm sandbox.
+const NZ = { open: false, rotate: false, s: 1, tx: 0, ty: 0, ptrs: new Map(), g: null,
+  lastTap: 0, tipTimer: null, el: null };
+const NZ_MAX = 6;
+
+function nZoomHint() {
+  return `<div style="text-align:right;font-size:10px;color:var(--n-muted);margin-top:1px">⤢ Tap chart to expand</div>`;
+}
+
+function nChartZoomOpen(src) {
+  if (NZ.open || !src) return;
+  const svg = src.querySelector('svg');
+  if (!svg) return;
+  let root = document.getElementById('n-zoom');
+  if (!root) {
+    root = document.createElement('div');
+    root.id = 'n-zoom';
+    root.className = 'n-zoom';
+    root.innerHTML = `<div class="n-zoom-frame">
+        <div class="n-zoom-bar">
+          <div class="n-zoom-head"></div>
+          <div class="n-zoom-btns">
+            <button class="n-zoom-btn" onclick="nChartZoomReset()">Reset</button>
+            <button class="n-zoom-btn n-zoom-x" onclick="nChartZoomClose()" aria-label="Close">✕</button>
+          </div>
+        </div>
+        <div class="n-zoom-stage"><div class="n-zoom-content"></div></div>
+        <div class="n-zoom-foot">Pinch to zoom · drag to move · double-tap to zoom in/out · tap a point for its value</div>
+        <div class="n-zoom-tip"></div>
+      </div>`;
+    document.body.appendChild(root);
+    const stage = root.querySelector('.n-zoom-stage');
+    stage.addEventListener('pointerdown', nZoomDown);
+    stage.addEventListener('pointermove', nZoomMove);
+    stage.addEventListener('pointerup', nZoomUp);
+    stage.addEventListener('pointercancel', nZoomUp);
+    stage.addEventListener('wheel', nZoomWheel, { passive: false });
+    window.addEventListener('resize', () => { if (NZ.open) nZoomLayout(); });
+  }
+  NZ.el = {
+    root, frame: root.querySelector('.n-zoom-frame'), stage: root.querySelector('.n-zoom-stage'),
+    content: root.querySelector('.n-zoom-content'), tip: root.querySelector('.n-zoom-tip'),
+  };
+  const head = src.firstElementChild && src.firstElementChild.tagName !== 'svg'
+    ? src.firstElementChild.cloneNode(true) : null;
+  const hb = root.querySelector('.n-zoom-head');
+  hb.innerHTML = '';
+  if (head) hb.appendChild(head);
+  const clone = svg.cloneNode(true);
+  clone.removeAttribute('style');
+  clone.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  clone.style.cssText = 'width:100%;height:100%;display:block';
+  NZ.el.content.innerHTML = '';
+  NZ.el.content.appendChild(clone);
+  NZ.el.tip.style.display = 'none';
+  NZ.open = true;
+  root.style.display = 'block';
+  document.body.style.overflow = 'hidden';
+  nZoomLayout();
+  if (typeof nBackPush === 'function') nBackPush('zoom', nChartZoomHide);
+}
+
+function nChartZoomHide() {
+  if (!NZ.open) return;
+  NZ.open = false;
+  NZ.ptrs.clear(); NZ.g = null;
+  if (NZ.el) { NZ.el.root.style.display = 'none'; NZ.el.content.innerHTML = ''; }
+  document.body.style.overflow = '';
+}
+function nChartZoomClose() {
+  const wasOpen = NZ.open;
+  nChartZoomHide();
+  if (wasOpen && typeof nBackConsume === 'function') nBackConsume('zoom');
+}
+function nChartZoomReset() { NZ.s = 1; NZ.tx = 0; NZ.ty = 0; nZoomApply(); }
+
+// Size the frame to the viewport. Portrait → frame is viewport-with-sides-swapped,
+// centred, rotated 90° clockwise (the chart's top edge faces the phone's right
+// edge, so turning the phone a quarter-turn counter-clockwise reads it upright).
+function nZoomLayout() {
+  const W = window.innerWidth, H = window.innerHeight, f = NZ.el.frame;
+  NZ.rotate = H > W;
+  if (NZ.rotate) {
+    f.style.width = H + 'px'; f.style.height = W + 'px';
+    f.style.left = ((W - H) / 2) + 'px'; f.style.top = ((H - W) / 2) + 'px';
+    f.style.transform = 'rotate(90deg)';
+  } else {
+    f.style.width = W + 'px'; f.style.height = H + 'px';
+    f.style.left = '0px'; f.style.top = '0px';
+    f.style.transform = 'none';
+  }
+  nChartZoomReset();
+}
+
+// Screen (client) point → stage-local point, undoing the frame rotation.
+function nZoomLocal(cx, cy) {
+  const W = window.innerWidth, H = window.innerHeight, st = NZ.el.stage;
+  let lx, ly;
+  if (NZ.rotate) {
+    const vx = cx - W / 2, vy = cy - H / 2;
+    lx = vy + H / 2; ly = -vx + W / 2;            // inverse of rotate(90deg) about the centre
+  } else { lx = cx; ly = cy; }
+  return { x: lx - st.offsetLeft, y: ly - st.offsetTop };
+}
+
+function nZoomClamp() {
+  const sw = NZ.el.stage.clientWidth, sh = NZ.el.stage.clientHeight;
+  NZ.s = Math.max(1, Math.min(NZ_MAX, NZ.s));
+  NZ.tx = Math.min(0, Math.max(sw - sw * NZ.s, NZ.tx));
+  NZ.ty = Math.min(0, Math.max(sh - sh * NZ.s, NZ.ty));
+}
+function nZoomApply() {
+  if (!NZ.el) return;
+  nZoomClamp();
+  const c = NZ.el.content, sw = NZ.el.stage.clientWidth, sh = NZ.el.stage.clientHeight;
+  c.style.width = (sw * NZ.s) + 'px';
+  c.style.height = (sh * NZ.s) + 'px';
+  c.style.transform = `translate(${NZ.tx}px,${NZ.ty}px)`;
+}
+// Zoom to scale s keeping stage-local point p fixed on screen.
+function nZoomAt(p, s) {
+  const cx = (p.x - NZ.tx) / NZ.s, cy = (p.y - NZ.ty) / NZ.s;
+  NZ.s = Math.max(1, Math.min(NZ_MAX, s));
+  NZ.tx = p.x - cx * NZ.s; NZ.ty = p.y - cy * NZ.s;
+  nZoomApply();
+}
+
+function nZoomGestureStart() {
+  const ps = [...NZ.ptrs.values()];
+  if (!ps.length) { NZ.g = null; return; }
+  const a = ps[0], b = ps[1];
+  const mid = b ? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } : { x: a.x, y: a.y };
+  NZ.g = { n: ps.length, mid: nZoomLocal(mid.x, mid.y), d: b ? Math.hypot(a.x - b.x, a.y - b.y) : 0,
+    s: NZ.s, tx: NZ.tx, ty: NZ.ty, moved: NZ.g ? NZ.g.moved : false,
+    t0: NZ.g ? NZ.g.t0 : Date.now(), x0: NZ.g ? NZ.g.x0 : a.x, y0: NZ.g ? NZ.g.y0 : a.y };
+}
+function nZoomDown(e) {
+  e.preventDefault();
+  try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+  if (!NZ.ptrs.size) NZ.g = null;
+  NZ.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  nZoomGestureStart();
+}
+function nZoomMove(e) {
+  if (!NZ.ptrs.has(e.pointerId) || !NZ.g) return;
+  e.preventDefault();
+  NZ.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  const g = NZ.g, ps = [...NZ.ptrs.values()];
+  if (Math.hypot(ps[0].x - g.x0, ps[0].y - g.y0) > 8 || ps.length > 1) g.moved = true;
+  if (ps.length >= 2 && g.d > 0) {
+    const a = ps[0], b = ps[1];
+    const m = nZoomLocal((a.x + b.x) / 2, (a.y + b.y) / 2);
+    const s = Math.max(1, Math.min(NZ_MAX, g.s * Math.hypot(a.x - b.x, a.y - b.y) / g.d));
+    const cx = (g.mid.x - g.tx) / g.s, cy = (g.mid.y - g.ty) / g.s;
+    NZ.s = s; NZ.tx = m.x - cx * s; NZ.ty = m.y - cy * s;
+  } else {
+    const p = nZoomLocal(ps[0].x, ps[0].y);
+    NZ.tx = g.tx + (p.x - g.mid.x); NZ.ty = g.ty + (p.y - g.mid.y);
+  }
+  nZoomApply();
+}
+function nZoomUp(e) {
+  if (!NZ.ptrs.has(e.pointerId)) return;
+  const g = NZ.g;
+  NZ.ptrs.delete(e.pointerId);
+  if (NZ.ptrs.size) { nZoomGestureStart(); return; }
+  NZ.g = null;
+  if (!g || g.moved || Date.now() - g.t0 > 400 || e.type === 'pointercancel') return;
+  // A tap. Two within 300 ms = double-tap zoom; otherwise show the nearest point's value.
+  const now = Date.now();
+  if (now - NZ.lastTap < 300) {
+    NZ.lastTap = 0;
+    nZoomAt(nZoomLocal(e.clientX, e.clientY), NZ.s > 1.05 ? 1 : 2.5);
+    NZ.el.tip.style.display = 'none';
+  } else {
+    NZ.lastTap = now;
+    nZoomTip(e.clientX, e.clientY);
+  }
+}
+function nZoomWheel(e) {           // desktop convenience (trackpad pinch arrives as ctrl+wheel)
+  e.preventDefault();
+  nZoomAt(nZoomLocal(e.clientX, e.clientY), NZ.s * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.002)));
+}
+
+// Nearest element carrying a <title> within ~22 px of the tap, in screen space
+// (getBoundingClientRect already accounts for the rotation and zoom).
+function nZoomTip(cx, cy) {
+  const tip = NZ.el.tip;
+  let best = null, bd = 22;
+  NZ.el.content.querySelectorAll('title').forEach(t => {
+    const el = t.parentNode;
+    if (!el || !el.getBoundingClientRect) return;
+    const r = el.getBoundingClientRect();
+    const dx = Math.max(r.left - cx, 0, cx - r.right), dy = Math.max(r.top - cy, 0, cy - r.bottom);
+    const d = Math.hypot(dx, dy);
+    if (d < bd) { bd = d; best = t.textContent; }
+  });
+  clearTimeout(NZ.tipTimer);
+  if (!best) { tip.style.display = 'none'; return; }
+  tip.textContent = best;
+  tip.style.display = 'block';
+  NZ.tipTimer = setTimeout(() => { tip.style.display = 'none'; }, 4000);
 }
