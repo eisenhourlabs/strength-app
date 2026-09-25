@@ -102,16 +102,31 @@ function nWeeklyQuietLine(dateStr) {
 
 // ── Render ──
 function renderToday() {
-  const dateStr = nToday();
-  document.getElementById('today-title').textContent = nFmtDate(dateStr);
+  const dateStr = nViewDate();
+  const today = nToday();
+  const isBack = dateStr !== today;
+  const ctx = nWeekCtx(dateStr);
+  document.getElementById('today-title').textContent = nFmtDateShort(dateStr);
   document.getElementById('today-sub').textContent =
-    `${NS.me.name} · week of ${NS.weekOf}${NS.planWeek ? '' : ' — no plan pushed yet'}`;
+    `${NS.me.name} · week of ${ctx.weekOf}${(isBack || NS.planWeek) ? '' : ' — no plan pushed yet'}`;
+  // Day nav: back up to N_BACKLOG_DAYS, never past today (hidden, not removed, so the title doesn't shift)
+  const prev = document.getElementById('today-prev'), next = document.getElementById('today-next');
+  if (prev) prev.style.visibility = dateStr > nAddDays(today, -N_BACKLOG_DAYS) ? 'visible' : 'hidden';
+  if (next) next.style.visibility = isBack ? 'visible' : 'hidden';
 
   const body = document.getElementById('today-body');
   const blocks = [];
-  blocks.push(nPromptCardsHtml());
+  if (isBack) {
+    // Past day: banner makes the target date unmissable; "now" prompts stay on today.
+    blocks.push(`<div class="n-backday"><span>Viewing <b>${nEsc(nFmtDate(dateStr))}</b> — logs save to this day</span>
+      <button onclick="nViewToday()">Back to today</button></div>`);
+  } else {
+    blocks.push(nPromptCardsHtml());
+  }
 
-  const inWeek = dateStr >= NS.weekOf && dateStr <= nAddDays(NS.weekOf, 6);
+  const inWeek = isBack
+    ? (dateStr >= NS.weekOf || nMyMeals(dateStr).length > 0 || !!ctx.target)
+    : (dateStr >= NS.weekOf && dateStr <= nAddDays(NS.weekOf, 6));
   if (!inWeek) {
     blocks.push(`<div class="n-panel"><div class="n-panel-title">Plan week of ${NS.weekOf}</div>
       Your plan ${dateStr < NS.weekOf ? 'starts ' + nFmtDate(NS.weekOf) : 'ended ' + nFmtDate(nAddDays(NS.weekOf, 6))}.
@@ -122,30 +137,60 @@ function renderToday() {
 
   const meals = inWeek ? nMyMeals(dateStr) : [];
   if (!meals.length && inWeek) {
-    blocks.push(`<div class="n-panel">No meals planned for today.</div>`);
+    blocks.push(`<div class="n-panel">No meals planned for ${isBack ? 'this day' : 'today'}.</div>`);
   }
   for (const m of meals) blocks.push(nMealCardHtml(m));
 
   // Added (unplanned) items today
   const added = NS.addedLogs.filter(l => l.log_date === dateStr);
   if (added.length) {
-    blocks.push(`<div class="n-sheet-section" style="margin-top:14px">Added today</div>`);
+    blocks.push(`<div class="n-sheet-section" style="margin-top:14px">Added${isBack ? '' : ' today'}</div>`);
     for (const l of added) blocks.push(nAddedCardHtml(l));
   }
 
-  blocks.push(nActivityCardHtml());
-  blocks.push(`<button class="n-act" style="width:100%;margin-top:10px" onclick="openNSheet('add', null)">+ Add food</button>`);
+  if (!isBack) blocks.push(nActivityCardHtml());
+  blocks.push(`<button class="n-act" style="width:100%;margin-top:10px" onclick="openNSheet('add', null)">+ Add food${isBack ? ' to ' + nDayName(dateStr, true) : ''}</button>`);
 
   // Weekly quiet line (Amanda only) — dropped into a random gap between
   // cards so it doesn't always land in the same place, but never inside
   // an existing card's markup.
-  const quiet = nWeeklyQuietLine(dateStr);
+  const quiet = isBack ? '' : nWeeklyQuietLine(dateStr);
   if (quiet) {
     const pos = nWeekHash('enc:slot:' + NS.me.id + ':' + NS.weekOf) % (blocks.length + 1);
     blocks.splice(pos, 0, quiet);
   }
 
   body.innerHTML = blocks.join('');
+}
+
+// ── Back-logging day navigation ──
+function nFmtDateShort(dstr) {
+  const d = new Date(dstr + 'T12:00:00');
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+function nViewShift(n) {
+  const t = nToday();
+  const d = nAddDays(nViewDate(), n);
+  if (d > t || d < nAddDays(t, -N_BACKLOG_DAYS)) return;
+  NS.viewDate = d === t ? null : d;
+  renderToday();
+  const b = document.getElementById('today-body'); if (b) b.scrollTop = 0;
+}
+function nViewToday() { NS.viewDate = null; renderToday(); }
+// Week tab → open a day (within the window) on the Today screen.
+function nOpenDayInToday(d) {
+  NS.viewDate = d === nToday() ? null : d;
+  nShowTab('today');
+}
+// Which plan week a date belongs to: the current one, or (for back-logged days
+// before it) the previous plan week loaded into NS.prevMeals / NS.prevTarget.
+function nWeekCtx(dateStr) {
+  if (dateStr < NS.weekOf && NS.prevWeekOf) {
+    const wo = NS.prevWeekOf, end = [nAddDays(wo, 6), nAddDays(NS.weekOf, -1)].sort()[0];
+    return { weekOf: wo, end, target: NS.prevTarget,
+      meals: (NS.prevMeals || []).filter(m => m.meal_date >= wo && m.meal_date <= end) };
+  }
+  return { weekOf: NS.weekOf, end: nAddDays(NS.weekOf, 6), target: NS.target, meals: NS.meals };
 }
 
 // ── On-track math ──
@@ -163,9 +208,10 @@ function nTrackClass(actual, expected) {
   if (diff <= Math.max(250, 0.20 * expected)) return 'warn';
   return 'bad';
 }
-function nWeekStats() {
+function nWeekStats(ctx) {
+  ctx = ctx || nWeekCtx(nViewDate());
   let actual = 0, expected = 0, approx = false;
-  for (const m of NS.meals) {
+  for (const m of ctx.meals) {
     if (m.athlete_id !== NS.me.id) continue;
     const l = NS.logs[m.id];
     if (!l) continue;
@@ -174,6 +220,7 @@ function nWeekStats() {
     actual += l.actual_kcal || 0;
   }
   for (const l of NS.addedLogs) {
+    if (l.log_date < ctx.weekOf || l.log_date > ctx.end) continue;  // back-log window loads other weeks too
     if (l.actual_kcal == null) { approx = true; continue; }
     actual += l.actual_kcal || 0;
   }
@@ -182,7 +229,10 @@ function nWeekStats() {
 
 // ── Budget header (sticky, day + week bars) ──
 function nBudgetHtml(dateStr) {
-  const t = NS.target;
+  const ctx = nWeekCtx(dateStr);
+  const isBack = dateStr !== nToday();
+  const dayLbl = isBack ? nDayName(dateStr, true) : 'Today';
+  const t = ctx.target;
   if (!t) return `<div class="n-panel">No targets pushed for this week yet.</div>`;
   const { kcal, protein, approx } = nDayTotals(dateStr);
   const expected = nExpectedSoFar(dateStr);
@@ -195,8 +245,8 @@ function nBudgetHtml(dateStr) {
   const pRemain = Math.max(0, t.protein_g_low - protein);
   const tilde = approx ? '~' : '';
 
-  const wk = nWeekStats();
-  const wkPlanned = Math.round(NS.meals.filter(m => m.athlete_id === NS.me.id)
+  const wk = nWeekStats(ctx);
+  const wkPlanned = Math.round(ctx.meals.filter(m => m.athlete_id === NS.me.id)
     .reduce((s, m) => s + m.planned_kcal, 0)) || t.kcal_target * 7;
   const wkCls = nTrackClass(wk.actual, wk.expected);
   const wkPct = Math.min(100, Math.round(100 * wk.actual / wkPlanned));
@@ -204,19 +254,20 @@ function nBudgetHtml(dateStr) {
 
   let hint = '';
   const dayDiff = kcal - expected;
-  if (dayCls === 'bad' && dayDiff > 0)
+  if (isBack) { /* next-meal coaching doesn't apply to a past day */ }
+  else if (dayCls === 'bad' && dayDiff > 0)
     hint = `<div class="n-budget-hint">~${dayDiff} over planned-so-far — go lighter on the next meal, then back to plan (no compensating)</div>`;
   else if (dayCls === 'bad' && expected > 0)
     hint = `<div class="n-budget-hint">~${-dayDiff} under planned-so-far — under-eating isn't a win in this phase; eat your meals</div>`;
 
   return `<div class="n-budget" style="margin-bottom:10px">
-    <div class="n-budget-kcal"><span>Today ${tilde}${kcal.toLocaleString()} / ${plannedToday.toLocaleString()} planned</span>
+    <div class="n-budget-kcal"><span>${dayLbl} ${tilde}${kcal.toLocaleString()} / ${plannedToday.toLocaleString()} planned</span>
       <span style="font-size:12px;font-weight:400;color:var(--n-muted)">P ${tilde}${protein} / ${t.protein_g_low}–${t.protein_g_high}g</span></div>
     <div class="n-budget-bar"><div class="n-budget-fill ${dayCls}" style="width:${dayPct}%"></div></div>
     <div class="n-budget-row2"><span>Week ${wk.approx ? '~' : ''}${wk.actual.toLocaleString()} / ${wkPlanned.toLocaleString()} planned</span>
       <span>${wkLeft > 0 ? '~' + wkLeft.toLocaleString() + ' left this week' : 'week plan complete'}</span></div>
     <div class="n-bar-slim"><div class="n-budget-fill ${wkCls}" style="width:${wkPct}%"></div></div>
-    <div class="n-budget-remaining">Remaining today: <b>${remaining > 0 ? '~' + remaining.toLocaleString() + ' kcal' : 'plan complete ✓'}</b>
+    <div class="n-budget-remaining">Remaining${isBack ? '' : ' today'}: <b>${remaining > 0 ? '~' + remaining.toLocaleString() + ' kcal' : 'plan complete ✓'}</b>
       · day target ${t.kcal_target.toLocaleString()}
       ${pRemain > 0 ? ` · ~${pRemain}g protein to floor` : ' · protein floor met ✓'}</div>
     ${hint}</div>`;
@@ -567,7 +618,7 @@ async function nRemoveAdded(logId) {
   renderToday();
 }
 
-function nFindMeal(id) { return NS.meals.find(m => m.id === id); }
+function nFindMeal(id) { return NS.meals.find(m => m.id === id) || (NS.prevMeals || []).find(m => m.id === id); }
 function nPickPending(mealId, p) { N_PENDING[mealId] = p; renderToday(); }
 // Kitchen-unit label for a Tweak basket item: qty x serving_desc -> "6 oz cooked" (no bare multiplier shown).
 // When the food carries grams_per_serving, appends the scaled gram/oz reading so the
@@ -746,7 +797,8 @@ function openNSheet(mode, mealId) {
   const meal = mealId ? nFindMeal(mealId) : null;
   NS.sheet = { mode, meal, basket: [], filter: 'all', mf: 'all' };
   document.getElementById('n-sheet-title').textContent =
-    mode === 'swap' ? 'Swap / adjust meal' : 'Add food';
+    (mode === 'swap' ? 'Swap / adjust meal' : 'Add food') +
+    (nViewDate() !== nToday() ? ` — ${nDayName(nViewDate(), true)}` : '');
   document.getElementById('n-sheet-search').value = '';
   document.getElementById('n-custom-desc').value = '';
   document.getElementById('n-custom-kcal').value = '';
@@ -850,7 +902,7 @@ async function submitBasket() {
       // Rule 5 — the unique index only covers planned-linked logs, so ad-hoc
       // additions can silently double up. Ask before creating the second one.
       const dup = nmCheckDuplicate(NS.addedLogs, {
-        log_date: nToday(), meal_slot: 'snack', status: 'added',
+        log_date: nViewDate(), meal_slot: 'snack', status: 'added',
         swap_recipe_id: src.recipe_id, swap_food_item_id: src.food_item_id,
         custom_desc: src.desc,
       });
@@ -858,11 +910,11 @@ async function submitBasket() {
         closeNSheet();
         return nConfirmOpen('Log this twice?', `<div>${nEsc(dup.message)}</div>`, [
           { label: 'Yes, I had it again', kind: 'primary',
-            run: async () => { await nLogAdded(nToday(), src); await nConsumeZ(zItems); toast('Logged ✓'); renderToday(); } },
+            run: async () => { await nLogAdded(nViewDate(), src); await nConsumeZ(zItems); toast('Logged ✓'); renderToday(); } },
           { label: 'No — that was a double entry', run: () => renderToday() },
         ]);
       }
-      await nLogAdded(nToday(), src);
+      await nLogAdded(nViewDate(), src);
       await nConsumeZ(zItems);
     } else { await nLogMeal(meal, status, src, 1.0); await nConsumeZ(zItems); }
     closeNSheet(); toast('Logged ✓'); renderToday();
@@ -1058,7 +1110,7 @@ async function submitCustomFood() {
   }
 
   try {
-    if (mode === 'add' || !meal) await nLogAdded(nToday(), src);
+    if (mode === 'add' || !meal) await nLogAdded(nViewDate(), src);
     else await nLogMeal(meal, 'swapped', kcal != null ? src : { ...src, kcal: null }, 1.0);
     closeNSheet();
     toast(saveIt ? 'Saved to your foods + logged ✓' : (kcal != null ? 'Logged ✓' : 'Logged (unquantified) — day totals show ~'), 3000);

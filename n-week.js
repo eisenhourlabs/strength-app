@@ -48,7 +48,14 @@ function renderNWeek() {
   }
   const dayTotal = meals.reduce((s, m) => s + m.planned_kcal, 0);
   html += `<div class="n-wk-meal" style="border-top:1px solid var(--n-border)"><span class="n-wk-slot">planned</span>
-    <span class="n-wk-name"></span><span class="n-wk-kcal"><b>${Math.round(dayTotal)} kcal</b></span></div></div>`;
+    <span class="n-wk-name"></span><span class="n-wk-kcal"><b>${Math.round(dayTotal)} kcal</b></span></div>`;
+  // Back-logging: days in the Today window (today and the last N_BACKLOG_DAYS) open on Today to review/log.
+  const tdy = nToday();
+  if (NS.selDay <= tdy && NS.selDay >= nAddDays(tdy, -N_BACKLOG_DAYS)) {
+    html += `<button class="n-act" style="width:100%;margin-top:10px" onclick="nOpenDayInToday('${NS.selDay}')">${
+      NS.selDay === tdy ? 'Log today →' : 'View / log ' + nDayName(NS.selDay, true) + ' →'}</button>`;
+  }
+  html += `</div>`;
 
   // Prep plan (household) — full card only when the selected day is a prep day;
   // otherwise a one-line pointer to the next prep day. Legacy text falls back

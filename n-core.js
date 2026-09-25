@@ -40,6 +40,15 @@ function nYMD(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 function nToday() { return nYMD(new Date()); }
+// Back-logging: Today can page back N_BACKLOG_DAYS days to review / fix logs.
+// NS.viewDate is null when viewing today; nViewDate() clamps it to the window
+// (so a stale value after midnight snaps back to today).
+const N_BACKLOG_DAYS = 3;
+function nViewDate() {
+  const t = nToday(), v = NS.viewDate;
+  if (!v || v >= t || v < nAddDays(t, -N_BACKLOG_DAYS)) { NS.viewDate = null; return t; }
+  return v;
+}
 function nMonday(dstr) {
   const d = new Date(dstr + 'T12:00:00');
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
@@ -271,6 +280,35 @@ async function nLoadAll() {
     else NS.addedLogs.push(l);
   }
 
+  // Back-logging: when the N-day window reaches before this plan week (e.g. on a
+  // Wed/Thu), load the PREVIOUS plan week's meals + target separately (NS.prevMeals)
+  // so week-scoped screens (Week, Recipes, check-in) stay on the current week.
+  // Its logs merge into NS.logs (keyed by unique meal id) / NS.addedLogs (date-filtered
+  // everywhere; nWeekStats filters by week range).
+  NS.prevMeals = []; NS.prevTarget = null; NS.prevWeekOf = null;
+  const bStart = nAddDays(nToday(), -N_BACKLOG_DAYS);
+  const bEnd = [nAddDays(wk, -1), nAddDays(nToday(), -1)].sort()[0];
+  if (bStart <= bEnd) {
+    try {
+      const { data: pt } = await ndb.from('nutrition_targets').select('*')
+        .eq('athlete_id', meId).lte('week_of', bEnd).order('week_of', { ascending: false }).limit(1);
+      NS.prevTarget = (pt && pt[0]) || null;
+      NS.prevWeekOf = NS.prevTarget?.week_of || nWednesday(bStart);
+      const pStart = [NS.prevWeekOf, bStart].sort()[0], pEnd = nAddDays(wk, -1);
+      const [pm, pl] = await Promise.all([
+        ndb.from('planned_meals').select('*').gte('meal_date', pStart).lte('meal_date', pEnd)
+          .order('meal_date').order('slot_order'),
+        ndb.from('meal_logs').select('*').eq('athlete_id', meId)
+          .gte('log_date', pStart).lte('log_date', pEnd),
+      ]);
+      NS.prevMeals = pm.data || [];
+      for (const l of (pl.data || [])) {
+        if (l.planned_meal_id) NS.logs[l.planned_meal_id] = l;
+        else NS.addedLogs.push(l);
+      }
+    } catch (e) { console.warn('back-log window load failed', e); }
+  }
+
   // Recipe components (per-ingredient Tweak feature) — tolerate missing table
   NS.components = {};
   try {
@@ -399,7 +437,8 @@ function nMealSortKey(m) {
   return N_SLOT_ORDER[m.meal_slot] ?? 60;
 }
 function nMyMeals(dateStr) {
-  return NS.meals.filter(m => m.athlete_id === NS.me.id && m.meal_date === dateStr)
+  const src = dateStr < NS.weekOf ? (NS.prevMeals || []) : NS.meals;
+  return src.filter(m => m.athlete_id === NS.me.id && m.meal_date === dateStr)
     .sort((a, b) => nMealSortKey(a) - nMealSortKey(b));
 }
 function nMealName(m) {
@@ -417,7 +456,7 @@ function nIsAssemblyRecipe(id) {
 }
 function nSharedPartner(m) {
   if (!m.shared_group_id) return null;
-  const other = NS.meals.find(x => x.shared_group_id === m.shared_group_id && x.athlete_id !== m.athlete_id);
+  const other = NS.meals.concat(NS.prevMeals || []).find(x => x.shared_group_id === m.shared_group_id && x.athlete_id !== m.athlete_id);
   if (!other) return null;
   const who = NS.household.find(a => a.id === other.athlete_id);
   return { name: who?.name || 'Partner', servings: other.planned_servings };
