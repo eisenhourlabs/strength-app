@@ -594,3 +594,83 @@ async function syncQueue() {
 }
 
 
+// ── Android back-button support ───────────────────────────────────────────────
+// Mirrors nutrition's layer stack (n-core.js nBackPush/nBackConsume) but is driven
+// by the DOM instead of per-sheet hooks, so every current and future sheet, prompt
+// and sub-screen is covered automatically:
+//   • While anything other than "home" is showing (a non-Week screen, an open
+//     .sheet-overlay, or a .pain-prompt-overlay dialog), one guard history entry is
+//     kept pushed. System back pops it and we close the TOP layer the same way the
+//     on-screen control would: prompt → its Cancel button (prompts with no Cancel,
+//     e.g. "Log conditioning?", just swallow back), sheet → its overlay tap,
+//     RPE chips → close, screen → its ‹ back button (session → leaveSession, which
+//     saves the draft).
+//   • Returning home by an on-screen control consumes the guard, so back on the
+//     Week screen with nothing open exits the app as before.
+const SBACK = { armed: false, skip: 0, pending: false };
+const SBACK_HOME = ['week', 'login', 'setpw'];
+
+function sbActiveScreen() {
+  const el = document.querySelector('.screen.active');
+  return el ? el.id.replace('screen-', '') : null;
+}
+function sbTopPrompt() {
+  const ps = document.querySelectorAll('body > .pain-prompt-overlay');
+  return ps.length ? ps[ps.length - 1] : null;
+}
+function sbOpenSheetOverlay() {
+  const os = document.querySelectorAll('.sheet-overlay.open');
+  return os.length ? os[os.length - 1] : null;
+}
+function sbIsHome() {
+  if (sbTopPrompt() || sbOpenSheetOverlay()) return false;
+  const scr = sbActiveScreen();
+  return !scr || SBACK_HOME.includes(scr);
+}
+function sbSync() {
+  SBACK.pending = false;
+  const home = sbIsHome();
+  if (!home && !SBACK.armed) {
+    try { history.pushState({ sback: 1 }, ''); SBACK.armed = true; } catch (e) { /* ignore */ }
+  } else if (home && SBACK.armed) {
+    SBACK.armed = false;
+    SBACK.skip++;
+    try { history.back(); } catch (e) { SBACK.skip--; }
+  }
+}
+function sbSchedule() {
+  if (SBACK.pending) return;
+  SBACK.pending = true;
+  setTimeout(sbSync, 0);
+}
+function sbHandleBack() {
+  const prompt = sbTopPrompt();
+  if (prompt) {
+    const cancel = Array.from(prompt.querySelectorAll('button'))
+      .find(b => b.textContent.trim().toLowerCase() === 'cancel');
+    if (cancel) cancel.click();
+    return;                                   // no Cancel → swallow (flow prompt)
+  }
+  const ov = sbOpenSheetOverlay();
+  if (ov) { ov.click(); return; }
+  if (document.getElementById('rpe-chipbar') && typeof closeRpeChips === 'function') {
+    closeRpeChips(); return;
+  }
+  const scr = sbActiveScreen();
+  if (scr === 'success') { if (typeof loadProgram === 'function') loadProgram(); return; }
+  const btn = scr && document.querySelector(`#screen-${scr} .back-btn`);
+  if (btn) { btn.click(); return; }
+  showScreen('week');
+}
+window.addEventListener('popstate', () => {
+  if (SBACK.skip > 0) { SBACK.skip--; return; }
+  SBACK.armed = false;                        // our guard entry was just popped
+  try { sbHandleBack(); } catch (e) { console.error('back handler', e); }
+  sbSchedule();                               // re-arm if still not home
+});
+(function sbInit() {
+  const mo = new MutationObserver(sbSchedule);
+  mo.observe(document.body, { childList: true });           // prompts appended/removed
+  document.querySelectorAll('.screen, .sheet-overlay').forEach(el =>
+    mo.observe(el, { attributes: true, attributeFilter: ['class'] }));
+})();
