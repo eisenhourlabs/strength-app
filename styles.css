@@ -869,3 +869,40 @@
 .mv-caution { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
 .mv-caution:last-child { border-bottom: none; }
 .mv-caution-off { opacity: .7; }
+
+/* Daily Movement — Phase 3 self-tests */
+.mv-test-row { border-top: 1px solid var(--border); margin-top: 2px; padding-top: 10px; }
+.mv-test-icon { width: 34px; text-align: center; font-size: 20px; flex-shrink: 0; }
+.mv-later { margin-top: 0; }
+.mv-test-item { padding: 10px 4px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.mv-test-item-off { opacity: .55; }
+.mv-test-item-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mv-test-res { font-size: 13px; margin-top: 2px; }
+.mv-test-due { color: var(--accent); font-weight: 600; }
+.mv-test-flag-tag { font-size: 10px; font-weight: 700; color: #d9a441; border: 1px solid #d9a441; border-radius: 10px; padding: 1px 6px; }
+.mv-test-shows { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+.mv-test-steps { margin: 6px 0 8px 18px; padding: 0; font-size: 14px; }
+.mv-test-steps li { margin-bottom: 5px; }
+.mv-test-safety { font-size: 12px; color: #d9a441; margin: 4px 0; }
+.mv-test-good { font-size: 13px; margin: 4px 0 10px; }
+.mv-test-side { margin-bottom: 6px; }
+.mv-num-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.mv-num { width: 90px; font-size: 18px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); }
+.mv-num-unit { font-size: 13px; color: var(--muted); }
+.mv-num-row .mv-mini { margin-top: 0; }
+.mv-unit-chips { margin-bottom: 4px; }
+.mv-hurt { color: #d9a441; }
+.mv-test-optout { text-align: center; margin: 10px 0 4px; font-size: 13px; }
+.mv-link { color: var(--accent2); text-decoration: underline; cursor: pointer; }
+.mv-test-saved { font-size: 16px; font-weight: 700; color: var(--success); margin-bottom: 8px; }
+.mv-test-change { font-size: 14px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.mv-test-flag { font-size: 13px; color: #d9a441; background: #2a2010; border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+.mv-offer { background: var(--surface2); border: 1px solid var(--accent); border-radius: 10px; padding: 10px 12px; margin: 6px 0 10px; font-size: 14px; }
+.mv-area-test { font-size: 12px; color: var(--muted); margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border); cursor: pointer; }
+.mv-tilt { text-align: center; }
+.mv-tilt .mv-test-steps { text-align: left; }
+.mv-tilt-title { font-weight: 700; margin-bottom: 4px; }
+.mv-tilt-live { font-size: 56px; font-weight: 800; margin: 18px 0 6px; color: var(--accent); }
+.mv-tilt-msg { font-size: 14px; color: var(--muted); margin-bottom: 14px; }
+.mv-screen-dots { display: flex; gap: 10px; flex-wrap: wrap; padding: 4px 0; }
+.mv-screen-dot { display: flex; flex-direction: column; align-items: center; }
