@@ -1795,21 +1795,40 @@ function mvTiltAngle(mode, g0, g) {
   if (mode === 'start-90') a -= 90;
   return a;
 }
-// Hold-still capture. Feed (state, ms, angle, mode); returns the state.
-// A "steady run" is a stretch of readings that all sit within MV_TILT_BAND of
-// each other. Once the athlete has moved ≥ 10° from the first reading ('level'
-// mode needs no movement) and a steady run lasts MV_TILT_HOLD_MS, the run's
-// average is captured. st.steadyMs drives the "Holding steady…" hint.
-// Tuned 2026-09-25 after phone testing: a 2° / 1.5 s rule never triggered in a
-// real hand (normal tremor), so the band is 4° over 1 s — well inside the
-// 6–8° real-change thresholds.
+// Capture logic for the phone tilt meter. Feed (state, ms, angle, mode); returns
+// the state. Two ways a reading is captured:
+//   'hold' — a steady run: readings within MV_TILT_BAND of each other for
+//            MV_TILT_HOLD_MS, at (or near) the best range reached so far.
+//   'peak' — the athlete reaches end range and comes back down without ever
+//            holding still enough: once the angle falls MV_TILT_DROP below the
+//            best range, the best range is captured (a "max-hold" inclinometer).
+// "Best range" = the highest level SUSTAINED for MV_TILT_PEAK_MS (the lowest
+// reading in a 400 ms window, maximized over time), so a jerky overshoot spike
+// is not taken as range. 'level' mode (Thomas) captures a steady run only.
+// History (phone tests 2026-09-25): a 2° / 1.5 s hold never triggered in a real
+// hand; a 4° / 1 s hold still didn't, and the rest position after lowering the
+// arm was then captured as 0°. Hence the wider band, the "near best" rule and
+// the peak capture.
 const MV_TILT_HOLD_MS = 1000;
-const MV_TILT_BAND = 4;
+const MV_TILT_BAND = 6;
+const MV_TILT_PEAK_MS = 400;
+const MV_TILT_DROP = 25;
 function mvTiltTrack(st, t, a, mode) {
-  st = st || { start: null, moved: false, captured: null, run: null, steadyMs: 0 };
+  st = st || {};
+  if (!st.win) st.win = [];
+  if (st.captured === undefined) st.captured = null;
   if (st.captured != null) return st;
   if (st.start == null) st.start = a;
   if (mode === 'level' || Math.abs(a - st.start) >= 10) st.moved = true;
+  // Sustained best range
+  st.win.push({ t: t, a: a });
+  while (st.win.length > 1 && t - st.win[0].t > MV_TILT_PEAK_MS) st.win.shift();
+  if (st.moved && mode !== 'level' && t - st.win[0].t >= MV_TILT_PEAK_MS * 0.75) {
+    let lo = Infinity, sum = 0;
+    st.win.forEach(function (w) { lo = Math.min(lo, w.a); sum += w.a; });
+    if (st.best == null || lo > st.best) { st.best = lo; st.bestMean = sum / st.win.length; }
+  }
+  // Steady run
   const r = st.run;
   if (r && Math.max(r.hi, a) - Math.min(r.lo, a) <= MV_TILT_BAND) {
     r.hi = Math.max(r.hi, a); r.lo = Math.min(r.lo, a); r.sum += a; r.n++;
@@ -1817,7 +1836,13 @@ function mvTiltTrack(st, t, a, mode) {
     st.run = { t0: t, lo: a, hi: a, sum: a, n: 1 };
   }
   st.steadyMs = t - st.run.t0;
-  if (st.moved && st.steadyMs >= MV_TILT_HOLD_MS) st.captured = st.run.sum / st.run.n;
+  const runMean = st.run.sum / st.run.n;
+  const nearBest = mode === 'level' || st.best == null || runMean >= st.best - MV_TILT_BAND;
+  if (st.moved && st.steadyMs >= MV_TILT_HOLD_MS && nearBest) {
+    st.captured = runMean; st.how = 'hold';
+  } else if (mode !== 'level' && st.best != null && st.best - st.start >= 10 && a <= st.best - MV_TILT_DROP) {
+    st.captured = st.bestMean; st.how = 'peak';
+  }
   return st;
 }
 
@@ -2315,7 +2340,7 @@ function mvTiltHtml(t, tl) {
       + (t.tilt === 'level'
         ? '<li>Put the phone lengthwise on the front of your thigh.</li><li>Tap Start, then lie back into the test within 3 seconds.</li>'
         : '<li>Set the phone as the steps say and get into the start position.</li><li>Tap Start and stay still until the first beep.</li><li>Move slowly to your end range.</li>')
-      + '<li>Hold still for a second. A double beep means the reading is in — or tap <b>Use this reading</b>.</li></ol>'
+      + '<li>Hold at end range for a second — or just come back down; it keeps your best range. A double beep means it\'s in.</li></ol>'
       + '<div class="mv-muted" style="margin-bottom:10px">iPhone: turn the ringer on (silent switch off) to hear the beeps.</div>'
       + '<button class="btn" id="mv-tilt-start" onclick="mvTiltStart()">Start</button>'
       + '<button class="btn secondary" onclick="mvTiltCancel()">Cancel</button></div>';
@@ -2323,7 +2348,8 @@ function mvTiltHtml(t, tl) {
   if (tl.phase === 'done') {
     return h + '<div class="mv-tilt-title">✓ Reading in' + (side ? ' — ' + side.toLowerCase() : '') + '</div>'
       + '<div class="mv-tilt-live mv-tilt-result" id="mv-tilt-result">' + tl.result + '°</div>'
-      + '<div class="mv-tilt-msg">Saved to the ' + (side ? side.toLowerCase() + ' ' : '') + 'field. Tap Done, check it, then Save the test.</div>'
+      + '<div class="mv-tilt-msg">' + (tl.how === 'peak' ? 'Your best range before you came back down. ' : tl.how === 'hold' ? 'Held steady. ' : '')
+      + 'Saved to the ' + (side ? side.toLowerCase() + ' ' : '') + 'field. Tap Done, check it, then Save the test.</div>'
       + '<button class="btn" id="mv-tilt-done" onclick="mvTiltDone()" disabled>Done</button>'
       + '<button class="btn secondary" onclick="mvTiltOpen(\'' + tl.side + '\')" disabled>Measure again</button></div>';
   }
@@ -2331,6 +2357,7 @@ function mvTiltHtml(t, tl) {
     : 'Move to your end range and hold still…';
   return h + '<div class="mv-tilt-live" id="mv-tilt-live">' + (tl.live != null ? Math.round(tl.live) + '°' : '—') + '</div>'
     + '<div class="mv-tilt-msg" id="mv-tilt-msg">' + msg + '</div>'
+    + '<div class="mv-muted" id="mv-tilt-best" style="margin:-8px 0 12px"></div>'
     + (tl.phase === 'measuring' ? '<button class="btn" id="mv-tilt-use" onclick="mvTiltUseNow()">Use this reading</button>' : '')
     + '<button class="btn secondary" onclick="mvTiltCancel()">Cancel</button></div>';
 }
@@ -2388,12 +2415,15 @@ function mvTiltOnMotion(e) {
   if (msg) msg.textContent = !tl.st.moved ? 'Move to your end range and hold still…'
     : tl.st.steadyMs >= 250 ? 'Holding steady… ' + (Math.min(tl.st.steadyMs, MV_TILT_HOLD_MS) / 1000).toFixed(1) + ' s'
     : 'Hold still…';
-  if (tl.st.captured != null) mvTiltCapture(tl.st.captured);
+  const best = document.getElementById('mv-tilt-best');
+  if (best && tl.st.best != null && t.tilt !== 'level') best.textContent = 'Best so far: ' + Math.max(0, Math.round(tl.st.bestMean)) + '° — or just come back down';
+  if (tl.st.captured != null) mvTiltCapture(tl.st.captured, tl.st.how);
 }
 // Capture a reading: auto (steady hold) or the "Use this reading" button.
-function mvTiltCapture(angle) {
+function mvTiltCapture(angle, how) {
   const tl = MV.test && MV.test.tilt;
-  if (!tl || angle == null) return;
+  if (!tl || angle == null || !isFinite(angle)) return;
+  tl.how = how || 'manual';
   const v = Math.max(0, Math.round(angle));
   mvTiltStop();
   try { beep(2); } catch (_) {}
