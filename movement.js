@@ -1626,8 +1626,17 @@ function mvFmtScreenValue(test, v, unitPref, signed) {
 function mvScreenValueOk(test, stored) {
   const r = MV_SCREEN_RANGE[test.unit];
   if (!r) return true;
+  // start-90 (upper-back rotation) = arm angle to level: below level is negative.
+  if (test.tilt === 'start-90') return stored >= -90 && stored <= 120;
   const max = test.tilt === 'level' ? 90 : r[1];
   return stored >= r[0] && stored <= max;
+}
+// Tilt readout. start-90 speaks in "above / below level" (the raw number starts
+// at −90° with the arm hanging, which read as a bug on the phone test).
+function mvTiltFmt(test, a) {
+  const n = Math.round(a);
+  if (test && test.tilt === 'start-90') return n >= 0 ? n + '° above level' : (-n) + '° below level';
+  return n + '°';
 }
 
 function mvScreenRows(screens, key) {
@@ -2143,9 +2152,9 @@ function mvRenderTest() {
         + '<button class="triage-chip' + (x.passed === false ? ' active' : '') + '" onclick="mvTestPass(\'' + s + '\',false)">Not yet</button></div>';
     }
     if (mvSideTakesNumber(t, s)) {
-      h += '<div class="mv-num-row"><input class="mv-num" id="mv-num-' + s + '" type="number" inputmode="decimal" step="any" min="0"'
+      h += '<div class="mv-num-row"><input class="mv-num" id="mv-num-' + s + '" type="number" inputmode="decimal" step="any"' + (t.tilt === 'start-90' ? '' : ' min="0"')
         + ' value="' + mvEsc(x.value) + '" placeholder="—" oninput="MV.test.sides[\'' + s + '\'].value=this.value">'
-        + '<span class="mv-num-unit">' + mvScreenUnitLabel(t, u) + (t.tilt === 'level' ? ' above level' : '') + '</span>'
+        + '<span class="mv-num-unit">' + mvScreenUnitLabel(t, u) + (t.tilt === 'level' ? ' above level' : t.tilt === 'start-90' ? ' above level (− = below)' : '') + '</span>'
         + (t.tilt ? '<button class="mv-mini" onclick="mvTiltOpen(\'' + s + '\')">📐 Measure with phone</button>' : '')
         + '</div>';
     }
@@ -2355,7 +2364,9 @@ function mvTiltHtml(t, tl) {
     return h + '<div class="mv-tilt-title">📐 Measure with phone' + (side ? ' — ' + side.toLowerCase() : '') + '</div>'
       + '<div class="mv-muted" style="margin-bottom:6px">' + (t.tilt === 'level'
         ? 'Measures how far the phone tilts from level — it records once you\'ve been still for a second after the countdown.'
-        : 'Measures how far the phone turns from where you tap Start.') + '</div><ol class="mv-test-steps">'
+        : t.tilt === 'start-90'
+          ? 'Measures your arm\'s angle to level: 0° = level with your back, 90° = straight up. Start with the arm (and phone) hanging straight down — it reads 90° below level there.'
+          : 'Measures how far the phone turns from where you tap Start.') + '</div><ol class="mv-test-steps">'
       + (t.tilt === 'level'
         ? '<li>Put the phone lengthwise on the front of your thigh.</li><li>Tap Start, then lie back into the test within 3 seconds.</li>'
         : '<li>Set the phone as the steps say and get into the start position.</li><li>Tap Start and stay still until the first beep.</li><li>Move slowly to your end range.</li>')
@@ -2366,7 +2377,7 @@ function mvTiltHtml(t, tl) {
   }
   if (tl.phase === 'done') {
     return h + '<div class="mv-tilt-title">✓ Reading in' + (side ? ' — ' + side.toLowerCase() : '') + '</div>'
-      + '<div class="mv-tilt-live mv-tilt-result" id="mv-tilt-result">' + tl.result + '°</div>'
+      + '<div class="mv-tilt-live mv-tilt-result" id="mv-tilt-result">' + mvEsc(mvTiltFmt(t, tl.result)) + '</div>'
       + '<div class="mv-tilt-msg">' + (tl.how === 'peak' ? 'Your best range before you came back down. ' : tl.how === 'hold' ? 'Held steady. ' : '')
       + 'Saved to the ' + (side ? side.toLowerCase() + ' ' : '') + 'field. Tap Done, check it, then Save the test.</div>'
       + '<div class="mv-tilt-diag">' + mvEsc(tl.diag || '') + '</div>'
@@ -2375,7 +2386,7 @@ function mvTiltHtml(t, tl) {
   }
   const msg = tl.phase === 'zeroing' ? (t.tilt === 'level' ? 'Lie back into position…' : 'Hold still in the start position…')
     : 'Move to your end range and hold still…';
-  return h + '<div class="mv-tilt-live" id="mv-tilt-live">' + (tl.live != null ? Math.round(tl.live) + '°' : '—') + '</div>'
+  return h + '<div class="mv-tilt-live" id="mv-tilt-live">' + (tl.live != null ? mvTiltFmt(t, tl.live) : '—') + '</div>'
     + '<div class="mv-tilt-msg" id="mv-tilt-msg">' + msg + '</div>'
     + '<div class="mv-muted" id="mv-tilt-best" style="margin:-8px 0 12px"></div>'
     + '<div class="mv-tilt-diag" id="mv-tilt-diag"></div>'
@@ -2447,14 +2458,14 @@ function mvTiltOnMotion(e) {
   if (ang == null || !isFinite(ang)) return;
   tl.live = ang;
   const el = document.getElementById('mv-tilt-live');
-  if (el) el.textContent = Math.round(ang) + '°';
+  if (el) el.textContent = mvTiltFmt(t, ang);
   tl.st = mvTiltTrack(tl.st, now, ang, t.tilt);
   const msg = document.getElementById('mv-tilt-msg');
   if (msg) msg.textContent = !tl.st.moved ? 'Move to your end range and hold still…'
     : tl.st.steadyMs >= 250 ? 'Holding steady… ' + (Math.min(tl.st.steadyMs, MV_TILT_HOLD_MS) / 1000).toFixed(1) + ' s'
     : 'Hold still…';
   const best = document.getElementById('mv-tilt-best');
-  if (best && tl.st.best != null && t.tilt !== 'level') best.textContent = 'Best so far: ' + Math.max(0, Math.round(tl.st.bestMean)) + '° — or just come back down';
+  if (best && tl.st.best != null && t.tilt !== 'level') best.textContent = 'Best so far: ' + mvTiltFmt(t, t.tilt === 'start-90' ? tl.st.bestMean : Math.max(0, tl.st.bestMean)) + ' — or just come back down';
   const dg = document.getElementById('mv-tilt-diag');
   if (dg) dg.textContent = mvTiltDiag(t, tl, now);
   if (tl.st.captured != null) mvTiltCapture(tl.st.captured, tl.st.how);
@@ -2464,7 +2475,7 @@ function mvTiltDiag(t, tl, now) {
   const hz = tl.tm ? Math.round((tl.n - tl.nm) / secs) : 0;
   const st = tl.st || {};
   return 'mode ' + t.tilt + ' · ' + hz + ' Hz · moved ' + (st.moved ? 'y' : 'n') + ' · steady ' + ((st.steadyMs || 0) / 1000).toFixed(1)
-    + ' s · best ' + (st.bestMean != null ? Math.round(st.bestMean) : '–') + (st.how ? ' · via ' + st.how : '') + ' · v43';
+    + ' s · best ' + (st.bestMean != null ? Math.round(st.bestMean) : '–') + (st.how ? ' · via ' + st.how : '') + ' · v44';
 }
 // Capture a reading: auto (steady hold) or the "Use this reading" button.
 function mvTiltCapture(angle, how) {
@@ -2472,7 +2483,9 @@ function mvTiltCapture(angle, how) {
   if (!tl || angle == null || !isFinite(angle)) return;
   tl.how = how || 'manual';
   try { tl.diag = mvTiltDiag(mvTest(MV.test.key), tl, Date.now()); } catch (_) { tl.diag = ''; }
-  const v = Math.max(0, Math.round(angle));
+  const tt = mvTest(MV.test.key);
+  // Upper-back rotation keeps its sign (below level = negative); others can't go below 0.
+  const v = tt && tt.tilt === 'start-90' ? Math.round(angle) : Math.max(0, Math.round(angle));
   mvTiltStop();
   try { beep(2); } catch (_) {}
   try { if (navigator.vibrate) navigator.vibrate([120, 80, 120]); } catch (_) {}
