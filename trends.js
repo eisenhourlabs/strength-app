@@ -968,8 +968,10 @@ function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
   const minTot   = condWeekSums(trueRows, condMin);
   const minZ1    = condWeekSums(conditioning.filter(function(r) { return !condIsTrue(r); }), condMin);
   const minChart = trendsStackedBarChart([
-    { label: 'Machine / low-impact', color: COND_COLOR_MACHINE,    values: weekKeys.map(function(k) { return r0(minMach[k] || 0); }) },
+    // Non-machine on the bottom so its trend reads from a fixed baseline;
+    // machine work (filler) stacks on top (Troy, 2026-09-25).
     { label: 'Non-machine',          color: COND_COLOR_NONMACHINE, values: weekKeys.map(function(k) { return r0(minNon[k]  || 0); }) },
+    { label: 'Machine / low-impact', color: COND_COLOR_MACHINE,    values: weekKeys.map(function(k) { return r0(minMach[k] || 0); }) },
   ], weekLabels, { height: 140, showTotals: true });
   const z1This = r0(minZ1[weekKeys[n - 1]] || 0), z1Last = r0(minZ1[weekKeys[n - 2]] || 0);
   const z1Note = (z1This || z1Last)
@@ -977,7 +979,7 @@ function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
     : '';
   const minBox = '<div class="trends-chart-box"><div class="trends-chart-title">Conditioning Minutes per Week (above Z1)</div>'
     + minChart
-    + condLegend([{ label: 'Machine / low-impact', color: COND_COLOR_MACHINE }, { label: 'Non-machine (run, ruck, sled, rope, circuit)', color: COND_COLOR_NONMACHINE }])
+    + condLegend([{ label: 'Non-machine (run, ruck, sled, rope, circuit)', color: COND_COLOR_NONMACHINE }, { label: 'Machine / low-impact (on top)', color: COND_COLOR_MACHINE }])
     + condRampLine('Non-machine', minNon, weekKeys, fmtMin)
     + condRampLine('Total', minTot, weekKeys, fmtMin)
     + z1Note
