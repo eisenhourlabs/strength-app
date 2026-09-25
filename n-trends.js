@@ -4,7 +4,8 @@
 //   Card 2 Weight       — EWMA trend + raw dots + phase shading + target ticks
 //   Card 3 Adherence    — N09 §3.3-3.6 (calories / protein floor / compliance / logging)
 //   Card 4 Measurements — waist, hips, calipers (per-site, mm-sum derived)
-//   Card 5 Activity     — steps/workouts + training context (context only, never in TDEE)
+//   Card 5 Activity     — lift/WOD/cardio minutes, steps, est. kcal/day above resting
+//                          (N09 §3.13 — context only, never in TDEE or targets)
 //   Card 6 History      — stored weekly coach reports, phase timeline, program changes
 //
 // ALL metric math lives in n-metrics.js (N09 calc_version 1) — this file only
@@ -13,7 +14,7 @@
 // Weekly bucketing is Wednesday-anchored throughout (N09 §1) — nWednesday, not nMonday.
 
 const NT_RANGES = { '30d': 30, '3m': 91, '6m': 183, '1y': 365, 'all': 3650 };
-let NT = { range: '3m', showMacros: false, openReport: null, energyTable: false };
+let NT = { range: '3m', showMacros: false, openReport: null, energyTable: false, actWeek: null };
 
 function nTrendWindowDays() {
   // N09 §3.2: Troy 14 d, Amanda 21 d. Amanda's longer window is deliberate —
@@ -81,12 +82,24 @@ async function renderNTrends() {
         .gte('log_date', since).limit(500),
     ]);
     if (NS.me.training_active) {
+      // Whole chart range, not 4 weeks: these feed the Activity card and the
+      // energy table's kcal/day column (N09 §3.13). completed_strength_sets(count)
+      // is what separates a lifting session from a conditioning-only one — both
+      // create a completed_sessions row, so a plain row count over-reports lifts.
       [csq, ccq] = await Promise.all([
-        ndb.from('completed_sessions').select('session_date,session_type,status')
-          .eq('athlete_id', meId).gte('session_date', since4w),
-        ndb.from('completed_conditioning').select('conditioning_date,duration_minutes')
-          .eq('athlete_id', meId).gte('conditioning_date', since4w),
+        ndb.from('completed_sessions')
+          .select('id,session_date,session_type,status,completed_strength_sets(count)')
+          .eq('athlete_id', meId).gte('session_date', since).order('session_date'),
+        ndb.from('completed_conditioning')
+          .select('completed_session_id,conditioning_date,duration_minutes,modality,intensity_domain,workout_type')
+          .eq('athlete_id', meId).gte('conditioning_date', since).order('conditioning_date'),
       ]);
+      // Degrade rather than fail: without the embedded count the engine falls
+      // back to session_type / attached-conditioning to decide what is a lift.
+      if (csq && csq.error) {
+        csq = await ndb.from('completed_sessions').select('id,session_date,session_type,status')
+          .eq('athlete_id', meId).gte('session_date', since).order('session_date');
+      }
     }
   } catch (e) {
     body.innerHTML = `<div class="n-panel">Trends failed to load: ${nEsc(e.message || e)}</div>`;
@@ -98,7 +111,13 @@ async function renderNTrends() {
   // coach_reports may not exist yet on an un-migrated database — degrade quietly.
   const reports = (rq && !rq.error && rq.data) ? rq.data : [];
 
-  const ACT0 = nActivityAgg(aq.data || [], { trend: nmTrendWeight(wq.data || []) });
+  const trend0 = nmTrendWeight(wq.data || []);
+  const ACT0 = nActivityAgg({
+    manual: aq.data || [],
+    sessions: ((csq && !csq.error && csq.data) || []).map(nActSessionRow),
+    conditioning: (ccq && !ccq.error && ccq.data) || [],
+    weightLb: trend0.current || (trend0.points.length ? trend0.points[trend0.points.length - 1].raw : null),
+    since, asOf: nToday() });
   const D = nTrendsDerive(wq.data || [], sq.data || [], pq.data || [], lq.data || [],
                           phq.data || [], tq.data || [], dvq.data || [], nkq.data || [], ACT0);
 
@@ -107,11 +126,9 @@ async function renderNTrends() {
   html += nWeightEnergyCardHtml(D);
   html += nAdherenceHtml(D);
   html += nMeasurementsHtml(mq.data || []);
-  // Training context stays its own card. It is strength-side context, not part
-  // of the calories-in-vs-out story, and folding it into the combined view
-  // would make that card do three unrelated jobs.
-  if (NS.me.training_active && csq && !csq.error)
-    html += nTrainingWeekHtml(csq.data || [], (ccq && ccq.data) || []);
+  // Activity card (N09 §3.13) replaced "Training context" 2026-09-24: minutes by
+  // type + steps + est. kcal/day above resting, every item tagged synced/logged.
+  html += nActivityTrendHtml(ACT0);
   html += nHistoryHtml(D, reports);
   body.innerHTML = html;
 }
@@ -120,6 +137,7 @@ function nSetRange(r) { NT.range = r; renderNTrends(); }
 function nToggleMacros() { NT.showMacros = !NT.showMacros; renderNTrends(); }
 function nToggleReport(id) { NT.openReport = (NT.openReport === id) ? null : id; renderNTrends(); }
 function nToggleEnergyTable() { NT.energyTable = !NT.energyTable; renderNTrends(); }
+function nToggleActWeek(w) { NT.actWeek = (NT.actWeek === w) ? null : w; renderNTrends(); }
 
 // ── Shared derivations (fetch -> N09 engine) ──
 function nTrendsDerive(weights, summary, planned, logs, phases, targets, dayView, nullKcal, ACT) {
@@ -859,10 +877,7 @@ function nEnergyTableHtml(D) {
     }
 
     const a = w.activity;
-    const actTxt = a
-      ? [a.avgSteps != null ? `${a.avgSteps.toLocaleString()} st` : null,
-         a.wMin ? `${a.wMin}m` : null].filter(Boolean).join(' · ') || '—'
-      : '—';
+    const actTxt = a && a.kcalPerDay ? `~${a.kcalPerDay.toLocaleString()}` : '—';
 
     rows += `<tr>
       <td style="padding:3px 4px 3px 0;white-space:nowrap">${w.week_of.slice(5)}</td>
@@ -894,11 +909,12 @@ function nEnergyTableHtml(D) {
         <th style="padding:0 4px 4px;font-weight:500">actual</th>
         <th style="padding:0 4px 4px;font-weight:500">maint.</th>
         <th style="padding:0 4px 4px;font-weight:500">balance</th>
-        <th style="padding:0 4px 4px;font-weight:500">activity</th>
+        <th style="padding:0 4px 4px;font-weight:500">activity/d</th>
         <th style="padding:0 0 4px 4px;font-weight:500">trend</th>
       </tr></thead><tbody>${rows}</tbody></table></div>
     <div style="font-size:10px;color:var(--n-muted);margin-top:5px">${note}
-      Dot colour on the trend column is that week's logging tier.</div>`;
+      Dot colour on the trend column is that week's logging tier. Activity/d is the estimated burn
+      above resting (see the Activity card) — context for the maintenance column, never added to it.</div>`;
 }
 
 function nPathFrom(seg, X, Y) {
@@ -1081,52 +1097,105 @@ function nMeasurementsHtml(rows) {
   return `<div class="n-panel">${title}${main || '<div style="font-size:13px;color:var(--n-muted)">No tape measurements yet.</div>'}${cal}</div>`;
 }
 
-// ─────────── Activity rollup (table column) + training-context card ──────────
-function nActivityAgg(rows, D) {
-  const lb = D.trend.current || (D.trend.points.length ? D.trend.points[D.trend.points.length - 1].raw : 165);
-  const wk = {};
-  for (const r of rows) {
-    const w = nWednesday(r.log_date);
-    const o = (wk[w] ||= { stepDays: 0, steps: 0, wMin: 0, types: {} });
-    if (r.metric === 'steps') { o.stepDays++; o.steps += parseFloat(r.value); }
-    else { o.wMin += parseFloat(r.value); if (r.notes) o.types[r.notes] = (o.types[r.notes] || 0) + 1; }
-  }
-  const weeks = Object.keys(wk).sort().map(w => {
-    const o = wk[w];
-    return { week: w, avgSteps: o.stepDays ? Math.round(o.steps / o.stepDays) : null,
-      stepDays: o.stepDays, wMin: Math.round(o.wMin),
-      types: Object.keys(o.types).join('/'),
-      estKcal: Math.round(o.steps * lb * 0.00023 + o.wMin * 0.035 * lb) };
-  });
-  return { weeks, last: weeks.length ? weeks[weeks.length - 1] : null };
+// ─────────────── Card 5 — Activity (N09 §3.13, act_version 1) ────────────────
+// Replaced the "Training context" card 2026-09-24. All math is nmActivityEstimate
+// (n-metrics.js, mirrored in nutrition_metrics.py) — this file only draws.
+// Steps mode: see nStepsMode() in n-core.js.
+function nActivityAgg(o) {
+  const est = nmActivityEstimate({ ...o, stepsMode: nStepsMode() });
+  est.last = est.weeks.length ? est.weeks[est.weeks.length - 1] : null;
+  return est;
 }
 
-// nActivityCardsHtml is retired. Its three panels were doing unrelated jobs:
-// the weekly activity rollup is now a column in the combined card's data table
-// (context, never a plotted series — N09 §3.7), the maintenance panel became a
-// sub-line on that same card now that the app computes its own §3.7 estimate,
-// and the training-week panel kept its own card because strength context is not
-// part of the calories-in-vs-out story. nActivityAgg still feeds the table.
+const N_ACT_ICON = { lift: '🏋', wod: '🔥', cardio: '🚴', steps: '👟' };
+function nActItemIcon(it) {
+  if (it.rateKey === 'walk' || it.rateKey === 'ruck') return '🚶';
+  if (it.bucket === 'cardio' && /^Run\b/.test(it.label)) return '🏃';
+  return N_ACT_ICON[it.bucket] || '•';
+}
 
-function nTrainingWeekHtml(sessions, conditioning) {
-  const wk = {};
-  for (const s of sessions) {
-    const t = (wk[nWednesday(s.session_date)] ||= { lifts: 0, condMin: 0 });
-    if (s.status !== 'skipped') t.lifts++;
+function nActivityTrendHtml(ACT) {
+  const extra = nStepsMode() === 'extra';
+  const title = `<div class="n-panel-title">⚡ Activity — est. burn above resting</div>`;
+  const weeks = ((ACT && ACT.weeks) || []).slice().reverse();          // newest first
+  if (!weeks.length)
+    return `<div class="n-panel">${title}<div style="font-size:13px;color:var(--n-muted)">
+      No activity in this range yet. ${extra ? 'Strength-app sessions appear here automatically; log steps outside your workouts on Today.'
+      : 'Log steps and workouts on the Today tab and they will show here.'}</div></div>`;
+
+  const thisWeek = nWednesday(nToday());
+  const cur = weeks[0].week === thisWeek ? weeks[0] : null;
+  const done = weeks.filter(w => w.week !== thisWeek).slice(0, 4);
+  const avg4 = done.length ? Math.round(done.reduce((a, w) => a + w.kcalPerDay, 0) / done.length) : null;
+  const head = `<div style="display:flex;gap:18px;align-items:baseline;margin-bottom:8px;flex-wrap:wrap">
+      <div><span style="font-size:20px;font-weight:600;color:var(--n-text)">${cur ? '~' + cur.kcalPerDay.toLocaleString() : '—'}</span>
+        <span style="font-size:12px;color:var(--n-muted)"> kcal/day this week</span></div>
+      ${avg4 != null ? `<div style="font-size:12px;color:var(--n-muted)">${done.length}-wk avg ~${avg4.toLocaleString()}/day</div>` : ''}
+    </div>`;
+
+  const byDate = {};
+  for (const it of (ACT.items || [])) (byDate[it.date] ||= []).push(it);
+  const th = 'padding:0 4px 4px;font-weight:500;text-align:right';
+  const td = 'padding:4px 4px;text-align:right;white-space:nowrap';
+  let rows = '';
+  for (const w of weeks.slice(0, 12)) {
+    const open = NT.actWeek === w.week;
+    const m = v => v ? v : '<span style="color:var(--n-muted)">·</span>';
+    rows += `<tr onclick="nToggleActWeek('${w.week}')" style="cursor:pointer;border-top:1px solid var(--n-line,#e6e6e1)">
+      <td style="padding:4px 4px 4px 0;white-space:nowrap"><span style="color:var(--n-muted);font-size:10px">${open ? '▾' : '▸'}</span> ${w.week.slice(5)}${w.week === thisWeek ? '<span style="color:var(--n-muted);font-size:10px"> now</span>' : ''}</td>
+      <td style="${td}">${m(w.liftMin)}</td><td style="${td}">${m(w.wodMin)}</td><td style="${td}">${m(w.cardioMin)}</td>
+      <td style="${td}">${w.avgSteps != null ? w.avgSteps.toLocaleString() + `<span style="color:var(--n-muted);font-size:10px"> ×${w.stepDays}d</span>` : '<span style="color:var(--n-muted)">—</span>'}</td>
+      <td style="${td};font-weight:600">~${w.kcalPerDay.toLocaleString()}</td></tr>`;
+    if (open) {
+      let det = '';
+      for (let i = 0; i < 7; i++) {
+        const d = nAddDays(w.week, i), its = byDate[d] || [];
+        if (!its.length) continue;
+        det += `<div style="font-size:11px;font-weight:600;color:var(--n-text);margin-top:6px">${nDayName(d, true)}</div>` +
+          its.map(it => {
+            const amt = it.bucket === 'steps'
+              ? `${Number(it.steps).toLocaleString()} ${nEsc(it.label)}`
+              : `${nEsc(it.label)} · ${Math.round(it.minutes)} min${it.assumed ? '*' : ''}`;
+            const tag = it.source === 'synced'
+              ? '<span style="font-size:10px;padding:0 5px;border-radius:8px;background:#e3eefc;color:#1f4f99">synced</span>'
+              : '<span style="font-size:10px;padding:0 5px;border-radius:8px;background:#eef3e3;color:#3d6b12">logged</span>';
+            return `<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0 2px 8px">
+              <span>${nActItemIcon(it)} ${amt} ${tag}</span>
+              <span style="color:var(--n-muted);white-space:nowrap">~${Math.round(it.kcal).toLocaleString()}</span></div>`;
+          }).join('');
+      }
+      rows += `<tr><td colspan="6" style="padding:0 0 8px">${det || '<div style="font-size:12px;color:var(--n-muted);padding:4px 8px">Nothing logged or synced this week.</div>'}
+        <div style="font-size:10px;color:var(--n-muted);padding:4px 8px 0">Week total ~${w.kcalWeek.toLocaleString()} kcal over ${w.days} day${w.days === 1 ? '' : 's'}.${
+          (ACT.items || []).some(it => it.assumed && nWednesday(it.date) === w.week) ? ' *Strength sessions are counted as 60 min.' : ''}</div></td></tr>`;
+    }
   }
-  for (const c of conditioning) {
-    const t = (wk[nWednesday(c.conditioning_date)] ||= { lifts: 0, condMin: 0 });
-    t.condMin += parseFloat(c.duration_minutes || 0);
-  }
-  const wks = Object.keys(wk).sort();
-  if (!wks.length)
-    return `<div class="n-panel"><div class="n-panel-title">🏋 Training context</div>
-      <div style="font-size:13px;color:var(--n-muted)">No sessions logged recently.</div></div>`;
-  const rows = wks.map(w => `<div class="n-wk-meal"><span class="n-wk-name">wk ${w}</span>
-    <span class="n-wk-kcal">${wk[w].lifts} session${wk[w].lifts !== 1 ? 's' : ''} · ${Math.round(wk[w].condMin)} min conditioning</span></div>`).join('');
-  return `<div class="n-panel"><div class="n-panel-title">🏋 Training context (from the strength app)</div>${rows}
-    <div style="font-size:11px;color:var(--n-muted);margin-top:4px">Strength holding up in a deficit is the
-    signal that the rate is sustainable — the coach watches this alongside your trend.</div></div>`;
+  const table = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;color:var(--n-text)">
+    <thead><tr style="color:var(--n-muted);font-size:11px">
+      <th style="text-align:left;padding:0 4px 4px 0;font-weight:500">wk</th>
+      <th style="${th}">Lift</th><th style="${th}">WOD</th><th style="${th}">Cardio</th>
+      <th style="${th}">Steps/d${extra ? '†' : ''}</th><th style="${th}">kcal/d</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>
+    <div style="font-size:10px;color:var(--n-muted);margin-top:4px">Minutes per week. Tap a week to see each item and where it came from.${
+      extra ? ' †Steps outside logged workouts.' : ''}</div>`;
+
+  const lifts = cur ? (ACT.items || []).filter(it => it.bucket === 'lift' && nWednesday(it.date) === thisWeek).length : 0;
+  const training = NS.me && NS.me.training_active
+    ? `<div style="font-size:11px;color:var(--n-muted);margin-top:8px">${lifts} lifting session${lifts === 1 ? '' : 's'} this week so far.
+       Strength holding up in a deficit is the signal that the rate is sustainable — the coach watches this alongside your trend.</div>` : '';
+
+  const R = NM_ACT_RATES, lb = x => (x * 100).toFixed(1);
+  const method = `<details style="margin-top:8px"><summary style="font-size:12px;color:var(--n-muted);cursor:pointer">How is this calculated?</summary>
+    <div style="font-size:11px;color:var(--n-text);line-height:1.5;margin-top:4px">
+    Calories burned <b>above resting</b>, per minute, scaled to your trend weight (kcal per 100 lb per minute):
+    Lift ${lb(R.lift)} · WOD/HIIT ${lb(R.wod)} · Cardio ${lb(R.cardio)} (Z3 ${lb(R.cardio_z3)}, recovery ${lb(R.cardio_z1)}) ·
+    Walk ${lb(R.walk)} · Ruck ${lb(R.ruck)} · Other ${lb(R.other)}.
+    Steps ${(NM_ACT_STEP_RATE * 100 * 1000).toFixed(0)} kcal per 1,000 steps per 100 lb${extra ? '' : `, after the first ${NM_ACT_STEP_BASELINE.toLocaleString()} of each day (a normal day already includes those)`}.
+    ${NS.me && NS.me.training_active ? `Sessions from the strength app count automatically: each lifting session as ${NM_ACT_LIFT_SESSION_MIN} min, conditioning at its logged minutes, typed by its intensity zone.` : ''}
+    <br><br>These estimates are good for spotting <b>changes</b> (a deload, travel, a sick week) but are only accurate to about ±15%.
+    Your maintenance range comes from your scale and food logs, which already include all of this — so activity is
+    <b>never added</b> to your calorie target.</div></details>`;
+
+  return `<div class="n-panel">${title}${head}${table}${training}${method}</div>`;
 }
 
 // ──────────────────── Card 6 — History: reports, phases, changes ─────────────

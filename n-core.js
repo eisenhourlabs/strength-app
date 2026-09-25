@@ -453,6 +453,40 @@ async function nLoadAll() {
     for (const r of (rl.data || [])) if (r.sleep_hours != null) day(r.log_date).sleep = r.sleep_hours;
     for (const r of (cs.data || [])) day(r.session_date).strength = true;
   } catch (e) { console.warn('back-log activity load failed', e); }
+
+  // Synced strength-app activity for today + the back-log window (N09 §3.13).
+  // The Today Activity card lists it read-only, so the athlete can SEE which
+  // sessions came across instead of trusting a hint line.
+  NS.syncedAct = { sessions: [], conditioning: [] };
+  if (NS.me.training_active) {
+    try {
+      const sS = nAddDays(nToday(), -N_BACKLOG_DAYS), sE = nToday();
+      let [ss, cc] = await Promise.all([
+        ndb.from('completed_sessions').select('id,session_date,session_type,status,completed_strength_sets(count)')
+          .eq('athlete_id', meId).gte('session_date', sS).lte('session_date', sE),
+        ndb.from('completed_conditioning')
+          .select('completed_session_id,conditioning_date,duration_minutes,modality,intensity_domain,workout_type')
+          .eq('athlete_id', meId).gte('conditioning_date', sS).lte('conditioning_date', sE),
+      ]);
+      if (ss.error) ss = await ndb.from('completed_sessions').select('id,session_date,session_type,status')
+        .eq('athlete_id', meId).gte('session_date', sS).lte('session_date', sE);
+      NS.syncedAct = { sessions: (ss.data || []).map(nActSessionRow), conditioning: cc.data || [] };
+    } catch (e) { console.warn('synced activity load failed', e); }
+  }
+}
+
+// ── Activity estimate helpers (N09 §3.13) ──
+// Strength-app users log steps OUTSIDE their logged workouts (full credit);
+// nutrition-only users log total daily steps (first 3,000/day not credited).
+function nStepsMode() { return NS.me && NS.me.training_active ? 'extra' : 'total'; }
+// completed_sessions row with an embedded completed_strength_sets(count) ->
+// the engine's { ..., set_count } shape. Without the embed, set_count stays
+// undefined and nmActIsLift falls back to session_type / attached conditioning.
+function nActSessionRow(s) {
+  const c = s && s.completed_strength_sets;
+  const n = Array.isArray(c) ? (c[0] && c[0].count) : (c && c.count);
+  return { id: s.id, session_date: s.session_date, session_type: s.session_type,
+    status: s.status, set_count: n == null ? undefined : n };
 }
 
 // ── Meal helpers ──

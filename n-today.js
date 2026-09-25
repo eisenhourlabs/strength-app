@@ -1118,14 +1118,34 @@ async function submitCustomFood() {
   } catch (e) { if (e.message !== 'offline') toast('Save failed: ' + e.message, 4000); }
 }
 
-// ── Activity (steps + non-system workouts) ──
+// ── Activity (steps + non-system workouts + synced strength-app sessions) ──
 // Stored in body_metrics: metric 'steps' (value = count) and 'workout_min'
 // (value = minutes, notes = type). Context for TDEE — NOT added to it
 // (the scale-based TDEE already contains all activity; adding would double-count).
-const N_WORKOUT_KCAL_MIN = { Lift: 0.025, 'WOD/HIIT': 0.045, Cardio: 0.035, Other: 0.03 };
+// kcal labels are the N09 §3.13 estimate (net, above resting) from n-metrics.js —
+// the same numbers the Trends Activity card sums.
+const N_WORKOUT_TYPES = Object.keys(NM_ACT_MANUAL_TYPES);     // Lift, WOD/HIIT, Cardio, Other
 function nBw() { return NS.lastWeight || NS.metricsToday.weight || 165; }
-function nStepsKcal(steps) { return Math.round(steps * nBw() * 0.00023); }
-function nWorkoutKcal(min, type) { return Math.round(min * (N_WORKOUT_KCAL_MIN[type] || 0.03) * nBw()); }
+function nActKcal(o) {
+  return Math.round(nmActivityItems({ stepsMode: nStepsMode(), weightLb: nBw(), ...o })
+    .reduce((a, it) => a + it.kcal, 0));
+}
+function nStepsKcal(steps) { return nActKcal({ manual: [{ log_date: 'x', metric: 'steps', value: steps }] }); }
+function nWorkoutKcal(min, type) { return nActKcal({ manual: [{ log_date: 'x', metric: 'workout_min', value: min, notes: type }] }); }
+// Read-only rows for what synced from the strength app on day d.
+function nSyncedRowsHtml(d) {
+  const S = NS.syncedAct || { sessions: [], conditioning: [] };
+  const items = nmActivityItems({ weightLb: nBw(),
+    sessions: S.sessions.filter(s => s.session_date === d),
+    conditioning: S.conditioning.filter(c => c.conditioning_date === d) });
+  if (!items.length)
+    return `<div style="font-size:12px;color:var(--n-muted);margin-bottom:8px">No strength-app session synced for this day yet.</div>`;
+  return items.map(it => `<div class="n-meal done compact" style="margin-bottom:6px;cursor:default">
+      <div class="n-done-row"><span class="n-done-check">⇄</span>
+        <span class="n-done-name">${nActItemIcon(it)}
+          ${nEsc(it.label)} · ${Math.round(it.minutes)} min <span style="font-size:10px;color:var(--n-muted)">synced</span></span>
+        <span class="n-done-kcal">~${Math.round(it.kcal)} kcal</span></div></div>`).join('');
+}
 
 // Collapsed/logged rows reuse the .n-meal.done.compact treatment (green left
 // border, checkmark) from meal cards. Tap a logged row to re-expand it for editing;
@@ -1158,17 +1178,19 @@ function nActivityCardHtml() {
   const isBack = d !== nToday();
   const { steps, wMin, wType, sleep } = nActFor(d);
   const kS = 'act-steps-' + d, kW = 'act-workout-' + d;
+  const extra = nStepsMode() === 'extra';
   const hint = NS.me.training_active
-    ? 'Gym sessions from the strength app sync automatically — log only extra activity here.'
-    : 'Log workouts here so they show in your trends.';
+    ? 'Sessions from the strength app sync automatically (⇄ rows, lifting counted as 60 min). Log steps outside those workouts, and only extra activity below.'
+    : 'Log total steps for the day and your workouts so they show in your trends.';
+  const stepWord = extra ? 'steps outside workouts' : 'steps';
 
   const stepsRow = (steps != null && !N_OPEN[kS])
     ? `<div class="n-meal done compact" style="margin-bottom:8px" onclick="nToggleCard('${kS}')">
         <div class="n-done-row"><span class="n-done-check">✓</span>
-          <span class="n-done-name">👟 ${Number(steps).toLocaleString()} steps logged</span>
+          <span class="n-done-name">👟 ${Number(steps).toLocaleString()} ${stepWord} logged</span>
           <span class="n-done-kcal">~${nStepsKcal(steps)} kcal</span></div></div>`
     : `<div class="n-prompt-row" style="margin-bottom:8px">
-        <input type="number" inputmode="numeric" id="na-steps" placeholder="steps" value="${steps ?? ''}">
+        <input type="number" inputmode="numeric" id="na-steps" placeholder="${extra ? 'steps outside logged workouts' : 'total steps today'}" value="${steps ?? ''}">
         <button class="n-act small primary" onclick="submitSteps()">Save steps</button></div>`;
 
   const workoutRow = (wMin != null && !N_OPEN[kW])
@@ -1178,7 +1200,7 @@ function nActivityCardHtml() {
           <span class="n-done-kcal">~${nWorkoutKcal(wMin, wType)} kcal</span></div></div>`
     : `<div class="n-prompt-row">
         <input type="number" inputmode="numeric" id="na-wmin" placeholder="min" style="width:64px" value="${wMin ?? ''}">
-        ${Object.keys(N_WORKOUT_KCAL_MIN).map(k =>
+        ${N_WORKOUT_TYPES.map(k =>
           `<button class="n-chip${wType === k ? ' active' : ''}" onclick="submitWorkout('${k}')">${k}</button>`).join('')}
       </div>`;
 
@@ -1186,9 +1208,10 @@ function nActivityCardHtml() {
     ${!NS.me.training_active ? `<div class="n-prompt-row" style="margin-bottom:8px">
       <input type="number" step="0.5" inputmode="decimal" id="na-sleep" placeholder="sleep ${isBack ? 'the night before' : 'last night'} (hrs)" value="${sleep ?? ''}">
       <button class="n-act small primary" onclick="submitSleep()">Save sleep</button></div>` : ''}
+    ${NS.me.training_active ? nSyncedRowsHtml(d) : ''}
     ${stepsRow}
     ${workoutRow}
-    <div style="font-size:11px;color:var(--n-muted);margin-top:6px">${hint} Estimates are rough — they inform trends, not your calorie target.</div></div>`;
+    <div style="font-size:11px;color:var(--n-muted);margin-top:6px">${hint} kcal are rough estimates of burn above resting — they inform trends, never your calorie target.</div></div>`;
 }
 async function submitSteps() {
   const v = parseInt(document.getElementById('na-steps').value, 10);

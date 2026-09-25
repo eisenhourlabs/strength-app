@@ -542,6 +542,136 @@ function nmPhaseForecast(o) {
     high: Math.round(Math.max(a, b) * 10) / 10 };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// §3.13 Activity estimate (act_version 1) — CONTEXT ONLY.
+// Never added to the §3.7 maintenance range or to any target: the scale-based
+// TDEE already contains all activity. This exists so the athlete can SEE what
+// the app counts, and so a real activity change explains a trend drift before
+// the lagging 28-day window catches up.
+// Rates are NET kcal ABOVE resting, per lb of body weight per minute (MET−1).
+// Mirrored in nutrition_metrics.py (activity_estimate) — change both together.
+// ─────────────────────────────────────────────────────────────────────────────
+const NM_ACT_VERSION = 1;
+const NM_ACT_RATES = {
+  lift: 0.024,        // ~4 MET session average incl. rest (strength session)
+  wod: 0.044,         // ~6.5 MET — WOD/HIIT, Z4–Z6, circuits
+  cardio: 0.040,      // ~6 MET — Z2 / untyped cardio
+  cardio_z3: 0.050,   // upper aerobic
+  cardio_z1: 0.028,   // recovery
+  walk: 0.028,        // walking modality, any zone
+  ruck: 0.034,        // loaded walking
+  other: 0.030,       // manual "Other"
+};
+const NM_ACT_STEP_RATE = 0.00013;       // net kcal per step per lb (~0.3 kcal/lb/mile)
+const NM_ACT_STEP_BASELINE = 3000;      // steps already inside a sedentary day (total-steps mode only)
+const NM_ACT_LIFT_SESSION_MIN = 60;     // stated assumption per completed strength session
+// Manual Activity-card types -> [column bucket, rate key]. "Other" shows in the
+// Cardio column (the Trends table has four columns) but keeps its own rate.
+const NM_ACT_MANUAL_TYPES = { 'Lift': ['lift', 'lift'], 'WOD/HIIT': ['wod', 'wod'],
+  'Cardio': ['cardio', 'cardio'], 'Other': ['cardio', 'other'] };
+
+// Strength-app conditioning row -> [bucket, rate key].
+function nmActCondClass(c) {
+  const dom = String(c.intensity_domain || ''), mod = String(c.modality || ''),
+        wt = String(c.workout_type || '');
+  if (/^Z[456]/.test(dom) || mod === 'Circuit Training' || wt === 'Circuit') return ['wod', 'wod'];
+  if (mod === 'Ruck') return ['cardio', 'ruck'];
+  if (mod === 'Walk') return ['cardio', 'walk'];
+  if (/^Z3/.test(dom)) return ['cardio', 'cardio_z3'];
+  if (/^Z1/.test(dom)) return ['cardio', 'cardio_z1'];
+  return ['cardio', 'cardio'];
+}
+
+// A completed_sessions row counts as LIFTING when strength sets were logged
+// against it. Conditioning-only sessions also create a completed_sessions row,
+// which is why a plain row count over-reported "8 lifting sessions" for a
+// 3-lift week. Fallback when no sets came back: a finished, non-conditioning
+// session with no conditioning attached (the "finish without logging" path).
+function nmActIsLift(s, condCount) {
+  if (!s || s.status === 'skipped') return false;
+  if ((s.set_count || 0) > 0) return true;
+  return s.status === 'completed' && s.session_type !== 'Conditioning Only' && !condCount;
+}
+
+// o: { sessions:[{id,session_date,session_type,status,set_count}],
+//      conditioning:[{completed_session_id,conditioning_date,duration_minutes,modality,intensity_domain,workout_type}],
+//      manual:[{log_date,metric:'steps'|'workout_min',value,notes}],
+//      stepsMode:'total'|'extra', weightLb }
+// Returns items in date order; kcal unrounded (rounded only in the weekly rollup).
+function nmActivityItems(o) {
+  const lb = (o && o.weightLb) || 165;
+  const mode = o && o.stepsMode === 'extra' ? 'extra' : 'total';
+  const items = [];
+  const condBySession = {};
+  for (const c of (o.conditioning || []))
+    if (c.completed_session_id) condBySession[c.completed_session_id] = (condBySession[c.completed_session_id] || 0) + 1;
+  for (const s of (o.sessions || [])) {
+    if (!nmActIsLift(s, condBySession[s.id])) continue;
+    const min = NM_ACT_LIFT_SESSION_MIN;
+    items.push({ date: s.session_date, bucket: 'lift', rateKey: 'lift', minutes: min,
+      label: s.session_type || 'Strength session', source: 'synced', assumed: true,
+      kcal: min * NM_ACT_RATES.lift * lb });
+  }
+  for (const c of (o.conditioning || [])) {
+    const min = parseFloat(c.duration_minutes);
+    if (!(min > 0)) continue;
+    const [bucket, rateKey] = nmActCondClass(c);
+    const zone = c.intensity_domain ? String(c.intensity_domain).split('_')[0] : null;
+    items.push({ date: c.conditioning_date, bucket, rateKey, minutes: min,
+      label: [c.modality, zone].filter(Boolean).join(' ') || 'Conditioning', source: 'synced',
+      kcal: min * NM_ACT_RATES[rateKey] * lb });
+  }
+  for (const r of (o.manual || [])) {
+    const v = parseFloat(r.value);
+    if (!(v > 0)) continue;
+    if (r.metric === 'steps') {
+      const credited = mode === 'total' ? Math.max(0, v - NM_ACT_STEP_BASELINE) : v;
+      items.push({ date: r.log_date, bucket: 'steps', rateKey: 'steps', steps: v, credited,
+        label: mode === 'extra' ? 'steps outside workouts' : 'steps', source: 'logged',
+        kcal: credited * NM_ACT_STEP_RATE * lb });
+    } else if (r.metric === 'workout_min') {
+      const [bucket, rateKey] = NM_ACT_MANUAL_TYPES[r.notes] || ['cardio', 'other'];
+      items.push({ date: r.log_date, bucket, rateKey, minutes: v, label: r.notes || 'Workout',
+        source: 'logged', kcal: v * NM_ACT_RATES[rateKey] * lb });
+    }
+  }
+  items.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));   // stable
+  return items;
+}
+
+// Wednesday-anchored weekly rollup. kcalPerDay divides by the days of that week
+// that fall inside [since, asOf], so a partial first week or the live week is not
+// diluted by days that have not happened / are outside the range.
+function nmActivityWeeks(items, o) {
+  const since = o && o.since, asOf = o && o.asOf;
+  const wk = {};
+  for (const it of items) {
+    const w = nmWeekOf(it.date);
+    const a = wk[w] || (wk[w] = { lift: 0, wod: 0, cardio: 0, stepsSum: 0, stepDays: 0, kcal: 0 });
+    if (it.bucket === 'steps') { a.stepsSum += it.steps; a.stepDays++; }
+    else a[it.bucket] += it.minutes;
+    a.kcal += it.kcal;
+  }
+  return Object.keys(wk).sort().map(w => {
+    const a = wk[w];
+    let days = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = nmAddDays(w, i);
+      if ((!since || d >= since) && (!asOf || d <= asOf)) days++;
+    }
+    days = Math.max(1, days);
+    return { week: w, liftMin: Math.round(a.lift), wodMin: Math.round(a.wod),
+      cardioMin: Math.round(a.cardio),
+      avgSteps: a.stepDays ? Math.round(a.stepsSum / a.stepDays) : null, stepDays: a.stepDays,
+      days, kcalWeek: Math.round(a.kcal), kcalPerDay: Math.round(a.kcal / days) };
+  });
+}
+
+function nmActivityEstimate(o) {
+  const items = nmActivityItems(o);
+  return { version: NM_ACT_VERSION, items, weeks: nmActivityWeeks(items, o) };
+}
+
 // ── exports: browser global + node (tests) ──
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -556,5 +686,7 @@ if (typeof module !== 'undefined' && module.exports) {
     nmGoalEta, nmPhaseForecast, nmPhaseEnd, nmPhaseDefaultWeeks,
     nmProjectionSuppression, nmHalfMonth, nmHalfMonthRange,
     nmWeekOf, nmAddDays, nmDayDiff,
+    NM_ACT_VERSION, NM_ACT_RATES, NM_ACT_STEP_RATE, NM_ACT_STEP_BASELINE, NM_ACT_LIFT_SESSION_MIN,
+    nmActCondClass, nmActIsLift, nmActivityItems, nmActivityWeeks, nmActivityEstimate,
   };
 }
