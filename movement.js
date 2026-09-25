@@ -1827,6 +1827,7 @@ MV.tests = MV.tests || [];
 MV.screens = MV.screens || [];
 MV.screenPrefs = MV.screenPrefs || [];
 MV.screenUi = MV.screenUi || { unit: 'in', snoozes: {}, declined: {} };
+MV.testDrafts = MV.testDrafts || {};   // unsaved entries per test (today) — survive closing / reopening the sheet
 
 // Called inside loadMovement() when online. Its own try: a missing Phase 3
 // table must never break the walk / mobility check-off.
@@ -2038,6 +2039,14 @@ function openMvTest(key) {
   mvTiltStop();
   MV.sheet = null;
   const d = mvToday();
+  const dr = MV.testDrafts[key];
+  if (dr && dr.date === d && !dr.saved) {           // unsaved typed / measured values come back
+    dr.tilt = null; dr.offer = null;
+    MV.test = dr;
+    mvRenderTest();
+    mvOpenSheetDom();
+    return;
+  }
   const st = { key: key, date: d, sides: {}, finding: null, notes: '', saved: false, tilt: null, offer: null };
   MV.screens.filter(function (r) { return r.test_key === key && r.test_date === d && !r.pain_flag; }).forEach(function (r) {
     if (r.finding) st.finding = r.finding;
@@ -2049,6 +2058,7 @@ function openMvTest(key) {
       passed: r && r.passed != null ? !!r.passed : null };
   });
   MV.test = st;
+  MV.testDrafts[key] = st;
   mvRenderTest();
   mvOpenSheetDom();
 }
@@ -2181,6 +2191,7 @@ async function mvTestSave(hurt) {
   if (MV.screenUi.snoozes[t.key]) { delete MV.screenUi.snoozes[t.key]; mvSaveScreenUi(); }
   st.saved = true;
   st.hurt = !!hurt;
+  delete MV.testDrafts[t.key];
   mvRenderTest();
   mvPaintCard();
 }
@@ -2309,6 +2320,13 @@ function mvTiltHtml(t, tl) {
       + '<button class="btn" id="mv-tilt-start" onclick="mvTiltStart()">Start</button>'
       + '<button class="btn secondary" onclick="mvTiltCancel()">Cancel</button></div>';
   }
+  if (tl.phase === 'done') {
+    return h + '<div class="mv-tilt-title">✓ Reading in' + (side ? ' — ' + side.toLowerCase() : '') + '</div>'
+      + '<div class="mv-tilt-live mv-tilt-result" id="mv-tilt-result">' + tl.result + '°</div>'
+      + '<div class="mv-tilt-msg">Saved to the ' + (side ? side.toLowerCase() + ' ' : '') + 'field. Tap Done, check it, then Save the test.</div>'
+      + '<button class="btn" id="mv-tilt-done" onclick="mvTiltDone()" disabled>Done</button>'
+      + '<button class="btn secondary" onclick="mvTiltOpen(\'' + tl.side + '\')" disabled>Measure again</button></div>';
+  }
   const msg = tl.phase === 'zeroing' ? (t.tilt === 'level' ? 'Lie back into position…' : 'Hold still in the start position…')
     : 'Move to your end range and hold still…';
   return h + '<div class="mv-tilt-live" id="mv-tilt-live">' + (tl.live != null ? Math.round(tl.live) + '°' : '—') + '</div>'
@@ -2380,10 +2398,20 @@ function mvTiltCapture(angle) {
   mvTiltStop();
   try { beep(2); } catch (_) {}
   try { if (navigator.vibrate) navigator.vibrate([120, 80, 120]); } catch (_) {}
-  MV.test.sides[tl.side].value = String(v);
+  MV.test.sides[tl.side].value = String(v);     // straight into the field
+  tl.phase = 'done';
+  tl.result = v;
+  mvRenderTest();
+  // A hand still on the screen from the hold must not tap the new buttons.
+  setTimeout(function () {
+    document.querySelectorAll('.mv-tilt button').forEach(function (b) { b.disabled = false; });
+  }, 900);
+}
+// "Done" on the result: back to the form, the number is already in its field.
+function mvTiltDone() {
+  if (!MV.test) return;
   MV.test.tilt = null;
   mvRenderTest();
-  toast('Reading in: ' + v + '° — check it, then Save');
 }
 function mvTiltUseNow() {
   const tl = MV.test && MV.test.tilt;
