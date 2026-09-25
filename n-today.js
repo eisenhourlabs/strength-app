@@ -148,7 +148,7 @@ function renderToday() {
     for (const l of added) blocks.push(nAddedCardHtml(l));
   }
 
-  if (!isBack) blocks.push(nActivityCardHtml());
+  blocks.push(nActivityCardHtml());
   blocks.push(`<button class="n-act" style="width:100%;margin-top:10px" onclick="openNSheet('add', null)">+ Add food${isBack ? ' to ' + nDayName(dateStr, true) : ''}</button>`);
 
   // Weekly quiet line (Amanda only) — dropped into a random gap between
@@ -1130,16 +1130,40 @@ function nWorkoutKcal(min, type) { return Math.round(min * (N_WORKOUT_KCAL_MIN[t
 // Collapsed/logged rows reuse the .n-meal.done.compact treatment (green left
 // border, checkmark) from meal cards. Tap a logged row to re-expand it for editing;
 // N_OPEN keys 'act-steps' / 'act-workout' track that, same mechanism as nToggleCard.
+// Activity values for a date: today reads the live today-state, past days read
+// NS.actBack (loaded for the back-log window in nLoadAll).
+function nActFor(d) {
+  if (d === nToday()) return {
+    steps: NS.metricsToday.steps, wMin: NS.metricsToday.workout_min,
+    wType: (NS.metricsTodayNotes || {}).workout_min || '', sleep: NS.sleepToday,
+    strength: NS.hasStrengthSessionToday };
+  const a = (NS.actBack || {})[d] || {};
+  return { steps: a.steps, wMin: a.workout_min, wType: a.workout_type || '', sleep: a.sleep, strength: !!a.strength };
+}
+function nActSet(d, fields) {
+  if (d === nToday()) {
+    if ('steps' in fields) NS.metricsToday.steps = fields.steps;
+    if ('wMin' in fields) { NS.metricsToday.workout_min = fields.wMin; (NS.metricsTodayNotes ||= {}).workout_min = fields.wType; }
+    if ('sleep' in fields) NS.sleepToday = fields.sleep;
+    return;
+  }
+  const a = ((NS.actBack ||= {})[d] ||= {});
+  if ('steps' in fields) a.steps = fields.steps;
+  if ('wMin' in fields) { a.workout_min = fields.wMin; a.workout_type = fields.wType; }
+  if ('sleep' in fields) a.sleep = fields.sleep;
+}
+
 function nActivityCardHtml() {
-  const steps = NS.metricsToday.steps;
-  const wMin = NS.metricsToday.workout_min;
-  const wType = (NS.metricsTodayNotes || {}).workout_min || '';
+  const d = nViewDate();
+  const isBack = d !== nToday();
+  const { steps, wMin, wType, sleep } = nActFor(d);
+  const kS = 'act-steps-' + d, kW = 'act-workout-' + d;
   const hint = NS.me.training_active
     ? 'Gym sessions from the strength app sync automatically — log only extra activity here.'
     : 'Log workouts here so they show in your trends.';
 
-  const stepsRow = (steps != null && !N_OPEN['act-steps'])
-    ? `<div class="n-meal done compact" style="margin-bottom:8px" onclick="nToggleCard('act-steps')">
+  const stepsRow = (steps != null && !N_OPEN[kS])
+    ? `<div class="n-meal done compact" style="margin-bottom:8px" onclick="nToggleCard('${kS}')">
         <div class="n-done-row"><span class="n-done-check">✓</span>
           <span class="n-done-name">👟 ${Number(steps).toLocaleString()} steps logged</span>
           <span class="n-done-kcal">~${nStepsKcal(steps)} kcal</span></div></div>`
@@ -1147,8 +1171,8 @@ function nActivityCardHtml() {
         <input type="number" inputmode="numeric" id="na-steps" placeholder="steps" value="${steps ?? ''}">
         <button class="n-act small primary" onclick="submitSteps()">Save steps</button></div>`;
 
-  const workoutRow = (wMin != null && !N_OPEN['act-workout'])
-    ? `<div class="n-meal done compact" onclick="nToggleCard('act-workout')">
+  const workoutRow = (wMin != null && !N_OPEN[kW])
+    ? `<div class="n-meal done compact" onclick="nToggleCard('${kW}')">
         <div class="n-done-row"><span class="n-done-check">✓</span>
           <span class="n-done-name">💪 ${wMin} min ${nEsc(wType)} logged</span>
           <span class="n-done-kcal">~${nWorkoutKcal(wMin, wType)} kcal</span></div></div>`
@@ -1158,9 +1182,9 @@ function nActivityCardHtml() {
           `<button class="n-chip${wType === k ? ' active' : ''}" onclick="submitWorkout('${k}')">${k}</button>`).join('')}
       </div>`;
 
-  return `<div class="n-panel" style="margin-top:14px"><div class="n-panel-title">⚡ Activity today</div>
+  return `<div class="n-panel" style="margin-top:14px"><div class="n-panel-title">⚡ Activity ${isBack ? '— ' + nDayName(d, true) : 'today'}</div>
     ${!NS.me.training_active ? `<div class="n-prompt-row" style="margin-bottom:8px">
-      <input type="number" step="0.5" inputmode="decimal" id="na-sleep" placeholder="sleep last night (hrs)" value="${NS.sleepToday ?? ''}">
+      <input type="number" step="0.5" inputmode="decimal" id="na-sleep" placeholder="sleep ${isBack ? 'the night before' : 'last night'} (hrs)" value="${sleep ?? ''}">
       <button class="n-act small primary" onclick="submitSleep()">Save sleep</button></div>` : ''}
     ${stepsRow}
     ${workoutRow}
@@ -1168,7 +1192,7 @@ function nActivityCardHtml() {
 }
 async function submitSteps() {
   const v = parseInt(document.getElementById('na-steps').value, 10);
-  if (!v || v < 0 || v > 100000) { toast('Enter today\'s step count'); return; }
+  if (!v || v < 0 || v > 100000) { toast('Enter the step count'); return; }
   // Rule 14 — soft confirm only. Steps are context, never in the TDEE, so a wrong
   // value costs nothing but a confusing chart; one tap is the right amount of friction.
   const hit = nmCheckActivity({ kind: 'steps', value: v, mean28: NS.steps28Mean });
@@ -1181,16 +1205,30 @@ async function submitSteps() {
   return nSaveSteps(v);
 }
 async function nSaveSteps(v) {
-  if (await nSaveMetric('steps', v, 'steps')) { N_OPEN['act-steps'] = false; toast('Steps saved ✓'); renderToday(); }
+  const d = nViewDate();
+  if (d === nToday()) {
+    if (!(await nSaveMetric('steps', v, 'steps'))) return;
+  } else {
+    if (nOffline) { toast('Offline — reconnect to log.', 3000); return; }
+    const { error } = await ndb.from('body_metrics').upsert({
+      athlete_id: NS.me.id, log_date: d, metric: 'steps', value: v, unit: 'steps',
+      flag: null, flag_reason: null,
+    }, { onConflict: 'athlete_id,log_date,metric' });
+    if (error) { toast('Save failed: ' + error.message, 4000); return; }
+    nActSet(d, { steps: v });
+  }
+  N_OPEN['act-steps-' + d] = false; toast('Steps saved ✓'); renderToday();
 }
 async function submitWorkout(type) {
   const min = parseInt(document.getElementById('na-wmin').value, 10);
   if (!min || min <= 0 || min > 600) { toast('Enter workout minutes first'); return; }
   if (nOffline) { toast('Offline — reconnect to log.', 3000); return; }
   // Rule 14 — a manual workout on a day whose gym session already synced.
-  const hit = nmCheckActivity({ kind: 'workout', hasStrengthSession: NS.hasStrengthSessionToday });
+  const d = nViewDate();
+  const hit = nmCheckActivity({ kind: 'workout', hasStrengthSession: nActFor(d).strength });
   if (hit) {
-    return nConfirmOpen('Already have today\'s session', `<div>${nEsc(hit.message)}</div>`, [
+    return nConfirmOpen(d === nToday() ? 'Already have today\'s session' : 'Already have a session that day',
+      `<div>${nEsc(d === nToday() ? hit.message : hit.message.replace('for today', 'for that day'))}</div>`, [
       { label: 'This was extra — log it', kind: 'primary', run: () => nWriteWorkout(type, min) },
       { label: 'Cancel', run: null },
     ]);
@@ -1198,14 +1236,14 @@ async function submitWorkout(type) {
   return nWriteWorkout(type, min);
 }
 async function nWriteWorkout(type, min) {
+  const d = nViewDate();
   const { error } = await ndb.from('body_metrics').upsert({
-    athlete_id: NS.me.id, log_date: nToday(), metric: 'workout_min',
+    athlete_id: NS.me.id, log_date: d, metric: 'workout_min',
     value: min, unit: 'min', notes: type,
   }, { onConflict: 'athlete_id,log_date,metric' });
   if (error) { toast('Save failed: ' + error.message, 4000); return; }
-  NS.metricsToday.workout_min = min;
-  (NS.metricsTodayNotes ||= {}).workout_min = type;
-  N_OPEN['act-workout'] = false;
+  nActSet(d, { wMin: min, wType: type });
+  N_OPEN['act-workout-' + d] = false;
   toast(`${type} logged ✓`);
   renderToday();
 }
@@ -1214,11 +1252,12 @@ async function submitSleep() {
   const v = parseFloat(document.getElementById('na-sleep').value);
   if (!v || v < 1 || v > 14) { toast('Enter hours slept (1–14)'); return; }
   if (nOffline) { toast('Offline — reconnect to log.', 3000); return; }
+  const d = nViewDate();
   const { error } = await ndb.from('readiness_logs').upsert({
-    athlete_id: NS.me.id, log_date: nToday(), sleep_hours: v,
+    athlete_id: NS.me.id, log_date: d, sleep_hours: v,
   }, { onConflict: 'athlete_id,log_date' });
   if (error) { toast('Save failed: ' + error.message, 4000); return; }
-  NS.sleepToday = v;
+  nActSet(d, { sleep: v });
   toast('Sleep saved ✓');
   renderToday();
 }

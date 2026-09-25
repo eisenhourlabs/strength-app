@@ -428,6 +428,31 @@ async function nLoadAll() {
       NS.hasStrengthSessionToday = !!(cs && cs.length);
     } catch (_) {}
   }
+
+  // Back-logging: activity for the previous N_BACKLOG_DAYS (steps, workout, sleep,
+  // synced strength sessions) so the Activity card works on past days too.
+  // Today's values stay in NS.metricsToday / NS.sleepToday; nActFor() picks the source.
+  NS.actBack = {};
+  try {
+    const bS = nAddDays(nToday(), -N_BACKLOG_DAYS), bE = nAddDays(nToday(), -1);
+    const [bm, rl, cs] = await Promise.all([
+      ndb.from('body_metrics').select('log_date,metric,value,notes').eq('athlete_id', meId)
+        .in('metric', ['steps', 'workout_min']).gte('log_date', bS).lte('log_date', bE),
+      ndb.from('readiness_logs').select('log_date,sleep_hours').eq('athlete_id', meId)
+        .gte('log_date', bS).lte('log_date', bE),
+      NS.me.training_active
+        ? ndb.from('completed_sessions').select('session_date').eq('athlete_id', meId)
+            .gte('session_date', bS).lte('session_date', bE)
+        : Promise.resolve({ data: [] }),
+    ]);
+    const day = d => (NS.actBack[d] ||= {});
+    for (const r of (bm.data || [])) {
+      if (r.metric === 'steps') day(r.log_date).steps = r.value;
+      else { day(r.log_date).workout_min = r.value; day(r.log_date).workout_type = r.notes || ''; }
+    }
+    for (const r of (rl.data || [])) if (r.sleep_hours != null) day(r.log_date).sleep = r.sleep_hours;
+    for (const r of (cs.data || [])) day(r.session_date).strength = true;
+  } catch (e) { console.warn('back-log activity load failed', e); }
 }
 
 // ── Meal helpers ──
