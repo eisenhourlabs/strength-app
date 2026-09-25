@@ -23,6 +23,7 @@ function openCheckin() {
     water_retention_context: c.water_retention_context ?? null,
     meals_to_change: new Set((c.meals_to_change || '').split(';').map(s => s.trim()).filter(Boolean)),
     general_notes: c.general_notes ?? '', next_week_notes: c.next_week_notes ?? '',
+    activity_outlook: c.activity_outlook ?? null,
   };
   let ov = document.getElementById('nci-overlay');
   if (!ov) {
@@ -50,6 +51,11 @@ function nciChips(field, max) {
 }
 function nciSet(field, v) { NCI[field] = (NCI[field] === v ? null : v); renderCheckinSheet(); }
 function nciSetUnlogged(v) { NCI.unlogged_eating = v; renderCheckinSheet(); }
+// Next week's activity (N09 §3.14): scales the TRAINING part of the coach's
+// activity forecast — normal ×1, less ×0.5, more ×1.25, off ×0 (and the target
+// holds at maintenance). Steps keep their recent level either way.
+const NCI_OUTLOOK = [['normal', 'Normal'], ['less', 'Less'], ['more', 'More'], ['off', 'Off / traveling']];
+function nciSetOutlook(v) { NCI.activity_outlook = (NCI.activity_outlook === v ? null : v); renderCheckinSheet(); }
 function nciSetWater(v) { NCI.water_retention_context = (NCI.water_retention_context === v ? null : v); renderCheckinSheet(); }
 function nciToggleMeal(name) {
   if (NCI.meals_to_change.has(name)) NCI.meals_to_change.delete(name);
@@ -96,6 +102,10 @@ function renderCheckinSheet() {
           onclick="nciToggleMeal('${n.replace(/'/g, "\\'")}')">${nEsc(n)}</button>`).join('')}</div>` : ''}
       <div class="n-sheet-section">Notes (why a meal didn't work, hunger patterns, anything)</div>
       <textarea id="nci-notes" class="n-search" rows="3" style="resize:vertical">${nEsc(NCI.general_notes)}</textarea>
+      <div class="n-sheet-section">Next week's workouts and activity, compared with usual?</div>
+      <div class="n-portion-chips">${NCI_OUTLOOK.map(([v, l]) =>
+        `<button class="n-chip${NCI.activity_outlook === v ? ' active' : ''}" onclick="nciSetOutlook('${v}')">${l}</button>`).join('')}</div>
+      <div class="n-opt-sub">The coach adjusts next week's calories to match — less training, a little less food; a bigger block, more.</div>
       <div class="n-sheet-section">Next week (travel, events, schedule, requests)</div>
       <textarea id="nci-next" class="n-search" rows="2" style="resize:vertical">${nEsc(NCI.next_week_notes)}</textarea>
       <button class="btn" style="margin:12px 0" onclick="submitNCheckin()">
@@ -116,11 +126,19 @@ async function submitNCheckin() {
     meals_to_change: [...NCI.meals_to_change].join('; ') || null,
     general_notes: document.getElementById('nci-notes').value.trim() || null,
     next_week_notes: document.getElementById('nci-next').value.trim() || null,
+    activity_outlook: NCI.activity_outlook,
     resubmitted: !!NS.checkin,
     submitted_at: new Date().toISOString(),
   };
-  const { data, error } = await ndb.from('nutrition_checkins')
+  let { data, error } = await ndb.from('nutrition_checkins')
     .upsert(row, { onConflict: 'athlete_id,week_of' }).select().single();
+  // Before the 2026-09-24d migration runs, the column does not exist: submit
+  // without it rather than lose the whole check-in.
+  if (error && /activity_outlook/.test(error.message || '')) {
+    delete row.activity_outlook;
+    ({ data, error } = await ndb.from('nutrition_checkins')
+      .upsert(row, { onConflict: 'athlete_id,week_of' }).select().single());
+  }
   if (error) { toast('Submit failed: ' + error.message, 4000); return; }
   NS.checkin = data;
   closeCheckin();

@@ -672,6 +672,140 @@ function nmActivityEstimate(o) {
   return { version: NM_ACT_VERSION, items, weeks: nmActivityWeeks(items, o) };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// §3.14 Base maintenance + activity forecast (act_version 1) — added 2026-09-24.
+// Spec: 08_Nutrition/Base_Maintenance_Activity_Forecast_Spec_2026-09-24.md
+//   base B = measured maintenance T (§3.7) − mean §3.13 activity over the SAME window
+//   forecast F = B + expected activity A_p for the coming week
+// A rate error in §3.13 cancels inside B, so F is only off by a share of the
+// CHANGE in activity — which is why this is safe with a ±15–20% activity estimate.
+// Mirrored in nutrition_metrics.py — change both together.
+// ─────────────────────────────────────────────────────────────────────────────
+const NM_BASE_CHANGE_ERR = 0.20;           // band added per kcal of activity change
+const NM_BASE_MOVE_MIN = 100;              // coach moves a target only on a ≥100 kcal/day change
+const NM_BASE_TRANSITION_KCAL = 150;       // |ΔA| that flags an "activity transition"
+const NM_BASE_ANCHOR_BAND = 200;
+const NM_ACT_COMPLETION_MIN = 0.5, NM_ACT_COMPLETION_MAX = 1.1;
+const NM_ACT_STEP_MIN_DAYS_IMPUTE = 7;     // total-steps mode: fill missing days only with ≥7 logged
+const NM_ACT_OUTLOOK = { normal: 1, less: 0.5, more: 1.25, off: 0 };
+
+function nmRound50(x) { return Math.round(x / 50) * 50; }
+
+// Mean activity per calendar day over [start, end], split training vs steps.
+// Total-steps users: a day with no step entry is filled with the window's mean
+// logged-step kcal (a skipped log is not a zero-step day). Extra-steps users: a
+// blank day really is zero extra steps, so nothing is imputed.
+function nmActivityWindow(items, start, end, stepsMode) {
+  const days = nmDayDiff(end, start) + 1;
+  let training = 0, steps = 0;
+  const stepDates = {};
+  for (const it of (items || [])) {
+    if (it.date < start || it.date > end) continue;
+    if (it.bucket === 'steps') { steps += it.kcal; stepDates[it.date] = true; }
+    else training += it.kcal;
+  }
+  const stepDays = Object.keys(stepDates).length;
+  let imputedDays = 0, stepsSparse = false;
+  if (stepsMode !== 'extra' && stepDays < days) {
+    if (stepDays >= NM_ACT_STEP_MIN_DAYS_IMPUTE) {
+      imputedDays = days - stepDays;
+      steps += imputedDays * (steps / stepDays);
+    } else stepsSparse = true;
+  }
+  return { start, end, days, stepDays, imputedDays, stepsSparse,
+    trainingPerDay: training / days, stepsPerDay: steps / days, perDay: (training + steps) / days };
+}
+
+// o: { tdee (nmTdee result), items (nmActivityItems), stepsMode, anchorKcal, asOf }
+function nmBaseMaintenance(o) {
+  o = o || {};
+  const t = o.tdee;
+  if (t && t.sufficient) {
+    const w = nmActivityWindow(o.items, t.window[0], t.window[1], o.stepsMode);
+    return { source: 'measured', total: t.mid, band: t.band, window: t.window,
+      activityWindow: Math.round(w.perDay), base: Math.round((t.mid - w.perDay) / 10) * 10,
+      stepsSparse: w.stepsSparse, reason: null };
+  }
+  if (o.anchorKcal && o.asOf) {
+    const start = nmAddDays(o.asOf, -27);
+    const w = nmActivityWindow(o.items, start, o.asOf, o.stepsMode);
+    return { source: 'anchor', total: o.anchorKcal, band: NM_BASE_ANCHOR_BAND, window: [start, o.asOf],
+      activityWindow: Math.round(w.perDay), base: Math.round((o.anchorKcal - w.perDay) / 10) * 10,
+      stepsSparse: w.stepsSparse, reason: (t && t.reason) || null };
+  }
+  return { source: null, base: null, reason: (t && t.reason) || 'no measured maintenance and no working anchor' };
+}
+
+// Planned training kcal for one program week. plan.sessions: [{id, session_type,
+// exercise_count}], plan.blocks: [{session_id, target_duration_min, modality,
+// intensity_domain, workout_type}]. A session with exercises that is not
+// "Conditioning Only" is a lift (60 min, same assumption as §3.13).
+function nmPlannedTraining(plan, weightLb) {
+  const lb = weightLb || 165;
+  let kcal = 0, lifts = 0, condMin = 0;
+  for (const s of ((plan && plan.sessions) || [])) {
+    if (s.session_type === 'Conditioning Only' || !((s.exercise_count || 0) > 0)) continue;
+    lifts++;
+    kcal += NM_ACT_LIFT_SESSION_MIN * NM_ACT_RATES.lift * lb;
+  }
+  for (const b of ((plan && plan.blocks) || [])) {
+    const m = parseFloat(b.target_duration_min);
+    if (!(m > 0)) continue;
+    condMin += m;
+    kcal += m * NM_ACT_RATES[nmActCondClass(b)[1]] * lb;
+  }
+  return { kcalWeek: kcal, lifts, condMin };
+}
+
+// Actual ÷ planned training kcal over prior program weeks, clamped. Needs ≥2
+// planned weeks, else 1.0 (no evidence either way).
+function nmCompletionRatio(plannedKcal, actualKcal, plannedWeeks) {
+  if (!(plannedWeeks >= 2) || !(plannedKcal > 0)) return 1;
+  const r = actualKcal / plannedKcal;
+  return Math.min(NM_ACT_COMPLETION_MAX, Math.max(NM_ACT_COMPLETION_MIN, r));
+}
+
+// Expected activity for the coming week.
+// o: { planWeekKcal (from nmPlannedTraining, null = no plan), completion,
+//      recentTrainingPerDay, recentStepsPerDay, outlook, override }
+// Plan (training-active) wins over recent; the outlook scales the TRAINING part
+// only — steps keep their recent level (you still walk on a travel week).
+function nmExpectedActivity(o) {
+  o = o || {};
+  const fromPlan = o.planWeekKcal != null;
+  const trainingBase = fromPlan ? (o.planWeekKcal / 7) * (o.completion == null ? 1 : o.completion)
+                                : (o.recentTrainingPerDay || 0);
+  const outlook = NM_ACT_OUTLOOK[o.outlook] != null ? o.outlook : 'normal';
+  const training = trainingBase * NM_ACT_OUTLOOK[outlook];
+  const steps = o.recentStepsPerDay || 0;
+  const override = o.override != null && isFinite(o.override);
+  return { trainingPerDay: Math.round(training), stepsPerDay: Math.round(steps),
+    perDay: Math.round(override ? o.override : training + steps), outlook,
+    source: override ? 'override' : fromPlan ? 'plan' : 'recent' };
+}
+
+// o: { basis (nmBaseMaintenance), expectedPerDay, phase {maintenance_estimate_kcal,
+//      kcal_target}, currentTarget, floor, holdAtMaintenance (travel week) }
+function nmForecastMaintenance(o) {
+  o = o || {};
+  const B = o.basis;
+  if (!B || B.base == null) return { sufficient: false, reason: (B && B.reason) || 'no base maintenance' };
+  const exp = o.expectedPerDay || 0;
+  const mid = B.base + exp;
+  const delta = exp - B.activityWindow;
+  const unc = B.band + NM_BASE_CHANGE_ERR * Math.abs(delta);
+  const ph = o.phase || {};
+  const offset = (!o.holdAtMaintenance && ph.maintenance_estimate_kcal != null && ph.kcal_target != null)
+    ? ph.maintenance_estimate_kcal - ph.kcal_target : 0;
+  let suggested = nmRound50(mid - offset);
+  if (o.floor != null && suggested < o.floor) suggested = o.floor;
+  const move = o.currentTarget != null && Math.abs(suggested - o.currentTarget) >= NM_BASE_MOVE_MIN;
+  return { sufficient: true, source: B.source, base: B.base, expected: Math.round(exp),
+    mid: nmRound50(mid), low: nmRound50(mid - unc), high: nmRound50(mid + unc),
+    delta: Math.round(delta), offset, suggested, move,
+    transition: Math.abs(delta) >= NM_BASE_TRANSITION_KCAL, reason: null };
+}
+
 // ── exports: browser global + node (tests) ──
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -688,5 +822,7 @@ if (typeof module !== 'undefined' && module.exports) {
     nmWeekOf, nmAddDays, nmDayDiff,
     NM_ACT_VERSION, NM_ACT_RATES, NM_ACT_STEP_RATE, NM_ACT_STEP_BASELINE, NM_ACT_LIFT_SESSION_MIN,
     nmActCondClass, nmActIsLift, nmActivityItems, nmActivityWeeks, nmActivityEstimate,
+    NM_ACT_OUTLOOK, nmRound50, nmActivityWindow, nmBaseMaintenance, nmPlannedTraining,
+    nmCompletionRatio, nmExpectedActivity, nmForecastMaintenance,
   };
 }

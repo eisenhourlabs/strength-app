@@ -120,6 +120,7 @@ async function renderNTrends() {
     since, asOf: nToday() });
   const D = nTrendsDerive(wq.data || [], sq.data || [], pq.data || [], lq.data || [],
                           phq.data || [], tq.data || [], dvq.data || [], nkq.data || [], ACT0);
+  D.planBasis = nPlanBasisFromReports(reports, D.thisWeek);
 
   let html = '';
   html += nOverviewHtml(D, reports);
@@ -134,6 +135,19 @@ async function renderNTrends() {
 }
 
 function nSetRange(r) { NT.range = r; renderNTrends(); }
+
+// The coach's activity-adjusted plan basis (N09 §3.14) for the current or next
+// plan week, read from the stored weekly report. The app never forecasts on its
+// own — the forecast depends on next week's program, which only the coach sees.
+function nPlanBasisFromReports(reports, thisWeek) {
+  const r = (reports || []).find(x => x && x.week_of >= thisWeek && x.evidence &&
+    x.evidence.forecast_maintenance_kcal != null);
+  if (!r) return null;
+  const e = r.evidence;
+  return { week: r.week_of, label: r.week_of === thisWeek ? 'This week' : 'Next week',
+    activity: Number(e.activity_planned_kcal) || 0, outlook: e.activity_outlook || null,
+    forecast: Number(e.forecast_maintenance_kcal), target: e.kcal_target != null ? Number(e.kcal_target) : null };
+}
 function nToggleMacros() { NT.showMacros = !NT.showMacros; renderNTrends(); }
 function nToggleReport(id) { NT.openReport = (NT.openReport === id) ? null : id; renderNTrends(); }
 function nToggleEnergyTable() { NT.energyTable = !NT.energyTable; renderNTrends(); }
@@ -301,6 +315,11 @@ function nTrendsDerive(weights, summary, planned, logs, phases, targets, dayView
     : nmTdee({ days: energyDays, trendPoints: trend.points, asOf: nmToday,
                confidence: confidence.level, confidenceReason: confidence.reason });
 
+  // §3.14 base maintenance = measured maintenance − activity over the SAME 28
+  // days. Measured only — the app never shows the coach's anchor-based fallback.
+  const baseM = (tdeeNow && tdeeNow.sufficient && ACT && ACT.items)
+    ? nmBaseMaintenance({ tdee: tdeeNow, items: ACT.items, stepsMode: nStepsMode() }) : null;
+
   const actByWeek = {};
   for (const a of ((ACT && ACT.weeks) || [])) actByWeek[a.week] = a;
 
@@ -342,7 +361,7 @@ function nTrendsDerive(weights, summary, planned, logs, phases, targets, dayView
   return { trend, rate, windowDays, pace, rateGoal, phases, activePhase, days, byWeek,
     tByWeek, weighInsByWeek, thisWeek, wkTarget, logging, calories, protein, compliance,
     confidence, goal, goalLow, goalHigh, ticks, weights, flaggedCount, summary,
-    energyDays, energyWeeks, tdeeSeries, tdeeNow, phaseEnd: pEnd, forecast, goalEta,
+    energyDays, energyWeeks, tdeeSeries, tdeeNow, baseM, phaseEnd: pEnd, forecast, goalEta,
     weeksOfTrend, weeksBelowMostly, today: nmToday };
 }
 
@@ -777,6 +796,17 @@ function nWeightEnergyCardHtml(D) {
         T.recalibrating ? ' · <span style="color:#7a5200">recalibrating</span>' : ''}`
     : `Maintenance not available yet — ${nEsc((T && T.reason) || 'not enough data')}${
         ph && ph.maintenance_estimate_kcal ? ` · coach's estimate ~${ph.maintenance_estimate_kcal.toLocaleString()}` : ''}`;
+  const BM = D.baseM;
+  const baseLine = BM && BM.base != null
+    ? `<div style="font-size:11px;color:var(--n-muted);margin-top:2px">≈ base <b style="color:var(--n-text)">~${BM.base.toLocaleString()}</b>
+        + activity <b style="color:var(--n-text)">~${BM.activityWindow.toLocaleString()}/day</b> over the same 28 days${
+        BM.stepsSparse ? ' · <span style="color:#7a5200">steps logged on few days — base is rough</span>' : ''}</div>` : '';
+  const PB = D.planBasis;
+  const planLineTxt = PB
+    ? `<div style="font-size:11px;color:var(--n-muted);margin-top:2px">${PB.label}: planned activity
+        <b style="color:var(--n-text)">~${PB.activity.toLocaleString()}/day</b>${PB.outlook && PB.outlook !== 'normal' ? ` (${nEsc(PB.outlook)})` : ''}
+        → maintenance <b style="color:var(--n-text)">~${PB.forecast.toLocaleString()}</b>${
+        PB.target != null ? ` · target ${PB.target.toLocaleString()}` : ''}</div>` : '';
 
   const eLegend = [];
   if (tdeeBand) eLegend.push({ kind: 'band', color: NT_GRAY, label: 'Maintenance' });
@@ -784,7 +814,7 @@ function nWeightEnergyCardHtml(D) {
     { kind: 'dash', color: NT_BLUE, label: 'Calories planned' });
 
   const panel2 = `<div style="margin-top:14px;border-top:1px solid var(--n-line,#e6e6e1);padding-top:10px">
-    <div class="n-zoomable" onclick="nChartZoomOpen(this)">${nPanelHead('Energy balance', eSub, eLegend)}
+    <div class="n-zoomable" onclick="nChartZoomOpen(this)">${nPanelHead('Energy balance', eSub + baseLine + planLineTxt, eLegend)}
     <svg viewBox="0 0 ${NT_W} ${H2}" style="width:100%;margin-top:2px">
       ${nBandRects(bands, T2, B2)}${nBandLabels(bands, T2 - 5)}${eGrid}${tdeeBand}
       ${todayMark(T2, B2, T2 - 14)}${planLine}${actLine}${actDots}${carets}
@@ -821,8 +851,9 @@ function nWeightEnergyCardHtml(D) {
     <div style="font-size:12px;color:var(--n-text);margin-top:9px">${fcLine}</div>${goalLine}${reEst}
     ${nEnergyTableHtml(D)}
     <div style="font-size:11px;color:var(--n-muted);margin-top:8px">Sodium, carbs, cycle, and digestion
-    move the scale 2–5 lb day to day. The line is the signal; the dots are noise. Activity is context
-    only — it is already inside the scale-based maintenance range, so adding it would double-count.</div></div>`;
+    move the scale 2–5 lb day to day. The line is the signal; the dots are noise. Maintenance is measured
+    from your scale and food logs; the coach splits it into base + activity so a known change in training
+    (travel, a deload, a bigger block) moves your target the week it happens instead of a month later.</div></div>`;
 }
 // ── The weekly numbers behind both panels ──
 // Default collapsed. This exists so that NOTHING in the chart is reachable only
