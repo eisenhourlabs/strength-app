@@ -36,7 +36,7 @@ function classifyExerciseCategory(movementPattern) {
 function trendsStackedBarChart(series, weekLabels, opts) {
   opts = opts || {};
   const W = 320, H = opts.height || 130;
-  const PAD_L = 32, PAD_R = 8, PAD_T = 10, PAD_B = 28;
+  const PAD_L = 32, PAD_R = 8, PAD_T = opts.showTotals ? 16 : 10, PAD_B = 28;
   const chartW = W - PAD_L - PAD_R;
   const chartH = H - PAD_T - PAD_B;
   const n = weekLabels.length;
@@ -47,12 +47,13 @@ function trendsStackedBarChart(series, weekLabels, opts) {
   const maxVal = Math.max.apply(null, totals.concat([1]));
   const barW = Math.max(4, Math.floor(chartW / n) - 3);
   const gap  = (chartW - barW * n) / (n + 1);
-  const yTicks = [0, 0.5, 1].map(function(t) { return Math.round(maxVal * t); });
+  // With formatVal (decimal units, e.g. miles) ticks keep their exact position and label.
+  const yTicks = [0, 0.5, 1].map(function(t) { return opts.formatVal ? maxVal * t : Math.round(maxVal * t); });
   let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;display:block">';
   yTicks.forEach(function(v) {
     const y = PAD_T + chartH - (v / maxVal) * chartH;
     svg += '<line x1="' + PAD_L + '" y1="' + y + '" x2="' + (W - PAD_R) + '" y2="' + y + '" stroke="#2d2d2d" stroke-width="1"/>';
-    const lbl = v >= 1000 ? (v/1000).toFixed(0) + 'k' : v;
+    const lbl = opts.formatVal ? opts.formatVal(v) : (v >= 1000 ? (v/1000).toFixed(0) + 'k' : v);
     svg += '<text x="' + (PAD_L - 3) + '" y="' + (y + 4) + '" text-anchor="end" fill="#666" font-size="9">' + lbl + '</text>';
   });
   for (var i = 0; i < n; i++) {
@@ -65,6 +66,11 @@ function trendsStackedBarChart(series, weekLabels, opts) {
       yBase -= bh;
       svg += '<rect x="' + x + '" y="' + yBase + '" width="' + barW + '" height="' + bh + '" fill="' + s.color + '" rx="1"/>';
     });
+    // Optional total label above each bar (conditioning charts, 2026-09-25).
+    if (opts.showTotals && totals[i] > 0) {
+      const tl = opts.formatVal ? opts.formatVal(totals[i]) : Math.round(totals[i]);
+      svg += '<text x="' + (x + barW/2) + '" y="' + (yBase - 3) + '" text-anchor="middle" fill="var(--muted)" font-size="8">' + tl + '</text>';
+    }
     if (i % 2 === 0 || n <= 6) {
       svg += '<text x="' + (x + barW/2) + '" y="' + (H - 6) + '" text-anchor="middle" fill="#666" font-size="9">' + weekLabels[i] + '</text>';
     }
@@ -133,7 +139,7 @@ function trendsLineChart(points, labels, opts) {
   return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto">' + axes + yax + segs + dots + xlbls + '</svg>';
 }
 
-// Horizontal bar breakdown — items: [{label, value}], optional suffix (default ' sets')
+// Horizontal bar breakdown — items: [{label, value, color?}], optional suffix (default ' sets' — pass ' min'/' mi' for conditioning)
 function trendsHorizChart(items, color, suffix) {
   if (!items.length) return '<div style="color:var(--muted);font-size:12px;padding:6px 0">No data yet</div>';
   color  = color  || 'var(--accent)';
@@ -142,7 +148,7 @@ function trendsHorizChart(items, color, suffix) {
   return items.map(function(item) {
     const pct        = (item.value / maxV * 100).toFixed(1);
     const displayVal = Number.isInteger(item.value) ? item.value : item.value.toFixed(1);
-    return '<div class="horiz-bar-row"><div class="horiz-bar-meta"><span style="color:var(--fg)">' + item.label + '</span><span style="color:var(--muted)">' + displayVal + suffix + '</span></div><div class="horiz-bar-track"><div class="horiz-bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div></div>';
+    return '<div class="horiz-bar-row"><div class="horiz-bar-meta"><span style="color:var(--fg)">' + item.label + '</span><span style="color:var(--muted)">' + displayVal + suffix + '</span></div><div class="horiz-bar-track"><div class="horiz-bar-fill" style="width:' + pct + '%;background:' + (item.color || color) + '"></div></div></div>';
   }).join('');
 }
 
@@ -780,11 +786,20 @@ function renderTrendsReadiness(readiness, weekKeys, weekLabels) {
   return trendSection('readiness', 'Readiness &amp; Recovery', pillHtml + chartHtml);
 }
 
+// ── Conditioning ──────────────────────────────────────────────────────────────
+// Reworked 2026-09-25 (Troy's request):
+//   • Minutes per Week counts TRUE conditioning only (anything above Z1 — walks
+//     included when logged at Z2+) and splits each bar machine vs non-machine.
+//   • New Run + Ruck Miles per Week chart (all zones — a recovery jog still loads
+//     the joints), with a longest-session spike check and ruck load × miles.
+//   • Ramp % vs a deload-safe baseline, coloured at +10% and +20%.
+//   • Zone colours fixed (they were keyed to pre-taxonomy names, so every bar
+//     was grey); rows with no duration count 0, not 1.
+//   • By Workout Type and Distance by Modality dropped; units say min/mi, not sets.
+
 // Labels for the intensity_domain column (added 2026-09-14). This used to be
 // reverse-engineered from workout_type, which could not work: workout_type is a
-// FORMAT vocabulary and this is an INTENSITY question. It also mis-keyed
-// 'skierge' (the value lowercases to 'skierg'), so SkiErg — along with
-// VersaClimber, Sled and Jump Rope — silently fell through to 'Other'.
+// FORMAT vocabulary and this is an INTENSITY question.
 const COND_DOMAIN_LABELS = {
   Z1_Recovery:      'Z1 Recovery',
   Z2_Aerobic_Base:  'Z2 Aerobic Base',
@@ -793,38 +808,225 @@ const COND_DOMAIN_LABELS = {
   Z5_VO2:           'Z5 VO2',
   Z6_Anaerobic:     'Z6 Anaerobic',
 };
+const COND_ZONE_UNCLASSIFIED = 'Unclassified (legacy)';
+const COND_ZONE_ORDER = ['Z1 Recovery', 'Z2 Aerobic Base', 'Z3 Upper Aerobic',
+  'Z4 Threshold', 'Z5 VO2', 'Z6 Anaerobic', COND_ZONE_UNCLASSIFIED];
+const COND_ZONE_COLORS = {
+  'Z1 Recovery':      '#60a5fa',
+  'Z2 Aerobic Base':  '#22c55e',
+  'Z3 Upper Aerobic': '#a3e635',
+  'Z4 Threshold':     '#f59e0b',
+  'Z5 VO2':           '#f97316',
+  'Z6 Anaerobic':     '#ef4444',
+};
+COND_ZONE_COLORS[COND_ZONE_UNCLASSIFIED] = '#6b7280';
+const COND_EASY_ZONES = ['Z1 Recovery', 'Z2 Aerobic Base'];
+
+// Non-machine = weight-bearing / impact work whose weekly dose has to be raised
+// deliberately. Everything else (bikes, ergs, Versaclimber, swimming, walking,
+// Other) is machine / low-impact. Classified by MODALITY — Troy's definition —
+// not by the per-row impact_load field.
+const COND_NONMACHINE = ['Run', 'Ruck', 'Sled', 'Jump Rope', 'Circuit Training'];
+const COND_COLOR_MACHINE    = '#06b6d4';
+const COND_COLOR_NONMACHINE = '#f97316';
+const COND_COLOR_RUN        = '#e11d48';
+const COND_COLOR_RUCK       = '#d97706';
+const COND_M_PER_MILE       = 1609.34;
+const COND_NOTE_STYLE = 'font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5';
 
 // Legacy fallback for rows logged before the taxonomy existed. Deliberately
-// coarse and deliberately NOT dressed up as a real reading — a row with no
-// intensity_domain is unclassified, not secretly known.
+// NOT dressed up as a real reading — a row with no intensity_domain is
+// unclassified, not secretly known.
 function condAdaptation(workoutType, modality, intensityDomain) {
   if (intensityDomain) return COND_DOMAIN_LABELS[intensityDomain] || intensityDomain;
-  const wt = (workoutType || '').toLowerCase();
-  if (wt === 'intervals')   return 'Unclassified (legacy)';
-  if (wt === 'circuit')     return 'Unclassified (legacy)';
-  if (wt === 'tempo')       return 'Unclassified (legacy)';
-  if (wt === 'steady state')return 'Unclassified (legacy)';
-  return 'Unclassified (legacy)';
+  return COND_ZONE_UNCLASSIFIED;
+}
+
+function condRowDate(row) {
+  return row.conditioning_date || (row.created_at ? row.created_at.slice(0, 10) : null);
+}
+function condMin(row) { return Number(row.duration_minutes) || 0; }
+function condMiles(row) { return (Number(row.distance_meters) || 0) / COND_M_PER_MILE; }
+// True conditioning = anything above Z1. Legacy rows with no intensity count —
+// they were real sessions.
+function condIsTrue(row) { return row.intensity_domain !== 'Z1_Recovery'; }
+function condIsNonMachine(row) { return COND_NONMACHINE.indexOf(row.modality) !== -1; }
+
+function condShiftWeek(wkKey, n) {
+  const d = new Date(wkKey + 'T00:00:00');
+  d.setDate(d.getDate() + 7 * n);
+  return d.toISOString().slice(0, 10);
+}
+
+// { weekMonday: sum(valueFn(row)) }
+function condWeekSums(rows, valueFn) {
+  const out = {};
+  rows.forEach(function(r) {
+    const d = condRowDate(r);
+    if (!d) return;
+    const v = valueFn(r);
+    if (!v) return;
+    const wk = getWeekMonday(d);
+    out[wk] = (out[wk] || 0) + v;
+  });
+  return out;
+}
+
+// Deload-safe baseline: the higher of the prior week and the prior-4-week
+// average, so a normal week after a deload does not read as a spike.
+function condRampBaseline(sums, wkKey) {
+  const prev = sums[condShiftWeek(wkKey, -1)] || 0;
+  let tot = 0;
+  for (let i = 1; i <= 4; i++) tot += sums[condShiftWeek(wkKey, -i)] || 0;
+  return Math.max(prev, tot / 4);
+}
+function condRampPct(cur, base) {
+  if (!base) return null;
+  return Math.round((cur - base) / base * 100);
+}
+function condRampColor(pct) {
+  if (pct == null) return 'var(--muted)';
+  if (pct >= 20) return '#ef4444';
+  if (pct >= 10) return '#f59e0b';
+  return '#22c55e';
+}
+function condPctChip(pct, noBaseText) {
+  if (pct == null) return noBaseText ? '<span style="color:var(--muted)">' + noBaseText + '</span>' : '';
+  return '<span style="color:' + condRampColor(pct) + ';font-weight:600">' + (pct > 0 ? '+' : '') + pct + '%</span>';
+}
+// "Non-machine: this week so far 92 min +8% · last week 85 min +3%"
+function condRampLine(title, sums, weekKeys, fmt) {
+  const n = weekKeys.length;
+  const part = function(lbl, wk) {
+    if (!wk) return '';
+    const v = sums[wk] || 0;
+    const pct = v ? condRampPct(v, condRampBaseline(sums, wk)) : null;
+    return lbl + ' <b style="color:var(--fg)">' + fmt(v) + '</b> ' + condPctChip(pct, v ? 'new' : '');
+  };
+  return '<div style="' + COND_NOTE_STYLE + '">' + title + ': '
+    + part('this week so far', weekKeys[n - 1]) + ' · ' + part('last week', weekKeys[n - 2]) + '</div>';
+}
+
+function condLegend(items) {
+  return '<div class="adapt-legend" style="margin-top:6px">'
+    + items.map(function(it) {
+      return '<div class="adapt-legend-item"><div class="adapt-dot" style="background:' + it.color + '"></div>' + it.label + '</div>';
+    }).join('') + '</div>';
+}
+
+// Longest single outing (per day — a run split across blocks is one outing) in
+// week wkKey vs the longest in the 30 days before it. Single-session spikes past
+// the recent longest are a better injury signal than weekly totals alone.
+// Returns the outing with the biggest jump, or null if none that week.
+function condLongestCheck(rows, modality, wkKey) {
+  const byDay = {};
+  rows.forEach(function(r) {
+    if (r.modality !== modality) return;
+    const d = condRowDate(r), m = Number(r.distance_meters) || 0;
+    if (!d || !m) return;
+    byDay[d] = (byDay[d] || 0) + m;
+  });
+  const days = Object.keys(byDay).sort();
+  const wkEnd = condShiftWeek(wkKey, 1);
+  let best = null;
+  days.forEach(function(d) {
+    if (d < wkKey || d >= wkEnd) return;
+    const from = new Date(d + 'T00:00:00');
+    from.setDate(from.getDate() - 30);
+    const fromStr = from.toISOString().slice(0, 10);
+    let prior = 0;
+    days.forEach(function(p) { if (p >= fromStr && p < d) prior = Math.max(prior, byDay[p]); });
+    const cand = { day: d, mi: byDay[d] / COND_M_PER_MILE, priorMi: prior / COND_M_PER_MILE,
+                   pct: prior ? Math.round((byDay[d] - prior) / prior * 100) : null };
+    const score = function(x) { return x.pct == null ? 1e9 + x.mi : x.pct; };  // no prior = most notable
+    if (!best || score(cand) > score(best)) best = cand;
+  });
+  return best;
+}
+function condLongestLine(rows, modality, noun, wkKey) {
+  const c = condLongestCheck(rows, modality, wkKey);
+  if (!c) return '';
+  const dayLbl = new Date(c.day + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' });
+  const tail = c.pct == null
+    ? ' — <span style="color:#f59e0b;font-weight:600">no ' + noun + ' in the prior 30 days</span>'
+    : ' vs <b style="color:var(--fg)">' + c.priorMi.toFixed(1) + ' mi</b> 30-day longest ' + condPctChip(c.pct);
+  return '<div style="' + COND_NOTE_STYLE + '">Longest ' + noun + ' this week: <b style="color:var(--fg)">'
+    + c.mi.toFixed(1) + ' mi</b> (' + dayLbl + ')' + tail + '</div>';
 }
 
 function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
   if (!conditioning.length) return trendSection('conditioning', 'Conditioning', '<div style="color:var(--muted);font-size:13px;padding:8px 0">No conditioning data yet.</div>');
+  const n = weekKeys.length;
+  const r0 = function(v) { return Math.round(v); };
+  const fmtMin = function(v) { return Math.round(v) + ' min'; };
+  const fmtMi  = function(v) { return v.toFixed(1) + ' mi'; };
 
-  // ── Minutes per week (12-week bar) ────────────────────────────────────────
-  const byWk = {};
-  weekKeys.forEach(function(k) { byWk[k] = 0; });
-  conditioning.forEach(function(row) {
-    const dateStr = row.conditioning_date || (row.created_at ? row.created_at.slice(0,10) : null);
-    if (!dateStr) return;
-    const wk = getWeekMonday(dateStr);
-    if (byWk[wk] !== undefined && row.duration_minutes) byWk[wk] += row.duration_minutes;
-  });
-  const wkValues = weekKeys.map(function(k) { return Math.round(byWk[k]); });
-  const minChart = trendsBarChart(wkValues, weekLabels, { height: 110, color: '#06b6d4' });
+  // ── Minutes per Week — true conditioning, machine vs non-machine ──────────
+  const trueRows = conditioning.filter(condIsTrue);
+  const minMach  = condWeekSums(trueRows, function(r) { return condIsNonMachine(r) ? 0 : condMin(r); });
+  const minNon   = condWeekSums(trueRows, function(r) { return condIsNonMachine(r) ? condMin(r) : 0; });
+  const minTot   = condWeekSums(trueRows, condMin);
+  const minZ1    = condWeekSums(conditioning.filter(function(r) { return !condIsTrue(r); }), condMin);
+  const minChart = trendsStackedBarChart([
+    { label: 'Machine / low-impact', color: COND_COLOR_MACHINE,    values: weekKeys.map(function(k) { return r0(minMach[k] || 0); }) },
+    { label: 'Non-machine',          color: COND_COLOR_NONMACHINE, values: weekKeys.map(function(k) { return r0(minNon[k]  || 0); }) },
+  ], weekLabels, { height: 140, showTotals: true });
+  const z1This = r0(minZ1[weekKeys[n - 1]] || 0), z1Last = r0(minZ1[weekKeys[n - 2]] || 0);
+  const z1Note = (z1This || z1Last)
+    ? '<div style="' + COND_NOTE_STYLE + '">Not counted — Z1 recovery: ' + z1This + ' min this week · ' + z1Last + ' min last week</div>'
+    : '';
+  const minBox = '<div class="trends-chart-box"><div class="trends-chart-title">Conditioning Minutes per Week (above Z1)</div>'
+    + minChart
+    + condLegend([{ label: 'Machine / low-impact', color: COND_COLOR_MACHINE }, { label: 'Non-machine (run, ruck, sled, rope, circuit)', color: COND_COLOR_NONMACHINE }])
+    + condRampLine('Non-machine', minNon, weekKeys, fmtMin)
+    + condRampLine('Total', minTot, weekKeys, fmtMin)
+    + z1Note
+    + '</div>';
 
-  // ── Build HTML ─────────────────────────────────────────────────────────────
+  // ── Run + Ruck Miles per Week (all zones) ────────────────────────────────
+  const rr     = conditioning.filter(function(r) { return r.modality === 'Run' || r.modality === 'Ruck'; });
+  const runMi  = condWeekSums(rr, function(r) { return r.modality === 'Run'  ? condMiles(r) : 0; });
+  const ruckMi = condWeekSums(rr, function(r) { return r.modality === 'Ruck' ? condMiles(r) : 0; });
+  const rrMi   = condWeekSums(rr, condMiles);
+  const r1 = function(v) { return Math.round(v * 10) / 10; };
+  const wkSet  = new Set(weekKeys);
+  const rrIn12 = rr.filter(function(r) { const d = condRowDate(r); return d && wkSet.has(getWeekMonday(d)); });
+  let milesBox;
+  if (!rrIn12.length) {
+    milesBox = '<div class="trends-chart-box"><div class="trends-chart-title">Run + Ruck Miles per Week</div>'
+      + '<div style="color:var(--muted);font-size:12px;padding:6px 0">No runs or rucks in the last 12 weeks.</div></div>';
+  } else {
+    const milesChart = trendsStackedBarChart([
+      { label: 'Run',  color: COND_COLOR_RUN,  values: weekKeys.map(function(k) { return r1(runMi[k]  || 0); }) },
+      { label: 'Ruck', color: COND_COLOR_RUCK, values: weekKeys.map(function(k) { return r1(ruckMi[k] || 0); }) },
+    ], weekLabels, { height: 140, showTotals: true, formatVal: function(v) { return v.toFixed(1); } });
+    const noDist = rrIn12.filter(function(r) { return !(Number(r.distance_meters) > 0) && condMin(r) > 0; }).length;
+    const noDistNote = noDist
+      ? '<div style="' + COND_NOTE_STYLE + '">' + noDist + ' run/ruck ' + (noDist === 1 ? 'session' : 'sessions')
+        + ' in the last 12 weeks logged without distance — not in these miles.</div>'
+      : '';
+    // Ruck load × miles — a heavier pack over the same distance is more stress.
+    const ruckLoad = condWeekSums(rr, function(r) {
+      return (r.modality === 'Ruck' && Number(r.load_lbs) > 0) ? condMiles(r) * Number(r.load_lbs) : 0;
+    });
+    const hasLoad = weekKeys.some(function(k) { return ruckLoad[k] > 0; });
+    milesBox = '<div class="trends-chart-box"><div class="trends-chart-title">Run + Ruck Miles per Week</div>'
+      + milesChart
+      + condLegend([{ label: 'Run', color: COND_COLOR_RUN }, { label: 'Ruck', color: COND_COLOR_RUCK }])
+      + condRampLine('Miles', rrMi, weekKeys, fmtMi)
+      + condLongestLine(rr, 'Run', 'run', weekKeys[n - 1])
+      + condLongestLine(rr, 'Ruck', 'ruck', weekKeys[n - 1])
+      + (hasLoad ? condRampLine('Ruck load (lb × mi)', ruckLoad, weekKeys, function(v) { return String(Math.round(v)); }) : '')
+      + noDistNote
+      + '</div>';
+  }
+
+  const rampKey = '<div style="' + COND_NOTE_STYLE + ';margin:0 0 10px">Ramp % compares against the higher of the prior week or the prior 4-week average, so a normal week after a deload doesn\'t read as a spike. '
+    + '<span style="color:#22c55e">under +10%</span> · <span style="color:#f59e0b">+10–20%</span> · <span style="color:#ef4444">+20% or more</span>. '
+    + 'Longest-session check compares each run or ruck with the longest one in the 30 days before it.</div>';
+
+  // ── Period-filtered breakdown ─────────────────────────────────────────────
   const period = (document.getElementById('cond-period-select') || {}).value || '4w';
-
   const periodSelect = '<select class="trends-period-select" id="cond-period-select" onchange="refreshConditioningBreakdown()">'
     + '<option value="1w"' + (period === '1w' ? ' selected' : '') + '>This Week</option>'
     + '<option value="2w"' + (period === '2w' ? ' selected' : '') + '>Last Week</option>'
@@ -832,7 +1034,7 @@ function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
     + '<option value="6m"' + (period === '6m' ? ' selected' : '') + '>Last 6 Months</option>'
     + '</select>';
 
-  const body = '<div class="trends-chart-box"><div class="trends-chart-title">Minutes per Week</div>' + minChart + '</div>'
+  const body = minBox + milesBox + rampKey
     + periodSelect
     + '<div id="cond-breakdown">' + buildConditioningBreakdown(conditioning, weekKeys, period) + '</div>';
 
@@ -841,7 +1043,8 @@ function renderTrendsConditioning(conditioning, weekKeys, weekLabels) {
 
 // ── Conditioning breakdown (period-filtered) ──────────────────────────────────
 // Mirrors the Volume & Workload period selector: This Week / Last Week /
-// Last 4 Weeks / Last 6 Months.
+// Last 4 Weeks / Last 6 Months. Shows EVERYTHING logged (Z1 included) — the
+// above-Z1 filter applies only to the weekly minutes chart.
 function buildConditioningBreakdown(conditioning, weekKeys, period) {
   const label = period === '1w' ? 'This Week'
               : period === '2w' ? 'Last Week'
@@ -858,9 +1061,7 @@ function buildConditioningBreakdown(conditioning, weekKeys, period) {
     if (period === '1w') {
       cutKeys = new Set([getWeekMonday(today())]);
     } else if (period === '2w') {
-      const d = new Date(getWeekMonday(today()) + 'T00:00:00');
-      d.setDate(d.getDate() - 7);
-      cutKeys = new Set([d.toISOString().slice(0,10)]);
+      cutKeys = new Set([condShiftWeek(getWeekMonday(today()), -1)]);
     } else {
       cutKeys = new Set((weekKeys || []).slice(-4));
     }
@@ -868,83 +1069,69 @@ function buildConditioningBreakdown(conditioning, weekKeys, period) {
   }
 
   const recent = conditioning.filter(function(row) {
-    const d = row.conditioning_date || (row.created_at ? row.created_at.slice(0,10) : null);
+    const d = condRowDate(row);
     return d && inPeriod(d);
   });
 
-  // ── Time by modality ──────────────────────────────────────────────────────
+  // ── By adaptation zone (minutes) ──────────────────────────────────────────
+  const zoneMap = {};
+  recent.forEach(function(row) {
+    const m = condMin(row);
+    if (!m) return;
+    const z = condAdaptation(row.workout_type, row.modality, row.intensity_domain);
+    zoneMap[z] = (zoneMap[z] || 0) + m;
+  });
+  const zoneKeys = COND_ZONE_ORDER.filter(function(z) { return zoneMap[z]; })
+    .concat(Object.keys(zoneMap).filter(function(z) { return COND_ZONE_ORDER.indexOf(z) === -1; }));
+
+  // ── Time by modality (minutes), coloured machine vs non-machine ───────────
   const timeByMod = {};
   recent.forEach(function(row) {
     if (!row.modality) return;
-    timeByMod[row.modality] = (timeByMod[row.modality] || 0) + (row.duration_minutes || 0);
+    const m = condMin(row);
+    if (!m) return;
+    timeByMod[row.modality] = (timeByMod[row.modality] || 0) + m;
   });
   const timeItems = Object.entries(timeByMod)
-    .map(function(e) { return { label: e[0], value: Math.round(e[1]) }; })
-    .sort(function(a,b) { return b.value - a.value; });
-
-  // ── Distance by modality (metres -> miles) ────────────────────────────────
-  const DIST_MODS = ['Run','Ruck','Walk','Rower','SkiErg','Cycling','Echo Bike','Swimming'];
-  const distByMod = {};
-  recent.forEach(function(row) {
-    if (!row.modality || !row.distance_meters) return;
-    if (!DIST_MODS.includes(row.modality)) return;
-    distByMod[row.modality] = (distByMod[row.modality] || 0) + row.distance_meters;
-  });
-  const distItems = Object.entries(distByMod)
-    .map(function(e) { return { label: e[0], value: parseFloat((e[1] / 1609.34).toFixed(1)) }; })
-    .sort(function(a,b) { return b.value - a.value; });
-
-  // ── Adaptation breakdown ──────────────────────────────────────────────────
-  const adaptMap = {};
-  recent.forEach(function(row) {
-    const zone = condAdaptation(row.workout_type, row.modality, row.intensity_domain);
-    adaptMap[zone] = (adaptMap[zone] || 0) + (row.duration_minutes || 1);
-  });
-  const adaptColors = {
-    'Aerobic Base': '#22c55e', 'Threshold': '#f59e0b',
-    'Anaerobic / Mixed': '#ef4444', 'Mixed / GPP': '#8b5cf6', 'Other': '#94a3b8'
-  };
-  const adaptItems = Object.entries(adaptMap)
-    .map(function(e) { return { label: e[0], value: Math.round(e[1]) }; })
-    .sort(function(a,b) { return b.value - a.value; });
-
-  // ── Workout type breakdown ────────────────────────────────────────────────
-  const wtMap = {};
-  recent.forEach(function(row) {
-    const wt = row.workout_type || 'Unspecified';
-    wtMap[wt] = (wtMap[wt] || 0) + (row.duration_minutes || 1);
-  });
-  const wtItems = Object.entries(wtMap)
-    .map(function(e) { return { label: e[0], value: Math.round(e[1]) }; })
-    .sort(function(a,b) { return b.value - a.value; });
+    .map(function(e) {
+      return { label: e[0], value: Math.round(e[1]),
+               color: COND_NONMACHINE.indexOf(e[0]) !== -1 ? COND_COLOR_NONMACHINE : COND_COLOR_MACHINE };
+    })
+    .sort(function(a, b) { return b.value - a.value; });
 
   var body = '';
 
-  if (adaptItems.length) {
-    // Custom color horiz chart for adaptation
-    const adaptTotal = adaptItems.reduce(function(s,i){return s+i.value;},0);
-    var adaptRows = '';
-    adaptItems.forEach(function(item) {
-      const pct = adaptTotal ? Math.round(item.value / adaptTotal * 100) : 0;
-      const col = adaptColors[item.label] || '#94a3b8';
-      adaptRows += '<div class="horiz-bar-row">'
-        + '<div class="horiz-bar-meta"><span>' + item.label + '</span><span>' + item.value + ' min (' + pct + '%)</span></div>'
+  if (zoneKeys.length) {
+    const zoneTotal = zoneKeys.reduce(function(s, z) { return s + zoneMap[z]; }, 0);
+    let easy = 0, hard = 0;
+    zoneKeys.forEach(function(z) {
+      if (z === COND_ZONE_UNCLASSIFIED) return;
+      if (COND_EASY_ZONES.indexOf(z) !== -1) easy += zoneMap[z]; else hard += zoneMap[z];
+    });
+    const unclass = Math.round(zoneMap[COND_ZONE_UNCLASSIFIED] || 0);
+    const split = (easy + hard)
+      ? '<div style="font-size:13px;margin-bottom:8px"><b>' + Math.round(easy / (easy + hard) * 100) + '% easy</b> (Z1–Z2) · <b>'
+        + Math.round(hard / (easy + hard) * 100) + '% hard</b> (Z3+)'
+        + (unclass ? '<span style="color:var(--muted)"> · ' + unclass + ' min unclassified</span>' : '') + '</div>'
+      : '';
+    let zoneRows = '';
+    zoneKeys.forEach(function(z) {
+      const v = Math.round(zoneMap[z]);
+      const pct = zoneTotal ? Math.round(zoneMap[z] / zoneTotal * 100) : 0;
+      const col = COND_ZONE_COLORS[z] || '#94a3b8';
+      zoneRows += '<div class="horiz-bar-row">'
+        + '<div class="horiz-bar-meta"><span>' + z + '</span><span>' + v + ' min (' + pct + '%)</span></div>'
         + '<div class="horiz-bar-track"><div class="horiz-bar-fill" style="width:' + pct + '%;background:' + col + '"></div></div>'
         + '</div>';
     });
-    body += '<div class="trends-chart-box"><div class="trends-chart-title">By Adaptation Zone — ' + label + '</div>' + adaptRows + '</div>';
-  }
-
-  if (wtItems.length) {
-    body += '<div class="trends-chart-box"><div class="trends-chart-title">By Workout Type — ' + label + ' (min)</div>' + trendsHorizChart(wtItems, '#06b6d4') + '</div>';
+    body += '<div class="trends-chart-box"><div class="trends-chart-title">By Adaptation Zone — ' + label + '</div>' + split + zoneRows + '</div>';
   }
 
   if (timeItems.length) {
-    body += '<div class="trends-chart-box"><div class="trends-chart-title">Time by Modality — ' + label + ' (min)</div>' + trendsHorizChart(timeItems, '#0891b2') + '</div>';
-  }
-
-  if (distItems.length) {
-    body += '<div class="trends-chart-box"><div class="trends-chart-title">Distance by Modality — ' + label + ' (mi)</div>' + trendsHorizChart(distItems, '#0e7490') + '</div>';
+    body += '<div class="trends-chart-box"><div class="trends-chart-title">Time by Modality — ' + label + '</div>'
+      + trendsHorizChart(timeItems, COND_COLOR_MACHINE, ' min')
+      + condLegend([{ label: 'Machine / low-impact', color: COND_COLOR_MACHINE }, { label: 'Non-machine', color: COND_COLOR_NONMACHINE }])
+      + '</div>';
   }
 
   if (!body) body = '<div style="color:var(--muted);font-size:13px;padding:8px 0">No conditioning data for this period.</div>';

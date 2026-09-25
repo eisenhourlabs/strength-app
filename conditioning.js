@@ -78,6 +78,22 @@ function condTaxonomyDefaults(workoutType, modality, pc) {
   };
 }
 const COND_LOAD_MODS  = ['Ruck','Sled'];
+// Run/Ruck distance feeds the Trends miles chart and longest-session check, so
+// the field stays visible for these even on interval/repeat sessions, and the
+// save asks once if it was left blank (2026-09-25).
+const COND_MILES_MODS = ['Run','Ruck'];
+function condMissingDistanceWarn(blocks) {
+  const miss = blocks.filter(function(b) {
+    return COND_MILES_MODS.indexOf(b.modality) !== -1 && b.sessionStructure !== 'Circuit' && !b.distanceMeters;
+  });
+  if (!miss.length) return false;
+  // Second tap within a minute saves without distance.
+  if (S._condDistWarnedAt && Date.now() - S._condDistWarnedAt < 60000) { S._condDistWarnedAt = 0; return false; }
+  S._condDistWarnedAt = Date.now();
+  const names = Array.from(new Set(miss.map(function(b) { return b.modality.toLowerCase(); }))).join(' / ');
+  toast('Add distance for your ' + names + ' so it counts toward weekly miles — or tap save again to skip.', 5000);
+  return true;
+}
 const COND_DIST_CONV  = { mi: 1609.34, km: 1000, m: 1, ft: 0.3048 };
 
 function renderCondBlock(b, idx, total) {
@@ -96,6 +112,7 @@ function renderCondBlock(b, idx, total) {
   const isIntervals = !isCircuit && b.sessionStructure === 'Intervals';
   const isRepeats   = !isCircuit && b.sessionStructure === 'Repeats';
   const hasRounds   = isIntervals || isRepeats;
+  const isMilesMod  = COND_MILES_MODS.includes(b.modality);
   const removeBtn   = total > 1
     ? '<button class="sess-del-btn" onclick="removeCondBlock(' + b.id + ')" style="margin-left:auto" title="Remove">&#x2715;</button>'
     : '';
@@ -123,8 +140,8 @@ function renderCondBlock(b, idx, total) {
     + '<label>Duration (min)</label>'
     + '<input type="number" inputmode="decimal" id="cond-dur-' + b.id + '" placeholder="—" value="' + (b.duration || '') + '"></div>';
 
-  const distField = '<div class="form-field cond-std-fields" id="cond-dist-row-' + b.id + '" style="' + ((isCircuit || hasRounds) ? 'display:none' : '') + '">'
-    + '<label>Distance</label><div class="dist-row">'
+  const distField = '<div class="form-field cond-std-fields" id="cond-dist-row-' + b.id + '" style="' + ((isCircuit || (hasRounds && !isMilesMod)) ? 'display:none' : '') + '">'
+    + '<label>' + (isMilesMod ? 'Distance (tracked for miles)' : 'Distance') + '</label><div class="dist-row">'
     + '<input type="number" inputmode="decimal" id="cond-dist-' + b.id + '" placeholder="—" value="' + (b.distance || '') + '">'
     + '<select id="cond-dunit-' + b.id + '">'
     + '<option value="mi"' + (b.distUnit === 'mi' ? ' selected' : '') + '>mi</option>'
@@ -604,6 +621,10 @@ async function submitConditioningSession() {
     btn.disabled = false; btn.textContent = S._editingConditioning ? 'Update Conditioning' : 'Log Conditioning';
     return;
   }
+  if (condMissingDistanceWarn(blocks)) {
+    btn.disabled = false; btn.textContent = S._editingConditioning ? 'Update Conditioning' : 'Log Conditioning';
+    return;
+  }
 
   // ── Edit/update path ─────────────────────────────────────────────────────
   if (S._editingConditioning && S.activeCompletedSession && !S.activeCompletedSession._isTemp) {
@@ -693,6 +714,10 @@ async function submitConditioning() {
   const blocks = getCondBlockValues();
   if (!blocks.length) {
     toast('Add at least one modality block.');
+    btn.disabled = false; btn.textContent = 'Log Conditioning';
+    return;
+  }
+  if (condMissingDistanceWarn(blocks)) {
     btn.disabled = false; btn.textContent = 'Log Conditioning';
     return;
   }
