@@ -1795,6 +1795,19 @@ function mvTiltAngle(mode, g0, g) {
   if (mode === 'start-90') a -= 90;
   return a;
 }
+// Start ("zero") reading: the average gravity vector of the last 400 ms, but
+// only once the phone has been still that long (every sample within 3° of the
+// average). samples: [{t, x, y, z}] oldest first. Returns {x,y,z} or null.
+function mvTiltZero(samples, now) {
+  const w = (samples || []).filter(function (s) { return now - s.t <= 400; });
+  if (w.length < 3 || now - w[0].t < 300) return null;
+  const m = { x: 0, y: 0, z: 0 };
+  w.forEach(function (s) { m.x += s.x; m.y += s.y; m.z += s.z; });
+  m.x /= w.length; m.y /= w.length; m.z /= w.length;
+  for (let i = 0; i < w.length; i++) { if (mvTiltAngle('start', m, w[i]) > 3) return null; }
+  return m;
+}
+
 // Capture logic for the phone tilt meter. Feed (state, ms, angle, mode); returns
 // the state. Two ways a reading is captured:
 //   'hold' — a steady run: readings within MV_TILT_BAND of each other for
@@ -1837,8 +1850,11 @@ function mvTiltTrack(st, t, a, mode) {
   }
   st.steadyMs = t - st.run.t0;
   const runMean = st.run.sum / st.run.n;
+  // Start modes measure the angle moved from the start position, so a result
+  // within 10° of it is the athlete back at rest (or not started), never a range.
+  const offStart = mode === 'level' || Math.abs(runMean - (mode === 'start-90' ? -90 : 0)) >= 10;
   const nearBest = mode === 'level' || st.best == null || runMean >= st.best - MV_TILT_BAND;
-  if (st.moved && st.steadyMs >= MV_TILT_HOLD_MS && nearBest) {
+  if (st.moved && st.steadyMs >= MV_TILT_HOLD_MS && nearBest && offStart) {
     st.captured = runMean; st.how = 'hold';
   } else if (mode !== 'level' && st.best != null && st.best - st.start >= 10 && a <= st.best - MV_TILT_DROP) {
     st.captured = st.bestMean; st.how = 'peak';
@@ -2336,7 +2352,10 @@ function mvTiltHtml(t, tl) {
   }
   const side = mvSideName(t, tl.side);
   if (tl.phase === 'intro') {
-    return h + '<div class="mv-tilt-title">📐 Measure with phone' + (side ? ' — ' + side.toLowerCase() : '') + '</div><ol class="mv-test-steps">'
+    return h + '<div class="mv-tilt-title">📐 Measure with phone' + (side ? ' — ' + side.toLowerCase() : '') + '</div>'
+      + '<div class="mv-muted" style="margin-bottom:6px">' + (t.tilt === 'level'
+        ? 'Measures how far the phone tilts from level — it records once you\'ve been still for a second after the countdown.'
+        : 'Measures how far the phone turns from where you tap Start.') + '</div><ol class="mv-test-steps">'
       + (t.tilt === 'level'
         ? '<li>Put the phone lengthwise on the front of your thigh.</li><li>Tap Start, then lie back into the test within 3 seconds.</li>'
         : '<li>Set the phone as the steps say and get into the start position.</li><li>Tap Start and stay still until the first beep.</li><li>Move slowly to your end range.</li>')
@@ -2350,6 +2369,7 @@ function mvTiltHtml(t, tl) {
       + '<div class="mv-tilt-live mv-tilt-result" id="mv-tilt-result">' + tl.result + '°</div>'
       + '<div class="mv-tilt-msg">' + (tl.how === 'peak' ? 'Your best range before you came back down. ' : tl.how === 'hold' ? 'Held steady. ' : '')
       + 'Saved to the ' + (side ? side.toLowerCase() + ' ' : '') + 'field. Tap Done, check it, then Save the test.</div>'
+      + '<div class="mv-tilt-diag">' + mvEsc(tl.diag || '') + '</div>'
       + '<button class="btn" id="mv-tilt-done" onclick="mvTiltDone()" disabled>Done</button>'
       + '<button class="btn secondary" onclick="mvTiltOpen(\'' + tl.side + '\')" disabled>Measure again</button></div>';
   }
@@ -2358,6 +2378,7 @@ function mvTiltHtml(t, tl) {
   return h + '<div class="mv-tilt-live" id="mv-tilt-live">' + (tl.live != null ? Math.round(tl.live) + '°' : '—') + '</div>'
     + '<div class="mv-tilt-msg" id="mv-tilt-msg">' + msg + '</div>'
     + '<div class="mv-muted" id="mv-tilt-best" style="margin:-8px 0 12px"></div>'
+    + '<div class="mv-tilt-diag" id="mv-tilt-diag"></div>'
     + (tl.phase === 'measuring' ? '<button class="btn" id="mv-tilt-use" onclick="mvTiltUseNow()">Use this reading</button>' : '')
     + '<button class="btn secondary" onclick="mvTiltCancel()">Cancel</button></div>';
 }
@@ -2376,6 +2397,7 @@ async function mvTiltStart() {
     }
   } catch (e) { tl.err = 'Couldn\'t get motion access. Type the number instead.'; mvRenderTest(); return; }
   tl.phase = 'zeroing'; tl.t0 = Date.now(); tl.g = null; tl.st = null; tl.live = null;
+  tl.raw = []; tl.n = 0; tl.lastT = null; tl.tm = null; tl.nm = 0;
   window.addEventListener('devicemotion', mvTiltOnMotion);
   MV.tiltListening = true;
   tl.timer = setTimeout(function () {
@@ -2392,21 +2414,37 @@ function mvTiltOnMotion(e) {
   if (!tl) { mvTiltStop(); return; }
   const a = e && e.accelerationIncludingGravity;
   if (!a || a.x == null || a.y == null || a.z == null) return;
-  const s = { x: Number(a.x), y: Number(a.y), z: Number(a.z) };
-  tl.g = tl.g ? { x: tl.g.x * 0.85 + s.x * 0.15, y: tl.g.y * 0.85 + s.y * 0.15, z: tl.g.z * 0.85 + s.z * 0.15 } : s;   // low-pass: hand tremor
-  const t = mvTest(MV.test.key);
   const now = Date.now();
+  const s = { t: now, x: Number(a.x), y: Number(a.y), z: Number(a.z) };
+  if (!isFinite(s.x) || !isFinite(s.y) || !isFinite(s.z)) return;
+  // Diagnostics (shown small on screen — lets a phone test tell us what the sensor did)
+  tl.n = (tl.n || 0) + 1;
+  // Low-pass with a fixed 150 ms time constant, whatever the sensor's event rate.
+  const dt = tl.lastT ? Math.min(250, Math.max(1, now - tl.lastT)) : 16;
+  tl.lastT = now;
+  const k = 1 - Math.exp(-dt / 150);
+  tl.g = tl.g ? { x: tl.g.x + (s.x - tl.g.x) * k, y: tl.g.y + (s.y - tl.g.y) * k, z: tl.g.z + (s.z - tl.g.z) * k } : { x: s.x, y: s.y, z: s.z };
+  const t = mvTest(MV.test.key);
   if (tl.phase === 'zeroing') {
-    if (now - tl.t0 < (t.tilt === 'level' ? 3000 : 600)) return;
-    tl.g0 = { x: tl.g.x, y: tl.g.y, z: tl.g.z };
+    tl.raw = (tl.raw || []).concat([s]).filter(function (r) { return now - r.t <= 500; });
+    const wait = t.tilt === 'level' ? 3000 : 600;
+    const left = Math.ceil((wait - (now - tl.t0)) / 1000);
+    const msg = document.getElementById('mv-tilt-msg');
+    if (now - tl.t0 < wait) { if (msg && t.tilt === 'level') msg.textContent = 'Lie back into position… ' + left; return; }
+    // Start modes: the start position counts only once the phone is still.
+    const z = t.tilt === 'level' ? { x: tl.g.x, y: tl.g.y, z: tl.g.z } : mvTiltZero(tl.raw, now);
+    if (!z) { if (msg) msg.textContent = 'Hold still in the start position…'; return; }
+    tl.g0 = z;
+    tl.g = { x: z.x, y: z.y, z: z.z };
     tl.phase = 'measuring';
+    tl.tm = now; tl.nm = tl.n;
     try { beep(1); } catch (_) {}
     mvRenderTest();
     return;
   }
   if (tl.phase !== 'measuring') return;
   const ang = mvTiltAngle(t.tilt, tl.g0, tl.g);
-  if (ang == null) return;
+  if (ang == null || !isFinite(ang)) return;
   tl.live = ang;
   const el = document.getElementById('mv-tilt-live');
   if (el) el.textContent = Math.round(ang) + '°';
@@ -2417,13 +2455,23 @@ function mvTiltOnMotion(e) {
     : 'Hold still…';
   const best = document.getElementById('mv-tilt-best');
   if (best && tl.st.best != null && t.tilt !== 'level') best.textContent = 'Best so far: ' + Math.max(0, Math.round(tl.st.bestMean)) + '° — or just come back down';
+  const dg = document.getElementById('mv-tilt-diag');
+  if (dg) dg.textContent = mvTiltDiag(t, tl, now);
   if (tl.st.captured != null) mvTiltCapture(tl.st.captured, tl.st.how);
+}
+function mvTiltDiag(t, tl, now) {
+  const secs = Math.max(0.001, (now - (tl.tm || now)) / 1000);
+  const hz = tl.tm ? Math.round((tl.n - tl.nm) / secs) : 0;
+  const st = tl.st || {};
+  return 'mode ' + t.tilt + ' · ' + hz + ' Hz · moved ' + (st.moved ? 'y' : 'n') + ' · steady ' + ((st.steadyMs || 0) / 1000).toFixed(1)
+    + ' s · best ' + (st.bestMean != null ? Math.round(st.bestMean) : '–') + (st.how ? ' · via ' + st.how : '') + ' · v43';
 }
 // Capture a reading: auto (steady hold) or the "Use this reading" button.
 function mvTiltCapture(angle, how) {
   const tl = MV.test && MV.test.tilt;
   if (!tl || angle == null || !isFinite(angle)) return;
   tl.how = how || 'manual';
+  try { tl.diag = mvTiltDiag(mvTest(MV.test.key), tl, Date.now()); } catch (_) { tl.diag = ''; }
   const v = Math.max(0, Math.round(angle));
   mvTiltStop();
   try { beep(2); } catch (_) {}
