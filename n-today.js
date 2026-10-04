@@ -274,17 +274,61 @@ function nBudgetHtml(dateStr) {
 }
 
 // ── Prompt cards ──
+// ── Prompt skip / move-to-tomorrow (2026-10-04) ──
+// Date-keyed localStorage (NOT week-scoped like nDismissLS) so a "tomorrow" that
+// crosses the Wed plan-week boundary still lands, and a skip survives app reloads.
+//   n_prompt_hide_<kind>_<date> = '1'   -> card hidden on that date
+//   n_prompt_move_<kind>         = date  -> card shows on that date (one-off)
+// kind: 'weigh' | 'measure'. Old keys are pruned after 14 days.
+function nPromptHidden(kind, d) {
+  try { return localStorage.getItem(`n_prompt_hide_${kind}_${d}`) === '1'; } catch (e) { return false; }
+}
+function nPromptMovedTo(kind) {
+  try { return localStorage.getItem(`n_prompt_move_${kind}`) || null; } catch (e) { return null; }
+}
+function nPromptPrune() {
+  try {
+    const cutoff = nAddDays(nToday(), -14);
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i) || '';
+      const m = k.match(/^n_prompt_hide_\w+_(\d{4}-\d{2}-\d{2})$/);
+      if (m && m[1] < cutoff) localStorage.removeItem(k);
+      if (k.startsWith('n_prompt_move_') && (localStorage.getItem(k) || '') < cutoff) localStorage.removeItem(k);
+    }
+  } catch (e) {}
+}
+// Hide today's card. toTomorrow=true also schedules a one-off card for tomorrow.
+function nPromptDefer(kind, toTomorrow) {
+  const today = nToday();
+  try {
+    localStorage.setItem(`n_prompt_hide_${kind}_${today}`, '1');
+    if (toTomorrow) localStorage.setItem(`n_prompt_move_${kind}`, nAddDays(today, 1));
+    else if (nPromptMovedTo(kind) === today) localStorage.removeItem(`n_prompt_move_${kind}`);
+  } catch (e) {}
+  nPromptPrune();
+  if (toTomorrow) toast(kind === 'weigh' ? "Moved to tomorrow — you'll get a heads-up tonight" : "OK — it'll be back tomorrow");
+  renderToday();
+}
+function nIsWeighDay(d) {
+  return (NS.settings?.weigh_in_days || []).includes(nDayName(d, true));
+}
+// True when today's weigh-in is a carry-over from yesterday (not a scheduled day).
+function nWeighInCarried() {
+  const t = nToday();
+  return nPromptMovedTo('weigh') === t && !nIsWeighDay(t);
+}
 function nWeighInDueToday() {
-  const days = NS.settings?.weigh_in_days || [];
-  return days.includes(nDayName(nToday(), true)) && NS.metricsToday.weight == null && !NS.dismissed.weight;
+  const t = nToday();
+  if (NS.metricsToday.weight != null || NS.dismissed.weight || nPromptHidden('weigh', t)) return false;
+  return nIsWeighDay(t) || nPromptMovedTo('weigh') === t;
 }
 // Evening-before heads-up: we weigh first thing, so a same-morning card is too
 // late. Show after 5pm the day before a weigh-in day; dismissal keyed to that
 // date so 'got it' sticks for the rest of the evening.
 function nWeighInTomorrow() {
-  const days = NS.settings?.weigh_in_days || [];
-  const tmrw = nDayName(nAddDays(nToday(), 1), true);
-  return days.includes(tmrw) && new Date().getHours() >= 17;
+  const tmrw = nAddDays(nToday(), 1);
+  // A weigh-in just moved to tomorrow counts too — that's the point of the heads-up.
+  return (nIsWeighDay(tmrw) || nPromptMovedTo('weigh') === tmrw) && new Date().getHours() >= 17;
 }
 function nMeasurementsDue() {
   const s = NS.settings;
@@ -343,19 +387,27 @@ function nPromptCardsHtml() {
     }
   }
   if (nWeighInDueToday()) {
-    html += `<div class="n-prompt"><div class="n-prompt-title">⚖️ Weigh-in day</div>
+    // "Tomorrow" carries one day only: not offered on a carried-over day, and not
+    // when tomorrow is already a weigh-in day (never owe two).
+    const carried = nWeighInCarried();
+    const canMove = !carried && !nIsWeighDay(nAddDays(nToday(), 1));
+    html += `<div class="n-prompt"><div class="n-prompt-title">⚖️ ${carried ? 'Weigh-in (moved from yesterday)' : 'Weigh-in day'}</div>
       <div class="n-prompt-row">
         <input type="number" inputmode="decimal" id="np-weight" placeholder="lbs">
         <button class="n-act small primary" onclick="submitWeighIn()">Save</button>
-        <button class="n-prompt-dismiss" onclick="NS.dismissed.weight=1;renderToday()">later</button>
+      </div>
+      <div class="n-prompt-row" style="margin-top:6px">
+        ${canMove ? `<button class="n-act small" onclick="nPromptDefer('weigh', true)">Tomorrow</button>` : ''}
+        <button class="n-act small" onclick="nPromptDefer('weigh', false)">Skip today</button>
       </div></div>`;
   }
   // Measurements ride the weekly check-in cadence: only surface on the Sunday
-  // check-in, and only once 4 wks have elapsed (nMeasurementsDue). Dismissing
-  // snoozes for the whole plan week (nDismissLS is week-scoped), so it never
-  // nags daily — if missed, it returns next Sunday, still overdue.
+  // check-in, and only once 4 wks have elapsed (nMeasurementsDue). Never nags daily:
+  // "Next week" hides it until next Sunday (still overdue then); "Tomorrow" brings
+  // it back once the next morning (can be repeated — no schedule to collide with).
   const due = nMeasurementsDue();
-  if (due.length && day === 'Sun' && !nDismissedLS('measure')) {
+  const measToday = day === 'Sun' || nPromptMovedTo('measure') === nToday();
+  if (due.length && measToday && !nDismissedLS('measure') && !nPromptHidden('measure', nToday())) {
     // Labels + entry-time protocol reminders (N09 §2 / N04 / N05).
     // Calipers are entered PER SITE; mm-sum is derived. bodyfat_pct is retired.
     const label = {
@@ -378,8 +430,11 @@ function nPromptCardsHtml() {
         <input type="number" inputmode="decimal" id="np-${metric}">
         <button class="n-act small primary" onclick="submitMeasurement('${metric}')">Save</button>${hint}</div>`;
     }).join('');
-    html += `<div class="n-prompt"><div class="n-prompt-title">📏 Measurement check (every ${NS.settings?.measurement_interval_weeks || 4} weeks)
-      <button class="n-prompt-dismiss" onclick="nDismissLS('measure');renderToday()">later</button></div>${rows}</div>`;
+    html += `<div class="n-prompt"><div class="n-prompt-title">📏 Measurement check (every ${NS.settings?.measurement_interval_weeks || 4} weeks)</div>${rows}
+      <div class="n-prompt-row" style="margin-top:6px">
+        <button class="n-act small" onclick="nPromptDefer('measure', true)">Tomorrow</button>
+        <button class="n-act small" onclick="nPromptDefer('measure', false)">Next week</button>
+      </div></div>`;
   }
   return html;
 }
