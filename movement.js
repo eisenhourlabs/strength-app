@@ -1,7 +1,9 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// movement.js — Daily Movement: walk + mobility check-off
+// movement.js — Daily Movement: daily habits (walk, mobility, floor sitting, …)
 // Spec: 07_Documentation/Daily_Movement_Plan_2026-09-24.md (Rev 3)
 // Rules: 01_System/09_Daily_Movement_Framework.md · Drills: 03_Environment/Mobility_Drill_Map.md
+// Habits: 03_Environment/Daily_Habits.md → movement_habits (the registry). 'minutes' habits
+//   (walk, floor, …) share one generic card / row / log sheet; 'routine' = Mobility only.
 //
 // Layout of this file:
 //   1. ENGINE — pure functions, no DOM / Supabase / globals. Unit-tested in Node
@@ -41,8 +43,46 @@ const MV_CAPS = { daily: 2, rotating: 3 };
 const MV_ROTATION_EPOCH = '2024-01-01';                 // a Monday; rotation ordinal origin
 const MV_BACKFILL_DAYS = 6;                             // today + prior 6 days
 
+// Habit registry. The live list comes from movement_habits (synced from
+// 03_Environment/Daily_Habits.md); this built-in copy is used until it loads,
+// or if the table is missing or empty, so walk + mobility always work.
+const MV_ALL_DAYS = [1, 2, 3, 4, 5, 6, 7];
+const MV_HABITS_FALLBACK = [
+  { key: 'walk', label: 'Walk', icon: '🚶', sort_order: 1, log_type: 'minutes', active: true, default_minutes: 20,
+    minutes_step: 5, min_minutes: 5, max_minutes: 120, default_days: MV_ALL_DAYS, description: '', how: '', guide: [] },
+  { key: 'mobility', label: 'Mobility', icon: '🧘', sort_order: 2, log_type: 'routine', active: true, default_minutes: 10,
+    minutes_step: null, min_minutes: null, max_minutes: null, default_days: MV_ALL_DAYS, description: '', how: '', guide: [] },
+];
+function mvHabitNorm(r) {
+  const num = function (v, d) { return v == null || v === '' || !isFinite(Number(v)) ? d : Number(v); };
+  return {
+    key: r.key, label: r.label || r.key, icon: r.icon || '•', sort_order: num(r.sort_order, 99),
+    log_type: r.log_type === 'routine' ? 'routine' : 'minutes', active: r.active !== false,
+    default_minutes: num(r.default_minutes, 20), minutes_step: num(r.minutes_step, 5),
+    min_minutes: num(r.min_minutes, 5), max_minutes: num(r.max_minutes, 120),
+    default_days: (r.default_days && r.default_days.length ? r.default_days : MV_ALL_DAYS).map(Number),
+    description: r.description || '', how: r.how || '', guide: Array.isArray(r.guide) ? r.guide : [],
+  };
+}
+function mvHabitList(list) {
+  return (list && list.length ? list : MV_HABITS_FALLBACK).slice()
+    .sort(function (a, b) { return (a.sort_order - b.sort_order) || (a.key < b.key ? -1 : 1); });
+}
+// A key the registry doesn't know (shouldn't happen — plans reference it) reads as a plain minutes habit.
+function mvHabitFrom(list, key) {
+  const l = mvHabitList(list);
+  for (let i = 0; i < l.length; i++) if (l[i].key === key) return l[i];
+  return mvHabitNorm({ key: key, label: key });
+}
+
+// Self-test-only regions (never a focus area). `loads` = the movement regions
+// whose pain state applies to the test (framework §10.3).
+const MV_TEST_REGIONS = [
+  { key: 'whole_body', label: 'Whole body', pain: ['Hip', 'Knee', 'Ankle', 'Low Back'], loads: ['hip', 'knee', 'ankle', 'low_back'] },
+];
 function mvRegion(key) {
   for (let i = 0; i < MV_REGIONS.length; i++) if (MV_REGIONS[i].key === key) return MV_REGIONS[i];
+  for (let i = 0; i < MV_TEST_REGIONS.length; i++) if (MV_TEST_REGIONS[i].key === key) return MV_TEST_REGIONS[i];
   return { key: key, label: key, pain: [] };
 }
 
@@ -204,6 +244,32 @@ function mvExclusions(cautions, injuries) {
     else if (p.state === 'amber') ex.amber[k] = p;
   });
   return ex;
+}
+
+// Position / idea guide for a minutes habit (Daily_Habits.md → movement_habits.guide).
+// Same filters as drills (framework §2b): a coach caution greys the item out with
+// the coach's reason (still usable — nothing is logged), amber pain in one of its
+// regions → "pain-free range only", red pain or neuro → hidden. The habit itself
+// never pauses. Returns { items: [{item, easier, regions, tags, state, why}],
+// hidden: [names], allHidden }.
+function mvGuideItems(guide, ex) {
+  ex = ex || { tags: {}, amber: {}, red: {} };
+  const out = { items: [], hidden: [], allHidden: false };
+  (guide || []).slice().sort(function (a, b) { return (a.order || 0) - (b.order || 0); }).forEach(function (g) {
+    const regs = g.regions || [], tags = g.caution_tags || [];
+    if (regs.some(function (r) { return ex.red && ex.red[r]; })) { out.hidden.push(g.item); return; }
+    let state = 'ok', why = null;
+    for (let i = 0; i < tags.length; i++) {
+      if (ex.tags && ex.tags[tags[i]]) { state = 'caution'; why = ex.tags[tags[i]]; break; }
+    }
+    if (state === 'ok') {
+      const a = regs.filter(function (r) { return ex.amber && ex.amber[r]; })[0];
+      if (a) { state = 'amber'; why = 'Pain-free range only — open pain episode ' + ex.amber[a].score + '/10'; }
+    }
+    out.items.push({ item: g.item, easier: g.easier || '', regions: regs, tags: tags, state: state, why: why });
+  });
+  out.allHidden = !out.items.length && out.hidden.length > 0;
+  return out;
 }
 
 function mvEquipOk(d, equip) {
@@ -394,7 +460,7 @@ function mvParseHoldSeconds(dose) {
 
 const MV = {
   loaded: false, loading: null, lastLoad: 0, unavailable: false,
-  plans: [], areas: [], logs: [], cautions: [], recs: [], drillMap: [], daily: null,
+  plans: [], areas: [], logs: [], cautions: [], recs: [], drillMap: [], daily: null, habits: [],
   sheet: null, addArea: null, review: null, timers: {}, planTimers: {},
 };
 
@@ -416,7 +482,7 @@ function mvNormDrill(r) {
 async function mvSaveCache() {
   try {
     await idbSet('movementCache', { athleteId: S.athlete.id, plans: MV.plans, areas: MV.areas, logs: MV.logs,
-      cautions: MV.cautions, recs: MV.recs, drillMap: MV.drillMap,
+      cautions: MV.cautions, recs: MV.recs, drillMap: MV.drillMap, habits: MV.habits,
       tests: MV.tests, screens: MV.screens, screenPrefs: MV.screenPrefs });
   } catch (_) {}
 }
@@ -446,6 +512,7 @@ async function loadMovement(force) {
         MV.drillMap = (res[5].data || []).map(mvNormDrill);
         MV.unavailable = false;
         fromNet = true;
+        await mvLoadHabits();    // habit registry (own try — falls back to the built-in list)
         await mvLoadScreens();   // Phase 3 self-tests (own try — never blocks the check-off)
         await mvSaveCache();
       } catch (e) {
@@ -460,6 +527,7 @@ async function loadMovement(force) {
         if (c && c.athleteId === S.athlete.id) {
           MV.plans = c.plans || []; MV.areas = c.areas || []; MV.logs = c.logs || [];
           MV.cautions = c.cautions || []; MV.recs = c.recs || []; MV.drillMap = c.drillMap || [];
+          MV.habits = c.habits || MV.habits;
           MV.tests = c.tests || MV.tests; MV.screens = c.screens || MV.screens; MV.screenPrefs = c.screenPrefs || MV.screenPrefs;
         }
       } catch (_) {}
@@ -469,6 +537,15 @@ async function loadMovement(force) {
     MV.lastLoad = Date.now();
   })();
   try { await MV.loading; } finally { MV.loading = null; }
+}
+
+async function mvLoadHabits() {
+  try {
+    const r = await db.from('movement_habits').select('*').order('sort_order');
+    if (r.error) throw r.error;
+    const list = (r.data || []).map(mvHabitNorm);
+    if (list.length) MV.habits = list;
+  } catch (e) { console.error('mvLoadHabits:', e); }
 }
 
 // Replays one queued write (offline path) or performs it directly (online).
@@ -517,7 +594,10 @@ async function mvWrite(op, payload) {
 
 // ── Derived state helpers ──
 function mvPlan(kind) { return mvCurrentPlan(MV.plans, kind); }
-function mvAnyOn() { return !!(mvPlan('walk') || mvPlan('mobility')); }
+function mvHabits() { return mvHabitList(MV.habits); }
+function mvHabit(key) { return mvHabitFrom(MV.habits, key); }
+function mvIsRoutine(key) { return mvHabit(key).log_type === 'routine'; }
+function mvAnyOn() { return mvHabits().some(function (h) { return !!mvPlan(h.key); }); }
 function mvEquipment() { const p = mvPlan('mobility') || mvLastPlan(MV.plans, 'mobility'); return (p && p.equipment) || []; }
 function mvLog(kind, ds) {
   return MV.logs.filter(function (l) { return l.kind === kind && l.log_date === ds; })[0] || null;
@@ -554,7 +634,8 @@ function mvPaintCard() {
   const t = mvToday();
   const dateLbl = new Date(mvUtc(t) + 12 * 3600000).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
   let rows = '';
-  ['walk', 'mobility'].forEach(function (kind) {
+  mvHabits().forEach(function (hb) {
+    const kind = hb.key;
     const plan = mvPlan(kind);
     if (!plan) return;
     const log = mvLog(kind, t);
@@ -562,12 +643,12 @@ function mvPaintCard() {
     const sym = log ? (log.status === 'done' ? '✓' : log.status === 'partial' ? '◐' : '✕') : '';
     const cls = log ? ' mv-circle-' + log.status : '';
     let title, sub = '';
-    if (kind === 'walk') {
-      title = 'Walk';
+    if (hb.log_type !== 'routine') {
+      title = hb.label;
       sub = log && log.status !== 'excused' ? Math.round(Number(log.minutes || 0)) + ' min logged' : plan.target_minutes + ' min';
     } else {
       const r = mvRoutineFor(t);
-      title = 'Mobility';
+      title = hb.label;
       const what = r.mode === 'targeted'
         ? (r.regions.map(function (x) { return x.label; }).join(' + ') || 'No focus areas yet')
         : 'General flow ' + (r.flow === 'flow_a' ? 'A' : 'B');
@@ -608,15 +689,15 @@ async function mvCircleTap(kind) {
   const t = mvToday();
   const log = mvLog(kind, t);
   if (log) {
-    showConfirm('Un-check ' + (kind === 'walk' ? 'today\'s walk' : 'today\'s mobility') + '?',
+    showConfirm('Un-check today\'s ' + mvHabit(kind).label.toLowerCase() + '?',
       'This removes today\'s log.', 'Remove', function () { mvDeleteLog(kind, t); }, true);
     return;
   }
   const plan = mvPlan(kind);
-  if (kind === 'walk') {
-    const mins = plan ? plan.target_minutes : 20;
-    const ok = await mvSaveLog({ kind: 'walk', date: t, status: 'done', minutes: mins });
-    if (ok) toast('Walk logged · ' + mins + ' min — tap the row to edit');
+  if (!mvIsRoutine(kind)) {
+    const mins = plan ? plan.target_minutes : mvHabit(kind).default_minutes;
+    const ok = await mvSaveLog({ kind: kind, date: t, status: 'done', minutes: mins });
+    if (ok) toast(mvHabit(kind).label + ' logged · ' + mins + ' min — tap the row to edit');
   } else {
     const r = mvRoutineFor(t);
     if (!r.items.length) { openMvLogSheet('mobility'); return; }
@@ -674,11 +755,11 @@ function openMvLogSheet(kind, ds) {
   const st = {
     kind: kind, date: ds, existing: !!log,
     status: log ? log.status : 'done',
-    minutes: log && log.minutes != null ? Number(log.minutes) : (plan ? plan.target_minutes : 20),
+    minutes: log && log.minutes != null ? Number(log.minutes) : (plan ? plan.target_minutes : mvHabit(kind).default_minutes),
     painFlag: !!(log && log.pain_flag), painRegion: log ? log.pain_region : null,
     notes: log ? (log.notes || '') : '', plan: plan,
   };
-  if (kind === 'mobility') {
+  if (mvIsRoutine(kind)) {
     const r = mvRoutineFor(ds);
     st.routineInfo = r;
     if (log && Array.isArray(log.routine) && log.routine.length) {
@@ -733,9 +814,10 @@ function mvRenderSheet() {
   const sched = mvIsScheduled(st.plan, st.date);
   let h = '';
   if (!sched) h += '<div class="mv-note">Not a scheduled day — this counts as a bonus.</div>';
-  if (st.kind === 'walk') {
-    title.textContent = 'Walk · ' + when;
+  if (!mvIsRoutine(st.kind)) {
+    title.textContent = mvHabit(st.kind).label + ' · ' + when;
     if (st.plan && st.plan.notes) h += '<div class="mv-coach-note">Coach: ' + mvEsc(st.plan.notes) + '</div>';
+    h += mvGuideHtml(mvHabit(st.kind));
     h += '<div class="form-section-label">Minutes</div>'
       + '<div class="mv-stepper"><button onclick="mvSheetMinutes(-5)">−5</button><span id="mv-sheet-min">' + st.minutes + '</span><button onclick="mvSheetMinutes(5)">+5</button></div>'
       + '<div class="triage-chips" style="margin-top:12px">'
@@ -792,7 +874,7 @@ function mvToggleDrill(i) { const it = MV.sheet.items[i]; it.checked = !it.check
 
 function mvRemoveFromSheet() {
   const st = MV.sheet;
-  showConfirm('Remove this log?', mvDateLabel(st.date) + ' — ' + st.kind, 'Remove', async function () {
+  showConfirm('Remove this log?', mvDateLabel(st.date) + ' — ' + mvHabit(st.kind).label.toLowerCase(), 'Remove', async function () {
     await mvDeleteLog(st.kind, st.date);
     closeMvSheet();
   }, true);
@@ -803,7 +885,7 @@ async function mvSubmitSheet(forceStatus) {
   if (!st) return;
   if (st.painFlag && !st.painRegion) { toast('Pick where it hurt'); return; }
   let status = forceStatus || st.status, minutes = st.minutes, routine = null;
-  if (st.kind === 'walk') {
+  if (!mvIsRoutine(st.kind)) {
     if ((status === 'done' || status === 'partial') && !(Number(minutes) > 0)) { toast('Add minutes'); return; }
     if (status === 'excused') minutes = null;
   } else {
@@ -978,32 +1060,11 @@ function mvRenderScreen() {
       + '<button class="btn" onclick="mvQuickStart()">Turn on both</button></div>';
   }
 
-  // Walk
-  h += '<div class="card"><div class="mv-sec-hdr"><div class="card-title" style="font-size:16px">🚶 Walk</div>' + mvSwitch('walk', !!walk) + '</div>';
-  if (walk) {
-    if (walk.notes) h += '<div class="mv-coach-note">Coach: ' + mvEsc(walk.notes) + '</div>';
-    h += '<div class="form-section-label">Days</div>' + mvDaysChips('walk', walk.schedule_days)
-      + '<div class="form-section-label">Target minutes</div>'
-      + '<div class="mv-stepper"><button onclick="mvPlanMinutes(\'walk\',-5)">−5</button><span>' + walk.target_minutes + '</span><button onclick="mvPlanMinutes(\'walk\',5)">+5</button></div>';
-  } else h += '<div class="card-sub">Off</div>';
-  h += '</div>';
-
-  // Mobility
-  h += '<div class="card"><div class="mv-sec-hdr"><div class="card-title" style="font-size:16px">🧘 Mobility</div>' + mvSwitch('mobility', !!mob) + '</div>';
-  if (mob) {
-    if (mob.notes) h += '<div class="mv-coach-note">Coach: ' + mvEsc(mob.notes) + '</div>';
-    h += '<div class="form-section-label">Days</div>' + mvDaysChips('mobility', mob.schedule_days)
-      + '<div class="form-section-label">Minutes</div><div class="triage-chips">'
-      + [8, 10, 15].map(function (m) {
-        return '<button class="triage-chip' + (Number(mob.target_minutes) === m ? ' active' : '') + '" onclick="mvSetMobMinutes(' + m + ')">' + m + ' min</button>';
-      }).join('') + '</div>'
-      + '<div class="form-section-label">What to work on</div><div class="triage-chips">'
-      + '<button class="triage-chip' + (mob.mode !== 'targeted' ? ' active' : '') + '" onclick="mvSetMode(\'general\')">General flow</button>'
-      + '<button class="triage-chip' + (mob.mode === 'targeted' ? ' active' : '') + '" onclick="mvSetMode(\'targeted\')">My focus areas</button></div>';
-    if (mob.mode === 'targeted') h += mvAreasHtml();
-    else h += '<div class="card-sub" style="margin-top:8px">Two ~10-minute whole-body flows that alternate by day.</div>';
-  } else h += '<div class="card-sub">Off</div>';
-  h += '</div>';
+  mvHabits().forEach(function (hb) {
+    if (hb.log_type === 'routine') { h += mvMobilityCardHtml(mob); return; }
+    if (!hb.active && !mvPlan(hb.key)) return;     // retired habit: only while still on
+    h += mvMinutesHabitCardHtml(hb);
+  });
 
   h += mvScreensCardHtml();
   if (typeof mvCautionsHtml === 'function') h += mvCautionsHtml();
@@ -1026,6 +1087,64 @@ function mvRenderScreen() {
     + '<li>Missed days are fine. Rest days don\'t count against you.</li></ul></div>';
 
   body.innerHTML = h;
+}
+
+// A 'minutes' habit card (walk, floor sitting, …) — switch, days, target minutes.
+function mvMinutesHabitCardHtml(hb) {
+  const k = hb.key, plan = mvPlan(k), step = hb.minutes_step || 5;
+  let h = '<div class="card"><div class="mv-sec-hdr"><div class="card-title" style="font-size:16px">' + mvEsc(hb.icon + ' ' + hb.label) + '</div>'
+    + mvSwitch(k, !!plan) + '</div>';
+  if (plan) {
+    if (plan.notes) h += '<div class="mv-coach-note">Coach: ' + mvEsc(plan.notes) + '</div>';
+    if (hb.how) h += '<div class="card-sub mv-habit-how">' + mvEsc(hb.how) + '</div>';
+    h += '<div class="form-section-label">Days</div>' + mvDaysChips(k, plan.schedule_days)
+      + '<div class="form-section-label">Target minutes</div>'
+      + '<div class="mv-stepper"><button onclick="mvPlanMinutes(\'' + k + '\',-' + step + ')">−' + step + '</button><span>' + plan.target_minutes
+      + '</span><button onclick="mvPlanMinutes(\'' + k + '\',' + step + ')">+' + step + '</button></div>'
+      + mvGuideHtml(hb);
+  } else h += '<div class="card-sub">Off' + (hb.description ? ' — ' + mvEsc(hb.description) : '') + '</div>';
+  return h + '</div>';
+}
+
+// "Position ideas" (collapsed) for a minutes habit with a guide.
+function mvGuideHtml(hb) {
+  if (!hb.guide || !hb.guide.length) return '';
+  const g = mvGuideItems(hb.guide, mvScreenEx());
+  let h = '<details class="mv-guide"><summary>Position ideas (' + g.items.length + ')</summary>';
+  if (g.allHidden) {
+    h += '<div class="mv-paused">Every position loads an area with an open pain episode. '
+      + '<a class="mv-link" onclick="closeMvSheet();openPainSheet()">Open 🚩 Pain</a> before ' + mvEsc(hb.label.toLowerCase()) + '.</div>';
+  }
+  h += g.items.map(function (it) {
+    return '<div class="mv-guide-item' + (it.state === 'caution' ? ' mv-guide-off' : '') + '" data-item="' + mvEsc(it.item) + '">'
+      + '<div class="mv-drill-name">' + mvEsc(it.item) + '</div>'
+      + (it.easier ? '<div class="mv-drill-cue">Easier: ' + mvEsc(it.easier) + '</div>' : '')
+      + (it.why ? '<div class="mv-guide-why">' + (it.state === 'caution' ? '⚠ Coach: ' : '') + mvEsc(it.why) + '</div>' : '')
+      + '</div>';
+  }).join('');
+  if (g.hidden.length && !g.allHidden) {
+    h += '<div class="mv-muted" style="margin-top:6px">Hidden while an area has an open pain episode: ' + mvEsc(g.hidden.join(', ')) + '</div>';
+  }
+  return h + '</details>';
+}
+
+// The Mobility (routine) card.
+function mvMobilityCardHtml(mob) {
+  let h = '<div class="card"><div class="mv-sec-hdr"><div class="card-title" style="font-size:16px">🧘 Mobility</div>' + mvSwitch('mobility', !!mob) + '</div>';
+  if (mob) {
+    if (mob.notes) h += '<div class="mv-coach-note">Coach: ' + mvEsc(mob.notes) + '</div>';
+    h += '<div class="form-section-label">Days</div>' + mvDaysChips('mobility', mob.schedule_days)
+      + '<div class="form-section-label">Minutes</div><div class="triage-chips">'
+      + [8, 10, 15].map(function (m) {
+        return '<button class="triage-chip' + (Number(mob.target_minutes) === m ? ' active' : '') + '" onclick="mvSetMobMinutes(' + m + ')">' + m + ' min</button>';
+      }).join('') + '</div>'
+      + '<div class="form-section-label">What to work on</div><div class="triage-chips">'
+      + '<button class="triage-chip' + (mob.mode !== 'targeted' ? ' active' : '') + '" onclick="mvSetMode(\'general\')">General flow</button>'
+      + '<button class="triage-chip' + (mob.mode === 'targeted' ? ' active' : '') + '" onclick="mvSetMode(\'targeted\')">My focus areas</button></div>';
+    if (mob.mode === 'targeted') h += mvAreasHtml();
+    else h += '<div class="card-sub" style="margin-top:8px">Two ~10-minute whole-body flows that alternate by day.</div>';
+  } else h += '<div class="card-sub">Off</div>';
+  return h + '</div>';
 }
 
 function mvAreasHtml() {
@@ -1094,9 +1213,10 @@ function mvAreasHtml() {
 function mvPlanDefaults(kind) {
   const last = mvLastPlan(MV.plans, kind);
   if (last) return { days: (last.schedule_days || [1, 2, 3, 4, 5, 6, 7]).map(Number), minutes: last.target_minutes,
-    mode: kind === 'mobility' ? (last.mode || 'general') : null, notes: last.notes || null, equipment: last.equipment || [] };
-  return kind === 'walk' ? { days: [1, 2, 3, 4, 5, 6, 7], minutes: 20, mode: null, notes: null, equipment: [] }
-    : { days: [1, 2, 3, 4, 5, 6, 7], minutes: 10, mode: 'general', notes: null, equipment: [] };
+    mode: mvIsRoutine(kind) ? (last.mode || 'general') : null, notes: last.notes || null, equipment: last.equipment || [] };
+  const hb = mvHabit(kind);
+  return { days: hb.default_days.slice(), minutes: hb.default_minutes, mode: hb.log_type === 'routine' ? 'general' : null,
+    notes: null, equipment: [] };
 }
 
 function mvSavePlan(kind, patch, enabled) {
@@ -1121,11 +1241,11 @@ function mvSavePlan(kind, patch, enabled) {
 
 function mvToggleHabit(kind) {
   if (mvPlan(kind)) {
-    showConfirm('Turn ' + kind + ' off?', 'Your history stays. You can turn it back on anytime.', 'Turn off',
-      function () { mvSavePlan(kind, null, false); toast(kind === 'walk' ? 'Walk off' : 'Mobility off'); });
+    showConfirm('Turn ' + mvHabit(kind).label.toLowerCase() + ' off?', 'Your history stays. You can turn it back on anytime.', 'Turn off',
+      function () { mvSavePlan(kind, null, false); toast(mvHabit(kind).label + ' off'); });
   } else {
     mvSavePlan(kind, {}, true);
-    toast(kind === 'walk' ? 'Walk on' : 'Mobility on');
+    toast(mvHabit(kind).label + ' on');
   }
 }
 function mvQuickStart() {
@@ -1142,7 +1262,8 @@ function mvToggleDay(kind, d) {
 }
 function mvPlanMinutes(kind, delta) {
   const p = mvPlan(kind); if (!p) return;
-  mvSavePlan(kind, { minutes: Math.max(5, Math.min(120, Number(p.target_minutes) + delta)) });
+  const hb = mvHabit(kind);
+  mvSavePlan(kind, { minutes: Math.max(hb.min_minutes || 5, Math.min(hb.max_minutes || 120, Number(p.target_minutes) + delta)) });
 }
 function mvSetMobMinutes(m) { mvSavePlan('mobility', { minutes: m }); }
 function mvSetMode(m) { mvSavePlan('mobility', { mode: m }); }
@@ -1258,14 +1379,15 @@ function mvDaysLabel(days) {
 }
 
 // ENGINE (pure): the pending parts of a recommendation as selectable changes.
-function mvRecChanges(payload, plans, areas) {
+function mvRecChanges(payload, plans, areas, habits) {
   payload = payload || {};
   const dec = payload._decision || {};
   const out = [];
-  ['walk', 'mobility'].forEach(function (kind) {
+  mvHabitList(habits).forEach(function (hb) {
+    const kind = hb.key;
     const part = payload[kind];
     if (!part || (dec[kind] && dec[kind] !== 'pending')) return;
-    const label = kind === 'walk' ? 'Walk' : 'Mobility';
+    const label = hb.label;
     if (!part.enabled) {
       if (mvCurrentPlan(plans, kind)) out.push({ id: kind, type: 'plan', kind: kind, part: part, label: label + ': turn off', checked: true });
       return;
@@ -1338,7 +1460,7 @@ async function mvResolveRec(rec, status) {
 function mvRecBannerHtml() {
   const rec = mvPendingRec();
   if (!rec) return '';
-  const ch = mvRecChanges(rec.payload, MV.plans, MV.areas);
+  const ch = mvRecChanges(rec.payload, MV.plans, MV.areas, mvHabits());
   const when = (rec.pushed_at || '').slice(0, 10);
   const whenLbl = when ? new Date(mvUtc(when) + 12 * 3600000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : '';
   if (MV.review && MV.review.id === rec.id) {
@@ -1367,7 +1489,7 @@ function mvRecBannerHtml() {
 
 async function mvRecUse() {
   const rec = mvPendingRec(); if (!rec) return;
-  const ch = mvRecChanges(rec.payload, MV.plans, MV.areas);
+  const ch = mvRecChanges(rec.payload, MV.plans, MV.areas, mvHabits());
   const drops = ch.filter(function (c) { return c.type === 'drop'; });
   const go = async function () {
     for (let i = 0; i < ch.length; i++) { if (ch[i].type !== 'drop') await mvApplyRecChange(ch[i]); }
@@ -1386,14 +1508,14 @@ function mvRecReview() { const rec = mvPendingRec(); if (!rec) return; MV.review
 function mvReviewCancel() { MV.review = null; mvRenderScreen(); }
 function mvReviewToggle(id) {
   const rec = mvPendingRec(); if (!rec || !MV.review) return;
-  const c = mvRecChanges(rec.payload, MV.plans, MV.areas).filter(function (x) { return x.id === id; })[0];
+  const c = mvRecChanges(rec.payload, MV.plans, MV.areas, mvHabits()).filter(function (x) { return x.id === id; })[0];
   const cur = MV.review.checked[id] !== undefined ? MV.review.checked[id] : (c ? c.checked : false);
   MV.review.checked[id] = !cur;
   mvRenderScreen();
 }
 async function mvReviewApply() {
   const rec = mvPendingRec(); if (!rec || !MV.review) return;
-  const ch = mvRecChanges(rec.payload, MV.plans, MV.areas).filter(function (c) {
+  const ch = mvRecChanges(rec.payload, MV.plans, MV.areas, mvHabits()).filter(function (c) {
     return MV.review.checked[c.id] !== undefined ? MV.review.checked[c.id] : c.checked;
   });
   // Caps (2 daily / 3 rotating) must still hold after the chosen changes.
@@ -1494,14 +1616,15 @@ function mvTrendsHtml() {
   for (let i = 0; i < 12; i++) weeks.push(mvAddDays(firstMon, i * 7));
   const labels = weeks.map(function (w) { const p = w.split('-'); return Number(p[1]) + '/' + Number(p[2]); });
   let h = '';
-  ['walk', 'mobility'].forEach(function (kind) {
+  mvHabits().forEach(function (hb) {
+    const kind = hb.key;
     const rows = mvFillRows(MV.daily, kind, firstMon, mvAddDays(firstMon, 83));
     if (!mvPlan(kind) && !rows.some(function (r) { return r.status; })) return;
     const wk = mvCompliance(rows.filter(function (r) { return r.date >= mvMonday(t); }), t);
     const four = mvCompliance(rows.filter(function (r) { return r.date >= mvAddDays(mvMonday(t), -21); }), t);
     const streak = mvStreak(rows, t);
     const pill = function (v, l) { return '<div class="trends-stat-pill"><div class="trends-stat-num">' + v + '</div><div class="trends-stat-lbl">' + l + '</div></div>'; };
-    h += '<div class="trends-chart-title" style="margin-top:6px">' + (kind === 'walk' ? '🚶 Walk' : '🧘 Mobility') + (mvPlan(kind) ? '' : ' (off)') + '</div>'
+    h += '<div class="trends-chart-title" style="margin-top:6px">' + mvEsc(hb.icon + ' ' + hb.label) + (mvPlan(kind) ? '' : ' (off)') + '</div>'
       + '<div class="trends-stat-strip">' + pill(wk.pct == null ? '—' : wk.pct + '%', 'This week') + pill(four.pct == null ? '—' : four.pct + '%', '4 weeks')
       + pill(streak, 'Day streak') + '</div>';
     // 12-week calendar grid (rows = weeks, columns = Mon..Sun)
@@ -1520,12 +1643,12 @@ function mvTrendsHtml() {
     });
     h += '<div class="trends-chart-box"><div class="trends-chart-title">Weekly compliance %</div>'
       + trendsBarChart(pct, labels, { height: 110, formatVal: function (v) { return v + '%'; } }) + '</div>';
-    if (kind === 'walk') {
+    if (hb.log_type !== 'routine') {
       const mins = weeks.map(function (w) {
         return Math.round(rows.filter(function (r) { return r.date >= w && r.date <= mvAddDays(w, 6) && (r.status === 'done' || r.status === 'partial'); })
           .reduce(function (s, r) { return s + Number(r.minutes || 0); }, 0));
       });
-      h += '<div class="trends-chart-box"><div class="trends-chart-title">Walk minutes per week</div>' + trendsBarChart(mins, labels, { height: 110 }) + '</div>';
+      h += '<div class="trends-chart-box"><div class="trends-chart-title">' + mvEsc(hb.label) + ' minutes per week</div>' + trendsBarChart(mins, labels, { height: 110 }) + '</div>';
     } else {
       const act = MV.areas.filter(function (a) { return a.is_active !== false; });
       const mob = mvPlan('mobility');
@@ -1545,12 +1668,13 @@ function mvCheckinLineHtml() {
   const t = mvToday();
   const mon = mvMonday(t);
   const parts = [];
-  ['walk', 'mobility'].forEach(function (kind) {
+  mvHabits().forEach(function (hb) {
+    const kind = hb.key;
     if (!mvPlan(kind)) return;
     const rows = mvRows(kind, mon, mvAddDays(mon, 6));
     const sched = rows.filter(function (r) { return r.scheduled && r.status !== 'excused'; }).length;
     const got = rows.filter(function (r) { return r.status === 'done' || r.status === 'partial'; }).length;
-    parts.push((kind === 'walk' ? 'Walk ' : 'Mobility ') + got + '/' + sched);
+    parts.push(hb.label + ' ' + got + '/' + sched);
   });
   const sc = mvCheckinScreensText();
   if (sc) parts.push('📏 ' + sc);
@@ -1572,7 +1696,7 @@ const MV_SCREEN_RETEST_DAYS = 28;     // focus-area retest
 const MV_SCREEN_SNOOZE_DAYS = 7;      // "Later"
 const MV_CM_PER_IN = 2.54;
 const MV_SIDE_LABEL = { L: 'Left', R: 'Right', B: 'Both' };
-const MV_SCREEN_RANGE = { deg: [0, 200], cm: [0, 80], fingers: [0, 15] };
+const MV_SCREEN_RANGE = { deg: [0, 200], cm: [0, 80], fingers: [0, 15], points: [0, 10] };
 
 function mvTestNorm(r) {
   return {
@@ -1582,7 +1706,7 @@ function mvTestNorm(r) {
     defValue: r.deficient_value == null ? null : Number(r.deficient_value),
     asym: r.asymmetry == null ? null : Number(r.asymmetry), provisional: !!r.provisional,
     tags: r.caution_tags || [], findings: r.findings || [], good: r.good || '', shows: r.shows || '',
-    steps: r.steps || [], sort: Number(r.sort_order || 0),
+    steps: r.steps || [], sort: Number(r.sort_order || 0), offersHabit: r.offers_habit || null,
   };
 }
 function mvScreenSides(test) {
@@ -1609,11 +1733,12 @@ function mvScreenDisp(test, v, unitPref) {
   if (v == null) return null;
   const n = Number(v);
   if (test.unit === 'cm') return unitPref !== 'cm' ? Math.round(n / MV_CM_PER_IN * 4) / 4 : Math.round(n * 2) / 2;
-  if (test.unit === 'fingers') return Math.round(n * 2) / 2;
+  if (test.unit === 'fingers' || test.unit === 'points') return Math.round(n * 2) / 2;
   return Math.round(n);
 }
 function mvScreenUnitLabel(test, unitPref) {
-  return test.unit === 'deg' ? '°' : test.unit === 'cm' ? (unitPref !== 'cm' ? 'in' : 'cm') : test.unit === 'fingers' ? 'fingers' : '';
+  return test.unit === 'deg' ? '°' : test.unit === 'cm' ? (unitPref !== 'cm' ? 'in' : 'cm') : test.unit === 'fingers' ? 'fingers'
+    : test.unit === 'points' ? 'points' : '';
 }
 function mvFmtScreenValue(test, v, unitPref, signed) {
   const d = mvScreenDisp(test, v, unitPref);
@@ -1621,6 +1746,7 @@ function mvFmtScreenValue(test, v, unitPref, signed) {
   const s = (signed && d > 0 ? '+' : '') + d;
   if (test.unit === 'deg') return s + '°';
   if (test.unit === 'fingers') return s + (Math.abs(d) === 1 ? ' finger' : ' fingers');
+  if (test.unit === 'points') return s + (Math.abs(d) === 1 ? ' point' : ' points');
   return s + ' ' + mvScreenUnitLabel(test, unitPref);
 }
 function mvScreenValueOk(test, stored) {
@@ -1629,6 +1755,7 @@ function mvScreenValueOk(test, stored) {
   // start-90 (upper-back rotation) = arm angle to level: below level is negative.
   if (test.tilt === 'start-90') return stored >= -90 && stored <= 120;
   const max = test.tilt === 'level' ? 90 : r[1];
+  if (test.unit === 'points' && Math.abs(stored * 2 - Math.round(stored * 2)) > 1e-9) return false;   // half-point steps
   return stored >= r[0] && stored <= max;
 }
 // Tilt readout. start-90 speaks in "above / below level" (the raw number starts
@@ -1737,31 +1864,38 @@ function mvScreenSummary(test, screens) {
 // 'amber' (open pain 3–5 — not prompted, still takeable by hand). null = fine.
 function mvScreenBlock(test, ex) {
   if (!ex) return null;
-  const red = ex.red && ex.red[test.region];
+  const regs = mvRegion(test.region).loads || [test.region];       // whole_body → hip, knee, ankle, low back
+  const red = regs.map(function (r) { return ex.red && ex.red[r]; }).filter(Boolean)[0];
   if (red) return { kind: 'paused', why: red.neuro ? 'nerve symptoms flagged' : 'open pain episode ' + red.score + '/10' };
   for (let i = 0; i < (test.tags || []).length; i++) {
     const why = ex.tags && ex.tags[test.tags[i]];
     if (why) return { kind: 'caution', why: why };
   }
-  const amb = ex.amber && ex.amber[test.region];
+  const amb = regs.map(function (r) { return ex.amber && ex.amber[r]; }).filter(Boolean)[0];
   if (amb) return { kind: 'amber', why: 'open pain episode ' + amb.score + '/10 — scores during a pain episode aren\'t comparable' };
   return null;
 }
 
-// Which tests are due (framework §10.2). Only while mobility is on.
+// Which tests are due (framework §10.2). Region tests only while mobility is on;
+// a whole-body test (offersHabit, e.g. sit_rise → floor) also while that habit is
+// on, and is retested every 28 days while the habit is on and the latest result
+// is deficient. o.habitsOn = { habitKey: true } for every habit that is on.
 //   focus area (targeted mode, active): never taken → 'baseline'; latest result
 //     deficient and ≥ 28 days old → 'retest'; area (re)started since the last
 //     result and ≥ 28 days → 'baseline'.
 //   otherwise: never taken or ≥ 182 days → 'checkup'.
-// o: { mobilityOn, mode, optouts: {key:true}, snoozes: {key:'YYYY-MM-DD'}, exclusions }
+// o: { mobilityOn, mode, habitsOn: {key:true}, optouts: {key:true}, snoozes: {key:'YYYY-MM-DD'}, exclusions }
 // Returns { due, skipped, snoozed, optedOut }; due items = { test, reason, focus, last, age }.
 function mvScreensDue(areas, screens, tests, todayStr, o) {
   o = o || {};
   const out = { due: [], skipped: [], snoozed: [], optedOut: [] };
-  if (!o.mobilityOn) return out;
+  const habitsOn = o.habitsOn || {};
+  if (!o.mobilityOn && !Object.keys(habitsOn).some(function (k) { return habitsOn[k]; })) return out;
   const focus = {};
-  if (o.mode === 'targeted') (areas || []).forEach(function (a) { if (a.is_active !== false) focus[a.region] = a; });
+  if (o.mobilityOn && o.mode === 'targeted') (areas || []).forEach(function (a) { if (a.is_active !== false) focus[a.region] = a; });
   (tests || []).slice().sort(function (a, b) { return a.sort - b.sort; }).forEach(function (t) {
+    const viaHabit = !!(t.offersHabit && habitsOn[t.offersHabit]);
+    if (!o.mobilityOn && !viaHabit) return;
     if (o.optouts && o.optouts[t.key]) { out.optedOut.push(t); return; }
     const block = mvScreenBlock(t, o.exclusions);
     if (block) { out.skipped.push({ test: t, kind: block.kind, why: block.why }); return; }
@@ -1774,6 +1908,9 @@ function mvScreensDue(areas, screens, tests, todayStr, o) {
       if (!last) reason = 'baseline';
       else if (age >= MV_SCREEN_RETEST_DAYS && mvScreenDeficient(t, mvScreenLatest(screens, t.key)).deficient) reason = 'retest';
       else if (age >= MV_SCREEN_RETEST_DAYS && area.started_on && area.started_on > last) reason = 'baseline';
+    } else if (viaHabit && last && age >= MV_SCREEN_RETEST_DAYS
+               && mvScreenDeficient(t, mvScreenLatest(screens, t.key)).deficient) {
+      reason = 'retest';
     }
     if (!reason && (!last || age >= MV_SCREEN_CHECKUP_DAYS)) reason = 'checkup';
     if (!reason) return;
@@ -1935,10 +2072,15 @@ function mvOptouts() {
   return o;
 }
 function mvScreenEx() { return mvExclusions(MV.cautions, (S && S.openInjuries) || []); }
+function mvHabitsOn() {
+  const on = {};
+  mvHabits().forEach(function (h) { if (mvPlan(h.key)) on[h.key] = true; });
+  return on;
+}
 function mvDueNow() {
   const mob = mvPlan('mobility');
   return mvScreensDue(MV.areas, MV.screens, MV.tests, mvToday(), {
-    mobilityOn: !!mob, mode: mob ? mob.mode : null, optouts: mvOptouts(),
+    mobilityOn: !!mob, mode: mob ? mob.mode : null, habitsOn: mvHabitsOn(), optouts: mvOptouts(),
     snoozes: MV.screenUi.snoozes, exclusions: mvScreenEx(),
   });
 }
@@ -1979,12 +2121,12 @@ function mvDefReasonText(test, r) {
 
 // Today card row — only while mobility is on and something is due (never "overdue").
 function mvTestRowHtml() {
-  if (!mvPlan('mobility') || !MV.tests.length) return '';
+  if (!MV.tests.length) return '';
   const d = mvDueNow().due;
   if (!d.length) return '';
   const focus = d.filter(function (x) { return x.focus; });
   const title = focus.some(function (x) { return x.reason === 'retest'; }) ? 'Retest due'
-    : focus.length ? 'Self-test due' : 'Mobility check-up';
+    : focus.length ? 'Self-test due' : mvPlan('mobility') ? 'Mobility check-up' : 'Self-test check-up';
   const list = focus.length ? focus : d;
   const sub = focus.length
     ? list.slice(0, 2).map(function (x) { return x.test.name; }).join(' · ') + (list.length > 2 ? ' +' + (list.length - 2) : '')
@@ -2053,7 +2195,7 @@ function mvRenderTestList() {
   if (dn.due.length) {
     h += '<div class="form-section-label">Due now</div>' + dn.due.map(function (x) { return mvTestListRow(x.test, x); }).join('');
   }
-  MV_REGION_ORDER.forEach(function (region) {
+  MV_REGION_ORDER.concat(MV_TEST_REGIONS.map(function (r) { return r.key; })).forEach(function (region) {
     const ts = MV.tests.filter(function (t) { return t.region === region && !due[t.key]; });
     if (!ts.length) return;
     h += '<div class="form-section-label">' + mvEsc(mvRegion(region).label) + '</div>'
@@ -2152,7 +2294,8 @@ function mvRenderTest() {
         + '<button class="triage-chip' + (x.passed === false ? ' active' : '') + '" onclick="mvTestPass(\'' + s + '\',false)">Not yet</button></div>';
     }
     if (mvSideTakesNumber(t, s)) {
-      h += '<div class="mv-num-row"><input class="mv-num" id="mv-num-' + s + '" type="number" inputmode="decimal" step="any"' + (t.tilt === 'start-90' ? '' : ' min="0"')
+      h += '<div class="mv-num-row"><input class="mv-num" id="mv-num-' + s + '" type="number" inputmode="decimal" step="' + (t.unit === 'points' ? '0.5' : 'any') + '"'
+        + (t.unit === 'points' ? ' max="10"' : '') + (t.tilt === 'start-90' ? '' : ' min="0"')
         + ' value="' + mvEsc(x.value) + '" placeholder="—" oninput="MV.test.sides[\'' + s + '\'].value=this.value">'
         + '<span class="mv-num-unit">' + mvScreenUnitLabel(t, u) + (t.tilt === 'level' ? ' above level' : t.tilt === 'start-90' ? ' above level (− = below)' : '') + '</span>'
         + (t.tilt ? '<button class="mv-mini" onclick="mvTiltOpen(\'' + s + '\')">📐 Measure with phone</button>' : '')
@@ -2292,8 +2435,10 @@ function mvTestResultHtml(t, st) {
     + '<button class="btn secondary" onclick="closeMvSheet()">Done</button>';
   return h;
 }
-// Deficient → focus-area OFFER, never automatic (framework §10.2).
+// Deficient → focus-area OFFER, never automatic (framework §10.2). A whole-body
+// test offers its habit instead (sit_rise → Floor sitting).
 function mvTestOfferHtml(t, st, latest) {
+  if (t.offersHabit) return mvTestHabitOfferHtml(t, st, latest);
   const label = mvRegion(t.region).label;
   if (st.offer === 'added') return '<div class="mv-levelup">' + mvEsc(label) + ' added as a focus area.</div>';
   if (mvFocusArea(t.region)) return '<div class="card-sub" style="margin:6px 0">' + mvEsc(label) + ' is already a focus area — this test comes back every 4 weeks.</div>';
@@ -2327,6 +2472,29 @@ async function mvTestOfferAccept(priority) {
   mvRenderTest();
   mvPaintCard();
 }
+function mvTestHabitOfferHtml(t, st, latest) {
+  const hb = mvHabit(t.offersHabit);
+  const label = hb.label;
+  if (st.offer === 'added') return '<div class="mv-levelup">' + mvEsc(label) + ' is on — see your Today card.</div>';
+  if (mvPlan(hb.key)) return '<div class="card-sub" style="margin:6px 0">' + mvEsc(label) + ' is on — this test comes back every 4 weeks while the score is under the line.</div>';
+  if (st.offer === 'declined' || MV.screenUi.declined[t.key + '|' + latest.date]) {
+    return '<div class="card-sub" style="margin:6px 0">Okay — not turned on. It\'ll come up again at the next check-up.</div>';
+  }
+  return '<div class="mv-offer"><div>Turn on <b>' + mvEsc(label) + '</b>? <span class="mv-muted">'
+    + mvEsc(hb.description || '') + ' Starts at ' + mvPlanDefaults(hb.key).minutes + ' min a day — you can change anything after.</span></div>'
+    + '<div class="triage-chips" style="margin-top:8px">'
+    + '<button class="triage-chip" onclick="mvTestHabitAccept()">Turn on</button>'
+    + '<button class="triage-chip" onclick="mvTestOfferDecline()">No thanks</button></div></div>';
+}
+function mvTestHabitAccept() {
+  const t = mvTest(MV.test.key);
+  if (!t || !t.offersHabit) return;
+  if (!mvPlan(t.offersHabit)) mvSavePlan(t.offersHabit, {}, true);
+  MV.test.offer = 'added';
+  toast(mvHabit(t.offersHabit).label + ' on');
+  mvRenderTest();
+  mvPaintCard();
+}
 function mvTestOfferDecline() {
   const t = mvTest(MV.test.key);
   const latest = mvScreenLatest(MV.screens, t.key);
@@ -2338,7 +2506,8 @@ function mvTestOfferDecline() {
 function mvTestPain() {
   const t = mvTest(MV.test.key);
   closeMvSheet();
-  mvOpenPainFor(mvRegion(t.region).pain[0]);
+  const r = mvRegion(t.region);
+  mvOpenPainFor(r.loads ? null : r.pain[0]);      // whole-body test: no preselected region
 }
 async function mvTestOptOut(key, out) {
   const ok = await mvSetOptOut(key, out);

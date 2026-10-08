@@ -848,6 +848,12 @@
 .mv-swap { padding: 10px 4px; border-bottom: 1px solid var(--border); cursor: pointer; }
 .mv-swap-cur .mv-drill-name { color: var(--accent); }
 .mv-swap-off { opacity: .45; }
+.mv-habit-how { margin: 2px 0 8px; }
+.mv-guide { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+.mv-guide summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--accent); }
+.mv-guide-item { background: var(--surface2); border-radius: 8px; padding: 8px 10px; margin: 6px 0; }
+.mv-guide-off { opacity: .55; }
+.mv-guide-why { font-size: 12px; color: var(--warning, #e0a040); margin-top: 3px; }
 .mv-levelup { font-size: 13px; background: #1a3a1a; color: var(--success); border-radius: 8px; padding: 8px 10px; margin: 6px 0; }
 .mv-levelup-btns { display: flex; gap: 6px; }
 .mv-help ul { margin: 6px 0 0 18px; font-size: 13px; color: var(--muted); }
