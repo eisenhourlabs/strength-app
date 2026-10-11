@@ -1,11 +1,13 @@
 // ══════════════ Kardia Nutrition — Freezer Inventory (per-person backup dinners) ══════════════
-// Cooked single-meal portions set aside on prep nights (target ~12 per person).
+// Cooked single-meal portions set aside on prep nights. Build/draw-down cycle per person
+// (N02 §4B.5, Troy 2026-10-11): build to N_INV_TARGET, draw down to N_INV_FLOOR, rebuild.
 // Shared list — both see both people's stock; each person "Use"s their OWN portion,
 // which logs it as today's dinner and decrements the count. On prep nights the coach's
 // planned freezes appear as confirm cards ("how many did you set aside?").
 // Distinct from n-freezer.js (raw-meat thaw nudges). Loaded before n-week.js (boot).
 
-const N_INV_TARGET = 12;
+const N_INV_TARGET = 8;
+const N_INV_FLOOR = 3;
 
 function nInvRows() { return (NS.freezerInventory || []).filter(r => (r.portions || 0) > 0); }
 function nInvForAthlete(aid) {
@@ -29,7 +31,7 @@ function nInvPanelHtml(interactive) {
     if (!interactive) return '';
     const summary = (NS.household || []).map(a => `${nEsc(a.name)} ${nInvCount(a.id)}/${N_INV_TARGET}`).join(' · ');
     return `${addUi}<div class="n-panel"><div class="n-panel-title">🧊 Freezer inventory</div>
-      <div class="n-inv-empty">Building up backup dinners — target ${N_INV_TARGET} each. ${summary}</div></div>`;
+      <div class="n-inv-empty">Backup dinners — build to ${N_INV_TARGET} each, rebuild at ${N_INV_FLOOR}. ${summary}</div></div>`;
   }
   let body = '';
   for (const a of (NS.household || [])) {
