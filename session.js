@@ -1405,25 +1405,9 @@ async function loadLastPerformances() {
   if (!targets.length) return;
 
   try {
-    const { data: recent } = await db.from('completed_sessions')
-      .select('id,session_date')
-      .eq('athlete_id', S.athlete.id)
-      .eq('status', 'completed')
-      .order('session_date', { ascending: false })
-      .limit(30);
     const curId = S.activeCompletedSession?.id;
-    const ids   = (recent || []).filter(s => s.id !== curId).map(s => s.id);
-    if (!ids.length) return;
-    const dateMap = {};
-    (recent || []).forEach(s => { dateMap[s.id] = s.session_date; });
-
     const exIds = [...new Set(targets.map(x => x.exId))];
-    const { data: sets } = await db.from('completed_strength_sets')
-      .select('completed_session_id,exercise_id,set_number,actual_load,actual_reps,actual_rpe,actual_value,measure_type')
-      .in('exercise_id', exIds)
-      .in('completed_session_id', ids)
-      .eq('is_skipped', false)
-      .gt('set_number', 0);
+
     // All-time best e1RM per exercise (for PR detection on save) — single
     // joined query so we don't have to enumerate every historical session id.
     try {
@@ -1443,17 +1427,31 @@ async function loadLastPerformances() {
       });
     } catch (err) { console.error('best e1RM load:', err); }
 
-    if (!sets || !sets.length) return;
-
-    // Most recent session per exercise
+    // Most recent prior session per exercise — any age. One small query per
+    // exercise (run in parallel), each returning just the newest session that
+    // contains it. (Previously only the last 30 sessions were searched.)
     const bestSession = {};
-    sets.forEach(s => {
-      const k   = String(s.exercise_id);
-      const d   = dateMap[s.completed_session_id] || '';
-      const cur = bestSession[k];
-      if (!cur || d > cur.date) bestSession[k] = { date: d, sid: s.completed_session_id, sets: [s] };
-      else if (cur.sid === s.completed_session_id) cur.sets.push(s);
-    });
+    await Promise.all(exIds.map(async exId => {
+      let q = db.from('completed_sessions')
+        .select('id,session_date,completed_strength_sets!inner(exercise_id,set_number,actual_load,actual_reps,actual_rpe,actual_value,measure_type,is_skipped)')
+        .eq('athlete_id', S.athlete.id)
+        .eq('status', 'completed')
+        .not('session_date', 'is', null)
+        .eq('completed_strength_sets.exercise_id', exId)
+        .eq('completed_strength_sets.is_skipped', false)
+        .gt('completed_strength_sets.set_number', 0);
+      if (curId) q = q.neq('id', curId);
+      const { data, error } = await q
+        .order('session_date', { ascending: false, nullsFirst: false })
+        .limit(1);
+      if (error) { console.error('last perf', exId, error); return; }
+      const r = data && data[0];
+      if (r && r.completed_strength_sets && r.completed_strength_sets.length) {
+        bestSession[exId] = { date: r.session_date, sid: r.id, sets: r.completed_strength_sets };
+      }
+    }));
+
+    if (!Object.keys(bestSession).length) return;
 
     targets.forEach(tg => {
       const el = document.getElementById(tg.elId);
@@ -1507,49 +1505,30 @@ function closeHistorySheet() {
 async function loadExerciseHistory(exId) {
   const body = document.getElementById('hist-body');
   try {
-    // Step 1: get the athlete's recent completed sessions (last 20)
-    const { data: recentSessions } = await db.from('completed_sessions')
-      .select('id,session_date,session_type')
+    // The athlete's 3 most recent completed sessions that contain this
+    // exercise — any age. (Previously only the last 20 sessions were
+    // searched, so anything older than ~3-4 weeks showed "No history".)
+    // Sessions are filtered and ordered on their own columns; the !inner
+    // embed keeps only sessions with at least one matching, non-skipped set.
+    const { data: rows, error } = await db.from('completed_sessions')
+      .select('id,session_date,session_type,completed_strength_sets!inner(set_number,actual_load,actual_reps,actual_rpe,notes,exercise_id,is_skipped)')
       .eq('athlete_id', S.athlete.id)
       .eq('status', 'completed')
-      .order('session_date', { ascending: false })
-      .limit(20);
+      .not('session_date', 'is', null)
+      .eq('completed_strength_sets.exercise_id', exId)
+      .eq('completed_strength_sets.is_skipped', false)
+      .gt('completed_strength_sets.set_number', 0)
+      .order('session_date', { ascending: false, nullsFirst: false })
+      .limit(3);
+    if (error) throw error;
 
-    if (!recentSessions || recentSessions.length === 0) {
-      body.innerHTML = '<div class="hist-empty">No sessions logged yet.</div>';
-      return;
-    }
-
-    const sessionIds  = recentSessions.map(s => s.id);
-    const sessionMap  = {};
-    recentSessions.forEach(s => { sessionMap[s.id] = s; });
-
-    // Step 2: get all non-skipped sets for this exercise from those sessions
-    const { data: sets } = await db.from('completed_strength_sets')
-      .select('completed_session_id,set_number,actual_load,actual_reps,actual_rpe,notes')
-      .eq('exercise_id', exId)
-      .eq('is_skipped', false)
-      .gt('set_number', 0)
-      .in('completed_session_id', sessionIds)
-      .order('set_number');
-
-    if (!sets || sets.length === 0) {
-      body.innerHTML = '<div class="hist-empty">No history found for this exercise.</div>';
-      return;
-    }
-
-    // Group by session, take 3 most recent
-    const groups = {};
-    sets.forEach(s => {
-      if (!groups[s.completed_session_id]) groups[s.completed_session_id] = [];
-      groups[s.completed_session_id].push(s);
-    });
-
-    const history = Object.keys(groups)
-      .map(csId => ({ ...sessionMap[csId], sets: groups[csId] }))
-      .filter(s => s.session_date)
-      .sort((a, b) => b.session_date.localeCompare(a.session_date))
-      .slice(0, 3);
+    const history = (rows || []).map(r => ({
+      id:           r.id,
+      session_date: r.session_date,
+      session_type: r.session_type,
+      sets: [...(r.completed_strength_sets || [])]
+              .sort((a, b) => a.set_number - b.set_number),
+    })).filter(s => s.sets.length);
 
     if (history.length === 0) {
       body.innerHTML = '<div class="hist-empty">No history found for this exercise.</div>';
