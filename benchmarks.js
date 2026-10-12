@@ -904,7 +904,7 @@ function closeBmSheet() {
 }
 
 // Entry point. No key → choose a test first.
-async function bmOpenLog(key, exId, fmt) {
+async function bmOpenLog(key, exId, fmt, pre) {
   if (!BM.loaded) await loadBenchmarks();
   if (!key) { bmChooseTest(); return; }
   const t = BM.byKey[key]; if (!t) return;
@@ -929,24 +929,34 @@ async function bmOpenLog(key, exId, fmt) {
     }
   });
   f.startParams = Object.assign({}, f.params);
+  // Prefill from a logged session (§8). Params merge; everything else overwrites.
+  if (pre) {
+    const pp = pre.params || {};
+    Object.keys(pre).forEach(function (k) { if (k !== 'params' && pre[k] != null && pre[k] !== '') f[k] = pre[k]; });
+    Object.keys(pp).forEach(function (k) { if (pp[k] != null && pp[k] !== '') f.params[k] = pp[k]; });
+  }
   BM.form = f;
   if (t.kind === 'lift' && f.exId) { bmSetFmt(f.fmt); } else bmRenderForm();
   bmSheetShow();
 }
 
-function bmChooseTest() {
+function bmChooseTest(suggestKeys) {
   const pins = bmPinnedEntries();
   const act = bmActiveTypes();
   let h = '';
-  if (pins.length) h += '<div class="bm-sec" style="margin-top:0">Pinned</div>' + pins.map(function (e) {
-    return '<div class="bm-pick" onclick="bmOpenLog(' + bmDetailArgs(e.type.key, e.exId, e.fmt) + ')">' + bmEsc(bmEntryName(e)) + '</div>';
+  const sug = (suggestKeys || []).filter(function (k) { return BM.byKey[k] && BM.byKey[k].status !== 'retired'; });
+  if (sug.length) h += '<div class="bm-sec" style="margin-top:0">Suggested for this session</div>' + sug.map(function (k) {
+    return '<div class="bm-pick" onclick="bmOpenFromCond(\'' + k + '\')">' + bmEsc(BM.byKey[k].name) + (bmIsPinned(k) ? ' ★' : '') + '</div>';
+  }).join('');
+  if (pins.length) h += '<div class="bm-sec"' + (sug.length ? '' : ' style="margin-top:0"') + '>Pinned</div>' + pins.map(function (e) {
+    return '<div class="bm-pick" onclick="' + (sug.length && !e.exId ? 'bmOpenFromCond(\'' + e.type.key + '\')' : 'bmOpenLog(' + bmDetailArgs(e.type.key, e.exId, e.fmt) + ')') + '">' + bmEsc(bmEntryName(e)) + '</div>';
   }).join('');
   h += '<input class="bm-search" id="bm-search" placeholder="Search benchmarks…" oninput="bmFilterPick()">';
   h += '<div id="bm-pick-list">' + BM_GROUPS.map(function (g) {
     const list = act.filter(function (t) { return t.grp === g.key; }).sort(function (a, b) { return a.sort - b.sort; });
     if (!list.length) return '';
     return '<div class="bm-sec bm-pick-sec">' + g.label + '</div>' + list.map(function (t) {
-      return '<div class="bm-pick" data-name="' + bmEsc(t.name.toLowerCase()) + '" onclick="bmOpenLog(\'' + t.key + '\')">' + bmEsc(t.name) + '</div>';
+      return '<div class="bm-pick" data-name="' + bmEsc(t.name.toLowerCase()) + '" onclick="' + (sug.length && t.kind !== 'lift' ? 'bmOpenFromCond' : 'bmOpenLog') + '(\'' + t.key + '\')">' + bmEsc(t.name) + '</div>';
     }).join('');
   }).join('') + '</div>';
   bmSheetOpen('Log a result', h);
@@ -977,6 +987,7 @@ function bmRenderForm() {
   let h = '';
   bmCautions(t, { injuries: S.openInjuries || [], pref: pref, settings: st, liftFormat: f.fmt })
     .forEach(function (c) { h += '<div class="bm-caution bm-caution-' + c.level + '">' + bmEsc(c.text) + '</div>'; });
+  if (f.fromSession) h += '<div class="bm-pin-meta" style="margin-bottom:8px">From ' + bmEsc(f.fromSession) + ' — check the numbers, then save.</div>';
   h += '<div class="form-grid"><div class="form-field"><label>Date</label><input type="date" value="' + f.date + '" max="' + bmToday() + '" onchange="bmF(\'date\',this.value)"></div>'
     + bmInput('RPE (optional)', 'rpe', f.rpe, { ph: '—' }) + '</div>';
 
@@ -1119,6 +1130,7 @@ function bmBuildRows(f, t, st, athleteId) {
     rpe: bmNum(f.rpe), notes: (f.notes || '').trim() || null,
     pain_flag: !!f.pain, pain_region: f.pain ? (f.painRegion || null) : null,
     finished: f.finished !== false, source: 'app', params: {},
+    completed_session_id: bmIsUuid(f.sessionId) ? f.sessionId : null,
   };
   (t.params || []).forEach(function (p) {
     const v = (f.params || {})[p.param];
@@ -1369,11 +1381,134 @@ function bmTrendsHtml() {
   return '<div id="bm-trends-slot">' + (typeof trendSection === 'function' ? trendSection('benchmarks', '🏆 Benchmarks', body) : body) + '</div>';
 }
 
+// ═══════════════════════════════ §8 SESSION TIE-IN (Phase 3) ═════════════════
+// Save a benchmark result straight from a logged session (framework §8). Nothing is
+// saved automatically: these open the normal log sheet pre-filled, and the athlete
+// checks and saves. The result links to the session via completed_session_id.
+
+function bmIsUuid(v) { return typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v); }
+
+// Pure: can this logged strength set become a lift test? (loadable lift, load, 1–12 reps)
+function bmSetEligible(ex, load, reps, measureType) {
+  if ((measureType || 'reps') !== 'reps') return false;
+  if (!(Number(load) > 0) || !(Number(reps) >= 1) || Number(reps) > 12) return false;
+  return bmLiftEligible(ex);
+}
+// Pure: the lift format a set maps to (1/3/5 reps → that RM, otherwise reps at a load).
+function bmSetFormat(reps) { reps = Number(reps); return reps === 1 || reps === 3 || reps === 5 ? reps + 'RM' : 'reps_at_load'; }
+
+// Small 🏆 button for a saved set row (session.js buildSavedExCard). '' when not eligible.
+function bmSetButtonHtml(exId, s) {
+  if (!BM || !s) return '';
+  const ex = (S.exerciseLib || []).filter(function (e) { return e.id === exId; })[0];
+  if (!bmSetEligible(ex, s.actual_load, s.actual_reps, s.measure_type)) return '';
+  return '<button class="bm-set-btn" title="Save as a benchmark" aria-label="Save this set as a benchmark result" onclick="event.stopPropagation();bmFromSet(\''
+    + exId + '\',' + Number(s.actual_load) + ',' + Number(s.actual_reps) + ',' + (s.actual_rpe != null ? Number(s.actual_rpe) : 'null') + ',\'' + (s.completed_session_id || '') + '\')">🏆</button>';
+}
+async function bmFromSet(exId, load, reps, rpe, sessionId) {
+  const fmt = bmSetFormat(reps);
+  await bmOpenLog('lift_test', exId, fmt, {
+    load: load, reps: fmt === 'reps_at_load' ? reps : '', rpe: rpe != null ? rpe : '',
+    sessionId: sessionId || null, fromSession: 'your session set (' + load + ' lb × ' + reps + ')',
+    date: (S.activeCompletedSession && S.activeCompletedSession.session_date) || bmToday(),
+  });
+}
+
+// Conditioning modality → library tests worth suggesting (destination/pinned ones float up).
+const BM_COND_SUGGEST = {
+  'Echo Bike': ['aerobic_hr_fixed', 'hr_drift', 'echo_10min_cal', 'echo_1min_cal'],
+  'Rower': ['row_2k', 'row_500'],
+  'SkiErg': ['ski_1k'],
+  'Run': ['hr_drift', 'jog_time_under_aet', 'run_1mi', 'run_1_5mi', 'run_5k', 'cooper_12min'],
+  'Walk': ['step_up_10min'],
+  'Circuit Training': ['wod_kardia_sprint', 'wod_helen', 'wod_jackie', 'wod_cindy', 'wod_murph', 'wod_fran', 'wod_karen', 'wod_grace'],
+  'Sled': ['sandbag_carry', 'farmers_carry'],
+};
+function bmCondSuggest(blocks) {
+  const keys = [];
+  (blocks || []).filter(function (b) { return b.sessionPurpose === 'Benchmark'; }).forEach(function (b) {
+    (BM_COND_SUGGEST[b.modality] || []).forEach(function (k) { if (keys.indexOf(k) === -1) keys.push(k); });
+  });
+  return keys.sort(function (a, b) {
+    const pa = bmIsPinned(a) ? 0 : 1, pb = bmIsPinned(b) ? 0 : 1;
+    return pa - pb;
+  });
+}
+// Pure: prefill for test t from a conditioning block + session values.
+function bmCondPrefill(t, b, sv, units) {
+  const pre = { params: {} };
+  if (!t || !b) return pre;
+  if (sv && sv.rpe != null) pre.rpe = sv.rpe;
+  const mins = Number(b.duration) || null;
+  if (t.kind === 'hr_fixed') {
+    if (sv && sv.avgHR) pre.value = sv.avgHR;
+    if (mins) pre.params.duration = mins;
+  } else if (t.kind === 'time' && mins) {
+    pre.value = bmFmtTime(Math.round(mins * 60));
+  } else if (t.kind === 'distance' && b.distanceMeters) {
+    pre.value = bmFromStored(t, b.distanceMeters, units);
+  } else if (t.kind === 'drift') {
+    pre.params.modality = { 'Run': 'run', 'Echo Bike': 'bike', 'Cycling': 'bike', 'Rower': 'row' }[b.modality] || '';
+  }
+  if (b.load && (t.params || []).some(function (p) { return p.param === 'load_lb'; })) pre.params.load_lb = b.load;
+  return pre;
+}
+// Called by conditioning.js after a conditioning log is saved.
+function bmOfferFromConditioning(blocks, sv, sessionId) {
+  try {
+    if (!(blocks || []).some(function (b) { return b.sessionPurpose === 'Benchmark'; })) return;
+    BM.condCtx = { blocks: blocks, sv: sv || {}, sessionId: sessionId || null, date: bmToday() };
+    showConfirm('That was a benchmark', 'Save the result in 🏆 Benchmarks too, so it\'s tracked and compared?', 'Choose test', async function () {
+      if (!BM.loaded) await loadBenchmarks();
+      bmChooseTest(bmCondSuggest(blocks));
+    });
+  } catch (e) { console.error('bmOfferFromConditioning:', e); }
+}
+async function bmOpenFromCond(key) {
+  const c = BM.condCtx || {};
+  const t = BM.byKey[key];
+  const b = (c.blocks || []).filter(function (x) { return x.sessionPurpose === 'Benchmark'; })[0] || (c.blocks || [])[0];
+  const pre = bmCondPrefill(t, b, c.sv, bmSettings().units);
+  pre.sessionId = c.sessionId; pre.date = c.date;
+  pre.fromSession = 'today\'s ' + ((b && b.modality) || 'conditioning') + ' session';
+  await bmOpenLog(key, null, null, pre);
+}
+
+// Weekly check-in line (checkin.js): this week's results + destination metrics due.
+function bmCheckinLineHtml() {
+  try {
+    if (!BM.loaded || !BM.types.length) return '';
+    const t0 = bmToday();
+    const d = new Date(Date.UTC(+t0.slice(0, 4), +t0.slice(5, 7) - 1, +t0.slice(8, 10)));
+    const mon = bmAddDays(t0, -((d.getUTCDay() + 6) % 7));
+    const units = bmSettings().units;
+    // One entry per trend line logged this week (its latest result), most recent first.
+    const parts = bmAllLines().filter(function (L) { return L.lastDate >= mon; })
+      .sort(function (a, b) {
+        return (b.lastDate || '').localeCompare(a.lastDate || '') || (b.latest.created_at || '').localeCompare(a.latest.created_at || '');
+      })
+      .map(function (L) {
+        const r = L.latest;
+        const nm = L.type.kind === 'lift' ? bmExName(r.exercise_id) + ' ' + (r.lift_format === 'reps_at_load' ? '' : r.lift_format) : L.type.name;
+        const v = L.verdict ? ' (' + L.verdict.label.toLowerCase() + ')' : '';
+        return nm.trim() + ' ' + bmFmtValue(L.type, r.value, units, r) + v;
+      });
+    const due = bmPinnedEntries().filter(function (e) {
+      const p = BM.prefs[e.prefKey] || {};
+      return p.pinned_by === 'destination' && e.lines[0] && bmDue(true, e.lines[0].lastDate, e.type.cadence, t0, p.snooze_until).due;
+    }).map(bmEntryName);
+    if (!parts.length && !due.length) return '';
+    return '<div class="mv-checkin-line">🏆 Benchmarks this week — ' + (parts.length ? bmEsc(parts.slice(0, 4).join(' · ')) + (parts.length > 4 ? ' · +' + (parts.length - 4) + ' more' : '') : 'none logged')
+      + (due.length ? '<br>Due for a retest: ' + bmEsc(due.join(', ')) : '') + '</div>';
+  } catch (e) { console.error('bmCheckinLineHtml:', e); return ''; }
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { bmNormType: bmNormType, bmLineKey: bmLineKey, bmE1rm: bmE1rm, bmDrift: bmDrift, bmDriftVerdict: bmDriftVerdict,
     bmParseTime: bmParseTime, bmFmtTime: bmFmtTime, bmToStored: bmToStored, bmFromStored: bmFromStored, bmFmtValue: bmFmtValue,
     bmVerdict: bmVerdict, bmLines: bmLines, bmBest: bmBest, bmDue: bmDue, bmCautions: bmCautions, bmLiftEligible: bmLiftEligible,
     bmCustomKey: bmCustomKey, bmCustomRow: bmCustomRow, bmBuildRows: bmBuildRows, bmRoundsToTotal: bmRoundsToTotal,
     bmTotalToRounds: bmTotalToRounds, bmDaysBetween: bmDaysBetween, bmAddDays: bmAddDays, bmSparkSvg: bmSparkSvg,
-    bmLineLabel: bmLineLabel, bmFmtDiff: bmFmtDiff, bmDispUnit: bmDispUnit };
+    bmLineLabel: bmLineLabel, bmFmtDiff: bmFmtDiff, bmDispUnit: bmDispUnit,
+    bmSetEligible: bmSetEligible, bmSetFormat: bmSetFormat, bmCondPrefill: bmCondPrefill, bmIsUuid: bmIsUuid };
 }

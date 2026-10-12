@@ -1,4 +1,4 @@
-const CACHE = 'strength-v50';
+const CACHE = 'strength-v51';
 const ASSETS = [
   './index.html', './manifest.json',
   './styles.css',

@@ -1056,6 +1056,7 @@ function buildSavedExCard(key, exName, exId, sets, supersetGroup, swappedFromNam
                 <span class="set-val-num">${rpe}</span>
               </div>
             </div>
+            ${typeof bmSetButtonHtml === 'function' ? bmSetButtonHtml(exId, s) : ''}
           </div>`;
       }).join('') + `</div>`;
   }

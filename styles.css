@@ -984,3 +984,5 @@
 .bm-sugg-btns { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .bm-sugg-btns .mv-mini { margin-top: 0; padding: 6px 12px; font-size: 13px; }
 .bm-hide { margin: 0 0 0 6px; padding: 2px 8px; vertical-align: 1px; }
+.bm-set-btn { background: none; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; padding: 2px 7px; margin-left: 6px; cursor: pointer; line-height: 1.4; }
+.bm-set-btn:active { background: var(--surface2); }

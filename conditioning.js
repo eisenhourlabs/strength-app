@@ -664,6 +664,7 @@ async function submitConditioningSession() {
       }});
       S.completed[S.activeSession.id] = { id: tid, status: 'completed', _isTemp: true };
       showSuccess('Conditioning Logged', 'Saved offline — will sync when connected.');
+      if (typeof bmOfferFromConditioning === 'function') bmOfferFromConditioning(blocks, sv, null);
       return;
     }
 
@@ -699,6 +700,8 @@ async function submitConditioningSession() {
     S._conditioningLogged           = true;
     toast('Conditioning logged. ✓', 2000);
     renderConditioningSessionBody();
+    // Benchmarks (benchmarks.js §8): a block with purpose "Benchmark" → offer to save the result.
+    if (typeof bmOfferFromConditioning === 'function') bmOfferFromConditioning(blocks, sv, cs.id);
   } catch (err) {
     console.error(err);
     toast('Error saving. Try again.', 4000);
@@ -731,6 +734,7 @@ async function submitConditioning() {
         blocks: blocks, notes: sv.notes,
       }});
       showSuccess('Conditioning Logged', 'Saved offline — will sync when connected.');
+      if (typeof bmOfferFromConditioning === 'function') bmOfferFromConditioning(blocks, sv, null);
       return;
     }
 
@@ -746,6 +750,7 @@ async function submitConditioning() {
     if (condErr) throw condErr;
 
     showSuccess('Conditioning Logged', 'Session saved. Good work.');
+    if (typeof bmOfferFromConditioning === 'function') bmOfferFromConditioning(blocks, sv, cs.id);
   } catch (err) {
     console.error(err);
     toast('Error saving conditioning. Try again.', 4000);

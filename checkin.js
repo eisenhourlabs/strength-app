@@ -200,6 +200,7 @@ async function openCheckin() {
     <div class="checkin-section">
       <div class="checkin-section-title">Health &amp; Recovery</div>
       ${typeof mvCheckinLineHtml === 'function' ? mvCheckinLineHtml() : ''}
+      ${typeof bmCheckinLineHtml === 'function' ? bmCheckinLineHtml() : ''}
       ${summaryHtml}
       ${renderCheckinInjuries(S.openInjuries || [])}
       <div class="form-field wide" style="margin-top:0">
