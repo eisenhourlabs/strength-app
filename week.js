@@ -118,7 +118,8 @@ async function renderWeek() {
       <div class="util-btn" onclick="openHistory()">
         <span class="util-icon">📋</span>History
       </div>
-      <div class="util-btn" onclick="openBenchmarks()">
+      <div class="util-btn" onclick="openBenchmarks()" style="position:relative">
+        <span class="mv-dot" id="bm-util-dot" style="display:none"></span>
         <span class="util-icon">🏆</span>Benchmarks
       </div>
       <div class="util-btn" onclick="openTrends()">
@@ -142,6 +143,7 @@ async function renderWeek() {
   // Daily Movement Today card (movement.js) — renders nothing while both habits are off.
   body.innerHTML = '<div id="mv-card-slot"></div>' + progressHtml + `<div id="session-list">${sessHtml}</div>` + checkinCardHtml + utilHtml;
   if (typeof renderMovementCard === 'function') { try { renderMovementCard(); } catch (e) { console.error('renderMovementCard:', e); } }
+  if (typeof bmPaintDot === 'function') { try { bmPaintDot(); } catch (_) {} }
   initSessionSort();
   showScreen('week');
 }

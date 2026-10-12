@@ -980,3 +980,7 @@
 .bm-trend-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
 .bm-caret { color: var(--muted); font-size: 18px; line-height: 1; transition: transform .2s; display: inline-block; }
 .bm-caret.open { transform: rotate(90deg); }
+.bm-sugg { padding: 12px 14px; border-color: var(--accent); }
+.bm-sugg-btns { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.bm-sugg-btns .mv-mini { margin-top: 0; padding: 6px 12px; font-size: 13px; }
+.bm-hide { margin: 0 0 0 6px; padding: 2px 8px; vertical-align: 1px; }

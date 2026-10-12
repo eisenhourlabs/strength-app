@@ -186,6 +186,8 @@ async function onLogin(user) {
 
     // Daily Movement data (movement.js) — non-blocking; the Today card paints when it lands.
     if (typeof loadMovement === 'function') loadMovement().then(() => { try { mvPaintCard(); } catch (_) {} }).catch(() => {});
+    // Benchmarks (benchmarks.js) — non-blocking; lights the 🏆 dot for coach suggestions / a due destination test.
+    if (typeof loadBenchmarks === 'function') loadBenchmarks().then(() => { try { bmPaintDot(); } catch (_) {} }).catch(() => {});
 
     await loadProgram();
   } catch (_) {

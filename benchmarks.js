@@ -486,6 +486,57 @@ function bmPinnedEntries() {
       return pa - pb || a.type.sort - b.type.sort;
     });
 }
+// Pref key → entry shape used by the cards (works for pinned and suggested tests).
+function bmEntryFor(k) {
+  if (k.indexOf('lift:') === 0) {
+    const parts = k.split(':');
+    return { prefKey: k, type: BM.byKey.lift_test, exId: parts[1], fmt: parts[2], lines: bmLinesFor('lift_test', parts[1], parts[2]) };
+  }
+  return { prefKey: k, type: BM.byKey[k], lines: bmLinesFor(k) };
+}
+// Coach suggestions waiting on the athlete (framework §1): pending and not already pinned.
+function bmSuggestions() {
+  return Object.keys(BM.prefs).filter(function (k) { const p = BM.prefs[k]; return p.rec_status === 'pending' && !p.pinned; })
+    .map(bmEntryFor).filter(function (e) { return e.type && e.type.status !== 'retired'; });
+}
+// Something worth a look: a coach suggestion, or a destination metric that is due.
+function bmNeedsAttention() {
+  if (!BM.loaded) return false;
+  if (bmSuggestions().length) return true;
+  return bmPinnedEntries().some(function (e) {
+    const p = BM.prefs[e.prefKey] || {};
+    return p.pinned_by === 'destination' && e.lines[0] && bmDue(true, e.lines[0].lastDate, e.type.cadence, bmToday(), p.snooze_until).due;
+  });
+}
+function bmPaintDot() {
+  const dot = document.getElementById('bm-util-dot');
+  if (dot) dot.style.display = bmNeedsAttention() ? '' : 'none';
+}
+async function bmAcceptRec(prefKey) {
+  if (window.event) window.event.stopPropagation();
+  await bmSetPref(prefKey, { pinned: true, pinned_by: 'coach', rec_status: 'accepted' });
+  toast('Pinned to My benchmarks');
+  bmRefreshViews(); bmPaintDot();
+}
+async function bmDeclineRec(prefKey) {
+  if (window.event) window.event.stopPropagation();
+  await bmSetPref(prefKey, { rec_status: 'declined' });
+  toast('Okay — your coach will see you passed on it');
+  bmRefreshViews(); bmPaintDot();
+}
+async function bmHideCaution(prefKey) {
+  await bmSetPref(prefKey, { caution_override: true });
+  toast('Coach note hidden for this test');
+  bmRefreshViews();
+}
+function bmSuggestionHtml(e) {
+  const p = BM.prefs[e.prefKey] || {};
+  return '<div class="card bm-sugg"><div class="bm-pin-top"><div class="bm-pin-name">' + bmEsc(bmEntryName(e)) + '</div><span class="bm-badge">Coach suggests</span></div>'
+    + (p.coach_note ? '<div class="bm-pin-meta">' + bmEsc(p.coach_note) + '</div>' : '')
+    + '<div class="bm-sugg-btns"><button class="mv-mini" onclick="bmAcceptRec(\'' + e.prefKey + '\')">☆ Pin</button>'
+    + '<button class="mv-mini" onclick="bmOpenDetail(' + bmDetailArgs(e.type.key, e.exId, e.fmt) + ')">See test</button>'
+    + '<button class="mv-mini" onclick="bmDeclineRec(\'' + e.prefKey + '\')">Not now</button></div></div>';
+}
 function bmEntryName(e) {
   return e.type.kind === 'lift' ? bmExName(e.exId) + ' · ' + (e.fmt === 'reps_at_load' ? 'Reps at a load' : e.fmt) : e.type.name;
 }
@@ -553,6 +604,8 @@ function bmRenderScreen() {
   const st = bmSettings();
   let h = '<button class="btn" onclick="bmOpenLog()">+ Log a result</button>';
   const pins = bmPinnedEntries();
+  const sugg = bmSuggestions();
+  if (sugg.length) h += '<div class="bm-sec">From your coach</div>' + sugg.map(bmSuggestionHtml).join('');
   h += '<div class="bm-sec">My benchmarks</div>';
   h += pins.length ? pins.map(bmPinCardHtml).join('')
     : '<div class="card-sub" style="margin:0 0 8px">Pin ☆ the tests you want to track. They show up here with your latest result and a reminder when a retest is due.</div>';
@@ -617,6 +670,7 @@ async function bmSnooze(prefKey) {
 }
 function bmScreenActive(id) { const el = document.getElementById('screen-' + id); return !!(el && el.classList.contains('active')); }
 function bmRefreshViews() {
+  bmPaintDot();
   if (bmScreenActive('benchmarks')) bmRenderScreen();
   if (BM.detail && bmScreenActive('benchmark')) bmRenderDetail();
 }
@@ -655,8 +709,15 @@ function bmRenderDetail() {
   if (shows) h += '<div class="bm-shows">' + bmEsc(shows) + '</div>';
   bmCautions(t, { injuries: S.openInjuries || [], pref: pref, settings: st, liftFormat: d.fmt })
     .filter(function (c) { return c.level !== 'info'; })
-    .forEach(function (c) { h += '<div class="bm-caution bm-caution-' + c.level + '">' + bmEsc(c.text) + '</div>'; });
-  if (pref.coach_note) h += '<div class="mv-coach-note">' + bmEsc(pref.coach_note) + '</div>';
+    .forEach(function (c) {
+      h += '<div class="bm-caution bm-caution-' + c.level + '">' + bmEsc(c.text)
+        + (c.coach ? ' <button class="mv-mini bm-hide" onclick="bmHideCaution(\'' + prefKey + '\')">Hide</button>' : '') + '</div>';
+    });
+  if (pref.rec_status === 'pending' && !pref.pinned) {
+    h += '<div class="mv-coach-note"><b>Your coach suggests this test.</b>' + (pref.coach_note ? ' ' + bmEsc(pref.coach_note) : '')
+      + '<div class="bm-sugg-btns"><button class="mv-mini" onclick="bmAcceptRec(\'' + prefKey + '\')">☆ Pin</button>'
+      + '<button class="mv-mini" onclick="bmDeclineRec(\'' + prefKey + '\')">Not now</button></div></div>';
+  } else if (pref.coach_note) h += '<div class="mv-coach-note">' + bmEsc(pref.coach_note) + '</div>';
 
   const pinned = !!pref.pinned;
   h += '<div class="bm-actions"><button class="btn" onclick="bmOpenLog(' + bmDetailArgs(t.key, d.ex, d.fmt) + ')">Log a result</button>'
