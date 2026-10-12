@@ -817,7 +817,8 @@ function bmStandardHtml(t, pref, st) {
     }).join('') + '<button class="btn secondary" onclick="bmOpenStandard(\'' + t.key + '\')">Change my standard</button></div>';
 }
 
-// "Best from training": best e1RM from logged sets in the last 12 weeks (framework §4).
+// "Best from training" (framework §4): best e1RM from logged sets — the last 12 weeks
+// (current capacity) and all-time (with its date). Same Epley rule as the Trends PR board.
 async function bmLoadTraining(exId) {
   if (isOffline || !S.athlete) return;
   const cached = BM.training[exId];
@@ -827,18 +828,21 @@ async function bmLoadTraining(exId) {
     const r = await db.from('completed_strength_sets')
       .select('actual_load,actual_reps,measure_type,cs:completed_session_id!inner(session_date,athlete_id,status)')
       .eq('exercise_id', exId).eq('is_skipped', false).gt('set_number', 0)
-      .eq('cs.athlete_id', S.athlete.id).gte('cs.session_date', since);
+      .eq('cs.athlete_id', S.athlete.id);
     if (r.error) throw r.error;
-    let best = null;
+    let recent = null, all = null;
     (r.data || []).forEach(function (s) {
       if ((s.measure_type || 'reps') !== 'reps' || !s.cs || s.cs.status === 'skipped') return;
       const e = bmE1rm(s.actual_load, s.actual_reps);
-      if (e && (!best || e > best.e1rm)) best = { e1rm: e, load: s.actual_load, reps: s.actual_reps, date: s.cs.session_date };
+      if (!e) return;
+      const row = { e1rm: e, load: s.actual_load, reps: s.actual_reps, date: s.cs.session_date };
+      if (!all || e > all.e1rm) all = row;
+      if ((s.cs.session_date || '') >= since && (!recent || e > recent.e1rm)) recent = row;
     });
-    BM.training[exId] = { best: best, loadedAt: Date.now() };
+    BM.training[exId] = { recent: recent, all: all, loadedAt: Date.now() };
   } catch (e) {
     console.error('bmLoadTraining:', e);
-    BM.training[exId] = { best: null, failed: true, loadedAt: Date.now() };
+    BM.training[exId] = { recent: null, all: null, failed: true, loadedAt: Date.now() };
   }
   const el = document.getElementById('bm-training');
   if (el && BM.detail && BM.detail.ex === exId) el.innerHTML = bmTrainingHtml(exId);
@@ -847,9 +851,17 @@ function bmTrainingHtml(exId) {
   const c = BM.training[exId];
   if (!c) return isOffline ? '' : '<div class="bm-train mv-muted">Checking your training sets…</div>';
   if (c.failed) return '';
-  if (!c.best) return '<div class="bm-train mv-muted">No logged training sets for this lift in the last 12 weeks.</div>';
-  return '<div class="bm-train"><div class="bm-train-lbl">Best from training (estimated)</div><div><b>' + c.best.e1rm + ' lb</b> e1RM · '
-    + c.best.load + ' × ' + c.best.reps + ' on ' + bmDateShort(c.best.date) + '</div><div class="mv-muted">From your logged sets, last 12 weeks. A reference, not a test result.</div></div>';
+  if (!c.all) return '<div class="bm-train mv-muted">No logged training sets for this lift yet.</div>';
+  const line = function (lbl, b) {
+    return '<div><span class="mv-muted">' + lbl + ':</span> <b>' + b.e1rm + ' lb</b> e1RM · ' + b.load + ' × ' + b.reps + ' on ' + bmDateShort(b.date) + '</div>';
+  };
+  let h = '<div class="bm-train"><div class="bm-train-lbl">Best from training (estimated)</div>';
+  if (c.recent && c.recent.e1rm >= c.all.e1rm) h += line('Last 12 weeks — also your all-time best', c.recent);
+  else {
+    h += c.recent ? line('Last 12 weeks', c.recent) : '<div class="mv-muted">Nothing logged in the last 12 weeks.</div>';
+    h += line('All-time', c.all);
+  }
+  return h + '<div class="mv-muted">From your logged sets (1–12 reps). A reference, not a test result.</div></div>';
 }
 
 function bmLiftHubHtml(t) {
