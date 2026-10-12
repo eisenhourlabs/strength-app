@@ -303,10 +303,6 @@ async function sendPasswordReset() {
 }
 
 
-// ── Test exercise selection state (shared between exercises.js and tests.js) ──
-let testSelectedExId   = null;
-let testSelectedExName = null;
-
 // ── IndexedDB module ──────────────────────────────────────────────────────────
 const IDB_NAME = 'strength-app-v1';
 const IDB_VER  = 1;
@@ -556,9 +552,19 @@ async function syncQueue() {
           if (e7) throw e7;
           break;
         }
+        // Old Tests screen (strength_tests, dropped 2026-10-11). A leftover queued
+        // item can never sync, so it is discarded rather than retried forever.
         case 'test': {
-          const { error: e8 } = await db.from('strength_tests').insert(p);
-          if (e8) throw e8;
+          console.warn('Discarding queued strength_tests write (table retired):', p);
+          break;
+        }
+        // Benchmarks (benchmarks.js) — bmSyncOp throws on failure so the item stays queued.
+        case 'bm_result_upsert':
+        case 'bm_result_delete':
+        case 'bm_pref_upsert':
+        case 'bm_type_upsert':
+        case 'bm_type_delete': {
+          await bmSyncOp(item.op, p);
           break;
         }
         // Daily Movement (movement.js) — mvSyncOp throws on failure so the item stays queued.

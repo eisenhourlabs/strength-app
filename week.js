@@ -118,8 +118,8 @@ async function renderWeek() {
       <div class="util-btn" onclick="openHistory()">
         <span class="util-icon">📋</span>History
       </div>
-      <div class="util-btn" onclick="openTests()">
-        <span class="util-icon">🏆</span>Tests
+      <div class="util-btn" onclick="openBenchmarks()">
+        <span class="util-icon">🏆</span>Benchmarks
       </div>
       <div class="util-btn" onclick="openTrends()">
         <span class="util-icon">📈</span>Trends

@@ -130,14 +130,14 @@ function setPatternFilter(pattern) {
 
 function getFilteredExercises() {
   const q = (document.getElementById('ex-search')?.value || '').toLowerCase().trim();
-  const isTestMode = S.sheetMode === 'test-ex-select';
+  const isLiftTest = S.sheetMode === 'bm-lift';   // Benchmarks lift test (benchmarks.js)
   return S.exerciseLib.filter(ex => {
     const matchesPat   = !activePatternFilter || ex.movement_pattern === activePatternFilter;
     const matchesTxt   = !q || ex.name.toLowerCase().includes(q);
     // Cumulative skill filter: selecting 'intermediate' shows beginner, novice, and intermediate
     const matchesSkill = !activeSkillFilter || skillRank(ex.skill_level) <= skillRank(activeSkillFilter);
-    // In test mode with no active search, restrict to strength exercises only
-    const matchesType = !isTestMode || q || ex.exercise_type !== 'conditioning';
+    // Lift tests: loadable strength lifts only, even when searching (bmLiftEligible in benchmarks.js)
+    const matchesType = !isLiftTest || (typeof bmLiftEligible === 'function' ? bmLiftEligible(ex) : ex.exercise_type !== 'conditioning');
     // Exclude conditioning exercises from swap/add lists in strength sessions
     const isCondOnlySession = S.activeSession?.session_type === 'Conditioning Only'
       || (S.activeSession?.includes_conditioning && !(S.plannedExercises || []).some(p => p.exercise?.exercise_type !== 'conditioning'));
@@ -239,15 +239,9 @@ function selectExercise(exId, exName) {
         await idbSet('sessionDraftCache', allDrafts);
       } catch (_) {}
     })();
-  } else if (S.sheetMode === 'test-ex-select') {
-    testSelectedExId   = exId;
-    testSelectedExName = exName;
-    const btn = document.getElementById('test-ex-btn');
-    btn.textContent = exName;
-    btn.classList.add('selected');
-    // Re-open the test log sheet now that ex-sheet has closed
-    document.getElementById('test-log-overlay').classList.add('open');
-    document.getElementById('test-log-sheet').classList.add('open');
+  } else if (S.sheetMode === 'bm-lift') {
+    // Benchmarks lift test: hand the lift back to the log sheet (re-opens it)
+    if (typeof bmOnLiftPicked === 'function') bmOnLiftPicked(exId, exName);
   } else if (S.sheetMode === 'add') {
     const localId = ++S.addedCounter;
     S.addedExercises.push({ localId, exId, exName, setCount: 1, measureType: 'reps' });

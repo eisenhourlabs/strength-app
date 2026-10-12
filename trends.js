@@ -306,6 +306,7 @@ function renderTrendsBody(body, allSessions, readiness, sets, weekKeys, weekLabe
     renderTrendsReadiness(readiness, weekKeys, weekLabels),
     renderTrendsConditioning(conditioning, weekKeys, weekLabels),
     (typeof renderTrendsMovement === 'function' ? renderTrendsMovement(weekKeys, weekLabels) : ''),
+    (typeof renderTrendsBenchmarks === 'function' ? renderTrendsBenchmarks() : ''),
     renderTrendsPain(painItems),
   ].join('');
 }

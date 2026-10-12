@@ -1,9 +1,9 @@
-const CACHE = 'strength-v48';
+const CACHE = 'strength-v49';
 const ASSETS = [
   './index.html', './manifest.json',
   './styles.css',
   './core.js', './week.js', './session.js', './exercises.js',
-  './conditioning.js', './wellness.js', './tests.js',
+  './conditioning.js', './wellness.js', './benchmarks.js',
   './history.js', './trends.js', './checkin.js', './movement.js',
   './nutrition.html', './n-styles.css',
   './n-core.js', './n-metrics.js', './n-today.js', './n-grocery.js', './n-week.js',

@@ -272,73 +272,36 @@
   </div>
 </div>
 
-<!-- ══════════════════ TESTS SCREEN ══════════════════ -->
-<div class="screen" id="screen-tests">
+<!-- ══════════════════ BENCHMARKS (benchmarks.js) ══════════════════ -->
+<div class="screen" id="screen-benchmarks">
   <div class="header">
-    <button class="back-btn" onclick="showScreen('week')">‹</button>
+    <button class="back-btn" onclick="closeBenchmarks()">&#8249;</button>
     <div>
-      <div class="header-title">Tests</div>
-      <div class="header-sub">1RM Records</div>
+      <div class="header-title">🏆 Benchmarks</div>
+      <div class="header-sub">Tests you choose to repeat</div>
     </div>
     <div style="width:40px"></div>
   </div>
-  <div class="body no-fab" id="tests-screen-body">
-    <div class="spinner">Loading…</div>
-  </div>
+  <div class="body no-fab" id="bm-body"><div class="spinner">Loading…</div></div>
 </div>
 
-<!-- ══════════════════ TEST LOG SHEET ══════════════════ -->
-<div class="sheet-overlay" id="test-log-overlay" onclick="closeTestLogSheet()"></div>
-<div class="sheet" id="test-log-sheet" style="max-height:90vh">
-  <div class="sheet-title">Log Test</div>
-  <div style="overflow-y:auto;flex:1;padding-bottom:20px">
-    <div class="form-field wide" style="margin-bottom:12px">
-      <label>Exercise</label>
-      <button id="test-ex-btn" class="test-ex-select-btn" onclick="openTestExSelect()">Select exercise…</button>
+<div class="screen" id="screen-benchmark">
+  <div class="header">
+    <button class="back-btn" onclick="bmCloseDetail()">&#8249;</button>
+    <div>
+      <div class="header-title" id="bm-detail-title">Benchmark</div>
+      <div class="header-sub" id="bm-detail-sub"></div>
     </div>
-    <div class="form-grid" style="margin-bottom:0">
-      <div class="form-field">
-        <label>Date</label>
-        <input type="date" id="test-date">
-      </div>
-      <div class="form-field">
-        <label>RPE (optional)</label>
-        <input type="number" id="test-rpe" min="1" max="10" step="0.5" inputmode="decimal" placeholder="—">
-      </div>
-    </div>
-    <div class="form-section-label" style="margin-top:14px">Load &amp; Reps → e1RM  —or—  Direct 1RM</div>
-    <div class="form-grid" style="margin-bottom:0">
-      <div class="form-field">
-        <label>Load (lb)</label>
-        <input type="number" id="test-load" inputmode="decimal" placeholder="0" oninput="updateTestE1rm()">
-      </div>
-      <div class="form-field">
-        <label>Reps</label>
-        <input type="number" id="test-reps" inputmode="numeric" placeholder="1" oninput="updateTestE1rm()">
-      </div>
-      <div class="form-field">
-        <label>e1RM (auto)</label>
-        <div id="test-e1rm-display" class="test-e1rm-display">—</div>
-      </div>
-      <div class="form-field">
-        <label>True 1RM (lb)</label>
-        <input type="number" id="test-true1rm" inputmode="decimal" placeholder="—">
-      </div>
-    </div>
-    <div class="form-field wide" style="margin-top:12px">
-      <label>Notes (optional)</label>
-      <textarea id="test-notes" placeholder="Context, conditions, how it felt…"></textarea>
-    </div>
-    <button class="btn" style="margin-top:16px" onclick="submitTest()">Save Test Result</button>
-    <button class="btn secondary" style="margin-top:10px" onclick="closeTestLogSheet()">Cancel</button>
+    <div style="width:40px"></div>
   </div>
+  <div class="body no-fab" id="bm-detail-body"></div>
 </div>
 
-<!-- ══════════════════ TEST HISTORY SHEET ══════════════════ -->
-<div class="sheet-overlay" id="test-hist-overlay" onclick="closeTestHistSheet()"></div>
-<div class="sheet" id="test-hist-sheet" style="max-height:80vh">
-  <div class="sheet-title" id="test-hist-title">Test History</div>
-  <div class="sheet-list" id="test-hist-body"></div>
+<!-- ══════════════════ BENCHMARK SHEET (benchmarks.js) ══════════════════ -->
+<div class="sheet-overlay" id="bm-overlay" onclick="closeBmSheet()"></div>
+<div class="sheet" id="bm-sheet" style="max-height:90vh">
+  <div class="sheet-title" id="bm-sheet-title">Log a result</div>
+  <div id="bm-sheet-body" style="overflow-y:auto;flex:1;padding-bottom:20px"></div>
 </div>
 
 <!-- ══════════════════ HISTORY SCREEN ══════════════════ -->
@@ -409,7 +372,7 @@
 <script src="wellness.js"></script>
 <script src="history.js"></script>
 <script src="conditioning.js"></script>
-<script src="tests.js"></script>
+<script src="benchmarks.js"></script>
 <script src="checkin.js"></script>
 <script src="trends.js"></script>
 <script src="session.js"></script>
