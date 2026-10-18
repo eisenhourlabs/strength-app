@@ -179,6 +179,14 @@ async function onLogin(user) {
       if (nl) nl.style.display = 'inline-block';
     }
 
+    // Coach only: show the 📋 Review link (06_App/review.html). is_coach() is a
+    // DB function (05_Scripts/sql/2026-10-18_coach_week_review.sql); if it is
+    // missing or errors, the link just stays hidden. Non-blocking.
+    db.rpc('is_coach').then(({ data }) => {
+      const rl = document.getElementById('review-link');
+      if (rl && data === true) rl.style.display = 'inline-block';
+    }).catch(() => {});
+
     const { data: lib } = await db.from('exercise_library')
       .select('id,name,movement_pattern,exercise_type,equipment,skill_level').order('name');
     S.exerciseLib = lib || [];

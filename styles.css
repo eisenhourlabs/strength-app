@@ -993,3 +993,6 @@
 .bm-hide { margin: 0 0 0 6px; padding: 2px 8px; vertical-align: 1px; }
 .bm-set-btn { background: none; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; padding: 2px 7px; margin-left: 6px; cursor: pointer; line-height: 1.4; }
 .bm-set-btn:active { background: var(--surface2); }
+
+    /* Coach-only 📋 Review link (week header): icon only on narrow phones */
+    @media (max-width: 430px) { #review-link .rl-txt { display: none; } #review-link { padding: 7px 10px !important; } }

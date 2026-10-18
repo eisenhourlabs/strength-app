@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#161618">
+  <title>Week Review</title>
+  <link rel="manifest" href="manifest.json">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="review_render.js"></script>
+  <style>
+    .rv-bar{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:8px;
+      padding:10px 16px;padding-top:max(10px,env(safe-area-inset-top));background:var(--bg);border-bottom:1px solid var(--line)}
+    .rv-bar a,.rv-bar button{font:inherit;font-size:13px;color:var(--fg);background:var(--soft);border:1px solid var(--line);
+      border-radius:16px;padding:5px 12px;text-decoration:none;cursor:pointer}
+    .rv-bar button:disabled{opacity:.45;cursor:default}
+    .rv-bar .rv-week{font-weight:700;font-size:14px;margin:0 4px}
+    .rv-bar .rv-sp{flex:1}
+    .rv-msg{max-width:520px;margin:48px auto;padding:0 16px;text-align:center;color:var(--muted)}
+    .rv-login{max-width:340px;margin:48px auto;padding:0 16px}
+    .rv-login input{display:block;width:100%;font:inherit;font-size:16px;padding:10px 12px;margin:8px 0;
+      border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)}
+    .rv-login button{width:100%;font:inherit;font-size:15px;font-weight:600;padding:11px;margin-top:8px;border:0;
+      border-radius:8px;background:var(--fg);color:var(--bg);cursor:pointer}
+    .rv-err{color:var(--bad);font-size:13px;min-height:18px;margin-top:6px}
+    table.colhead{top:52px}
+    .rv-short{display:none}
+    @media (max-width:760px){.rv-bar{padding-left:10px;padding-right:10px;gap:6px;flex-wrap:nowrap}.rv-bar .rv-hide-sm{display:none}
+      .rv-long{display:none}.rv-short{display:inline}.rv-bar a,.rv-bar button{padding:5px 10px}}
+  </style>
+</head>
+<body>
+  <div class="rv-bar" id="rv-bar" style="display:none">
+    <a href="index.html">&#8249; App</a>
+    <button id="rv-prev" title="Previous week">&#9664;</button>
+    <span class="rv-week" id="rv-week"></span>
+    <button id="rv-next" title="Next week">&#9654;</button>
+    <button id="rv-latest">Latest</button>
+    <span class="rv-sp"></span>
+    <button id="rv-refresh" class="rv-hide-sm">Refresh</button>
+  </div>
+  <div id="review"><div class="rv-msg">Loading…</div></div>
+
+  <script>
+  // Week Review — live coach page.
+  // Same layout as 05_Weekly_Outputs/Week_Review_*.html (06_App/review_render.js),
+  // fed live by the coach_review_payload() database function
+  // (05_Scripts/sql/2026-10-18_coach_week_review.sql). Coach login only.
+  // Uses the strength app's login session (same site), so opening it from the
+  // app needs no second sign-in. ?week=YYYY-MM-DD opens a specific week.
+  (function () {
+    var SUPABASE_URL = 'https://mfqtlgtllocxenrekorg.supabase.co';
+    var SUPABASE_KEY = 'sb_publishable_GtJwb3uRDBuXt-qJOlfqKA_A-QSIOtt';
+    var rdb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+      auth: { detectSessionInUrl: false, flowType: 'implicit' }
+    });
+
+    var st = document.createElement('style');
+    st.textContent = WeekReview.CSS;
+    document.head.insertBefore(st, document.head.querySelector('style'));
+
+    var el = document.getElementById('review');
+    var bar = document.getElementById('rv-bar');
+    var current = null;   // Monday shown, YYYY-MM-DD
+    var latest = null;    // newest week the database reports
+    var busy = false;
+    var blocked = false;  // not a coach: no toolbar
+
+    function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+    function msg(html) { el.innerHTML = '<div class="rv-msg">' + html + '</div>'; }
+    function addDays(iso, n) {
+      var p = iso.split('-'), d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
+      d.setUTCDate(d.getUTCDate() + n);
+      return d.toISOString().slice(0, 10);
+    }
+    function label(iso) {
+      var p = iso.split('-');
+      var m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+p[1] - 1];
+      return 'Week of ' + m + ' ' + (+p[2]) + ', ' + p[0];
+    }
+    function setUrl(week) {
+      try {
+        var u = new URL(location.href);
+        if (week && week !== latest) u.searchParams.set('week', week); else u.searchParams.delete('week');
+        history.replaceState(null, '', u.toString());
+      } catch (_) {}
+    }
+    function paintBar() {
+      if (blocked) { bar.style.display = 'none'; return; }
+      bar.style.display = 'flex';
+      document.getElementById('rv-week').innerHTML = current
+        ? '<span class="rv-long">' + label(current) + '</span><span class="rv-short">' + label(current).replace('Week of ', '').replace(/, \d{4}$/, '') + '</span>' : '';
+      document.getElementById('rv-next').disabled = busy || !current || (latest && current >= latest);
+      document.getElementById('rv-latest').disabled = busy || !latest || current === latest;
+      document.getElementById('rv-prev').disabled = busy;
+    }
+
+    async function load(week) {
+      if (busy) return;
+      busy = true; paintBar();
+      msg('Loading…');
+      var res = await rdb.rpc('coach_review_payload', { p_week: week || null });
+      busy = false;
+      if (res.error) {
+        var e = res.error;
+        if (e.code === '42501' || /not authorized/i.test(e.message || '')) {
+          blocked = true;
+          msg('The Week Review is for the coach only.<br><br><a href="index.html">Back to the app</a>');
+        } else if (e.code === 'PGRST202' || /could not find the function/i.test(e.message || '')) {
+          msg('The review isn’t set up in the database yet. Run <b>05_Scripts/sql/2026-10-18_coach_week_review.sql</b> in the Supabase SQL editor.');
+        } else {
+          msg('Could not load the review: ' + esc(e.message || e.code || 'unknown error') + '<br><br><button onclick="location.reload()">Try again</button>');
+        }
+        paintBar();
+        return;
+      }
+      var raw = res.data;
+      current = raw.week_of;
+      if (!week) latest = raw.week_of;
+      if (!latest) latest = raw.week_of;
+      setUrl(current);
+      try {
+        WeekReview.mount(raw, el);
+      } catch (err) {
+        msg('Review failed to render: ' + esc(err && err.message || err));
+      }
+      paintBar();
+    }
+
+    function showLogin(errText) {
+      bar.style.display = 'none';
+      el.innerHTML = '<form class="rv-login" id="rv-login"><h2>Week Review</h2>'
+        + '<p class="muted">Coach sign-in (same as the app).</p>'
+        + '<input type="email" id="rv-email" placeholder="Email" autocomplete="email" required>'
+        + '<input type="password" id="rv-pass" placeholder="Password" autocomplete="current-password" required>'
+        + '<button type="submit" id="rv-go">Sign in</button><div class="rv-err" id="rv-err">' + esc(errText || '') + '</div></form>';
+      document.getElementById('rv-login').addEventListener('submit', async function (ev) {
+        ev.preventDefault();
+        var btn = document.getElementById('rv-go');
+        btn.disabled = true; btn.textContent = 'Signing in…';
+        var r = await rdb.auth.signInWithPassword({
+          email: document.getElementById('rv-email').value.trim(),
+          password: document.getElementById('rv-pass').value
+        });
+        if (r.error) { showLogin(r.error.message); return; }
+        start();
+      });
+    }
+
+    async function start() {
+      var s = await rdb.auth.getSession();
+      if (!s.data || !s.data.session) { showLogin(); return; }
+      var want = null;
+      try { want = new URL(location.href).searchParams.get('week'); } catch (_) {}
+      if (want && /^\d{4}-\d{2}-\d{2}$/.test(want)) {
+        // Learn the latest week first so "next" stops there, then open the asked week.
+        var lr = await rdb.rpc('coach_review_payload', { p_week: null });
+        if (!lr.error && lr.data) latest = lr.data.week_of;
+        load(WeekReview.mondayOf(want));
+      } else {
+        load(null);
+      }
+    }
+
+    document.getElementById('rv-prev').onclick = function () { if (current) load(addDays(current, -7)); };
+    document.getElementById('rv-next').onclick = function () { if (current) load(addDays(current, 7)); };
+    document.getElementById('rv-latest').onclick = function () { load(null); };
+    document.getElementById('rv-refresh').onclick = function () { load(current === latest ? null : current); };
+
+    start();
+  })();
+  </script>
+</body>
+</html>
