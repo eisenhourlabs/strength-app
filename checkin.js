@@ -17,6 +17,36 @@ function nextMondayLabel() {
 
 let _ciInjuryUpdates = {};
 
+// ── Unsent-draft autosave (2026-10-18) — helpers live in core.js ──
+// Text boxes autosave via data-draft="ci_<week>_<field>". The tap-driven state
+// (skipped days, travel toggles, equipment, injury updates) is saved as one
+// "ci_<week>_state" entry whenever it changes. Drafts older than the latest
+// submission are ignored; a successful submit clears them.
+function ciDraftPrefix() { return 'ci_' + nextMonday() + '_'; }
+function ciSaveState() {
+  if (!document.getElementById('ci-day-chips')) return;   // form not rendered yet
+  const DAY_EXPAND = { Mon:'Monday', Tue:'Tuesday', Wed:'Wednesday', Thu:'Thursday',
+                       Fri:'Friday', Sat:'Saturday', Sun:'Sunday' };
+  const trainSet = new Set(S.athlete.available_days || []);
+  const sel = trainSet.size > 0 ? '#ci-day-chips .day-chip.skipping' : '#ci-day-chips .day-chip.unavail';
+  const days = Array.from(document.querySelectorAll(sel))
+    .map(c => DAY_EXPAND[c.textContent.trim()] || c.textContent.trim());
+  const traveling = !!document.getElementById('ci-traveling')?.checked;
+  const trainAway = !!document.getElementById('ci-train-away')?.checked;
+  draftSet(ciDraftPrefix() + 'state', {
+    unavailable_days: days,
+    is_traveling: traveling,
+    travel_plans_to_train: traveling ? trainAway : null,
+    travel_equipment_access: traveling && trainAway ? (document.getElementById('ci-equip')?.value || null) : null,
+    injuries: Object.assign({}, _ciInjuryUpdates),
+  });
+}
+function ciDiscardDraft() {
+  draftClear(ciDraftPrefix());
+  toast('Unsent changes discarded');
+  openCheckin();
+}
+
 // Build the interactive open-injury review shown inside the Weekly Check-In.
 function renderCheckinInjuries(injuries) {
   if (!injuries.length) {
@@ -48,6 +78,7 @@ function setInjuryUpdate(injuryId, state, btn) {
   document.querySelectorAll('.ci-inj-btn[data-inj="' + injuryId + '"]').forEach(function(b) {
     b.classList.toggle('active', b.dataset.state === _ciInjuryUpdates[injuryId]);
   });
+  ciSaveState();
 }
 
 // On check-in submit, write a pain_injury_logs row for each injury the athlete
@@ -89,12 +120,19 @@ async function openCheckin() {
   const body = document.getElementById('checkin-body');
   body.innerHTML = '<div style="color:var(--muted);padding:20px 0;text-align:center">Loading…</div>';
 
-  // Pre-fill from existing submission if any
-  const ci = S.checkin || {};
+  // Pre-fill from existing submission if any, then layer any unsent draft on top.
+  const submittedAt = S.checkin && S.checkin.submitted_at;
+  const draftState  = draftGet(ciDraftPrefix() + 'state', submittedAt);
+  const ci = Object.assign({}, S.checkin || {}, draftState || {});
+  const hadDraft = !!draftState || draftHas(ciDraftPrefix(), submittedAt);
 
   // Refresh open injuries for the interactive review below.
   _ciInjuryUpdates = {};
   try { await loadOpenInjuries(); } catch (_) {}
+  if (draftState && draftState.injuries) {
+    const open = new Set((S.openInjuries || []).map(i => i.injury_id || ''));
+    Object.keys(draftState.injuries).forEach(k => { if (open.has(k)) _ciInjuryUpdates[k] = draftState.injuries[k]; });
+  }
 
   // Fetch health summary (this week's avg readiness)
   let summaryHtml = '<div class="summary-tile"><strong>This week from your logs:</strong><br>';
@@ -158,7 +196,7 @@ async function openCheckin() {
     <div class="checkin-section" style="border-left:3px solid var(--accent);padding-left:12px">
       <div class="checkin-section-title">From your coach</div>
       <div class="ci-coachq-text">“${coachQ}”</div>
-      <textarea id="ci-coach-answer" placeholder="Your answer…"
+      <textarea id="ci-coach-answer" data-draft="${ciDraftPrefix()}coach_question_answer" placeholder="Your answer…"
         style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
                color:var(--text);font-size:14px;padding:10px 12px;resize:none;min-height:60px"
       >${_esc(ci.coach_question_answer || '')}</textarea>
@@ -191,7 +229,7 @@ async function openCheckin() {
           </div>
           <div class="travel-sub ${equipSubVis}" id="ci-equip-sub" style="margin-top:0;padding:10px 0 0">
             <label>What will you have access to?</label>
-            <select id="ci-equip">${equipOptions}</select>
+            <select id="ci-equip" onchange="ciSaveState()">${equipOptions}</select>
           </div>
         </div>
       </div>
@@ -207,10 +245,10 @@ async function openCheckin() {
         <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">
           Anything your logs don't show?
         </label>
-        <textarea id="ci-health" placeholder="E.g., sick this week, poor sleep, high stress, injury update…"
+        <textarea id="ci-health" data-draft="${ciDraftPrefix()}health_recovery_notes" placeholder="E.g., sick this week, poor sleep, high stress, injury update…"
           style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
                  color:var(--text);font-size:14px;padding:10px 12px;resize:none;min-height:72px"
-        >${ci.health_recovery_notes || ''}</textarea>
+        >${_esc(ci.health_recovery_notes || '')}</textarea>
       </div>
     </div>
 
@@ -218,39 +256,51 @@ async function openCheckin() {
       <div class="checkin-section-title">Notes for Coach <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--muted)">(all optional)</span></div>
       <div class="form-field wide" style="margin-bottom:10px">
         <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">Anything you want more or less of?</label>
-        <textarea id="ci-more-less" placeholder="E.g., more upper body work, less conditioning this week…"
+        <textarea id="ci-more-less" data-draft="${ciDraftPrefix()}more_less_notes" placeholder="E.g., more upper body work, less conditioning this week…"
           style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
                  color:var(--text);font-size:14px;padding:10px 12px;resize:none;min-height:60px"
-        >${ci.more_less_notes || ''}</textarea>
+        >${_esc(ci.more_less_notes || '')}</textarea>
       </div>
       <div class="form-field wide" style="margin-bottom:10px">
         <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">Schedule preferences or changes?</label>
-        <textarea id="ci-schedule" placeholder="E.g., prefer not to lift on Tuesdays anymore…"
+        <textarea id="ci-schedule" data-draft="${ciDraftPrefix()}schedule_preference_notes" placeholder="E.g., prefer not to lift on Tuesdays anymore…"
           style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
                  color:var(--text);font-size:14px;padding:10px 12px;resize:none;min-height:60px"
-        >${ci.schedule_preference_notes || ''}</textarea>
+        >${_esc(ci.schedule_preference_notes || '')}</textarea>
       </div>
       <div class="form-field wide" style="margin-bottom:10px">
         <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">Anything else for the coach?</label>
-        <textarea id="ci-general" placeholder="Questions, updates, general notes…"
+        <textarea id="ci-general" data-draft="${ciDraftPrefix()}general_notes" placeholder="Questions, updates, general notes…"
           style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
                  color:var(--text);font-size:14px;padding:10px 12px;resize:none;min-height:60px"
-        >${ci.general_notes || ''}</textarea>
+        >${_esc(ci.general_notes || '')}</textarea>
       </div>
       <div class="form-field wide">
         <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">Anything coming up in the next few weeks?</label>
-        <textarea id="ci-future" placeholder="E.g., traveling June 14–21, no gym access…"
+        <textarea id="ci-future" data-draft="${ciDraftPrefix()}future_notes" placeholder="E.g., traveling June 14–21, no gym access…"
           style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
                  color:var(--text);font-size:14px;padding:10px 12px;resize:none;min-height:60px"
-        >${ci.future_notes || ''}</textarea>
+        >${_esc(ci.future_notes || '')}</textarea>
       </div>
     </div>
 
     <button class="btn" onclick="submitCheckin()" style="margin-top:4px">
       ${ci.submitted_at ? 'Update Check-In' : 'Submit Check-In'}
     </button>
-    <button class="btn secondary" onclick="closeCheckin()" style="margin-top:8px">Cancel</button>
+    <button class="btn secondary" onclick="closeCheckin()" style="margin-top:8px">Close</button>
+    <div style="font-size:12px;color:var(--muted);text-align:center;margin-top:8px">
+      Your answers save on this phone as you go — closing this or the phone sleeping won't lose them.</div>
+    ${hadDraft ? `<button class="btn secondary" onclick="ciDiscardDraft()" style="margin-top:8px">Discard unsent changes</button>` : ''}
   `;
+
+  // Put back any unsent typing, then re-mark restored injury updates.
+  draftRestore(body, submittedAt);
+  Object.keys(_ciInjuryUpdates).forEach(function(id) {
+    document.querySelectorAll('.ci-inj-btn[data-inj="' + id + '"]').forEach(function(b) {
+      b.classList.toggle('active', b.dataset.state === _ciInjuryUpdates[id]);
+    });
+  });
+  if (hadDraft) toast('Restored your unsent check-in', 2500);
 }
 
 function closeCheckin() {
@@ -274,6 +324,7 @@ function toggleDay(el, day) {
     // Legacy fallback: no profile data, toggle unavail
     el.classList.toggle('unavail');
   }
+  ciSaveState();
 }
 
 function toggleTravelFields() {
@@ -288,6 +339,7 @@ function toggleTravelFields() {
     const equipSub = document.getElementById('ci-equip-sub');
     if (equipSub) equipSub.classList.remove('visible');
   }
+  ciSaveState();
 }
 
 function toggleEquipField() {
@@ -295,6 +347,7 @@ function toggleEquipField() {
   const equipSub  = document.getElementById('ci-equip-sub');
   if (trainAway) { equipSub.classList.add('visible'); }
   else           { equipSub.classList.remove('visible'); }
+  ciSaveState();
 }
 
 async function submitCheckin() {
@@ -342,6 +395,7 @@ async function submitCheckin() {
       .select().single();
     if (error) throw error;
     S.checkin = data;
+    draftClear(ciDraftPrefix());
     await applyCheckinInjuryUpdates();
     toast(isResubmit ? 'Check-in updated ✓' : 'Check-in submitted ✓');
     closeCheckin();

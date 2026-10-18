@@ -230,7 +230,7 @@
 </div>
 
 <!-- ══════════════════ PAIN LOG SHEET ══════════════════ -->
-<div class="sheet-overlay" id="pain-overlay" onclick="closePainSheet()"></div>
+<div class="sheet-overlay" id="pain-overlay" onclick="sheetBackdropTap(event, closePainSheet, 'pain-sheet')"></div>
 <div class="pain-sheet" id="pain-sheet">
   <div class="sheet-title" id="pain-sheet-title">Pain / Injury</div>
   <div id="pain-sheet-body" style="overflow-y:auto;flex:1"></div>
@@ -262,7 +262,7 @@
 </div>
 
 <!-- ══════════════════ WEEKLY CHECK-IN SHEET ══════════════════ -->
-<div class="sheet-overlay" id="checkin-overlay" onclick="closeCheckin()"></div>
+<div class="sheet-overlay" id="checkin-overlay" onclick="sheetBackdropTap(event, closeCheckin, 'checkin-sheet')"></div>
 <div class="checkin-sheet" id="checkin-sheet">
   <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:16px">
     <div class="sheet-title" style="margin-bottom:0">Weekly Check-In</div>

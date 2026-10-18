@@ -612,6 +612,79 @@ async function syncQueue() {
 }
 
 
+// ── Unsent-form drafts (2026-10-18) ───────────────────────────────────────────
+// Forms keep what the athlete types on the phone (localStorage) as they type, so
+// nothing is lost if a sheet is closed, the phone sleeps, or the PWA is killed in
+// the background. Any input/textarea/select with data-draft="<key>" autosaves on
+// every keystroke; draftRestore() puts the values back after a form is rendered;
+// the form clears its drafts after a successful save. Entries expire after 14
+// days. Keys are scoped per athlete. All storage access is best-effort.
+const DRAFT_TTL_MS = 14 * 864e5;
+function _draftStoreKey() { return 'sv8_drafts_' + ((S.athlete && S.athlete.id) || 'anon'); }
+function _draftLoad() {
+  try {
+    const o = JSON.parse(localStorage.getItem(_draftStoreKey()) || '{}');
+    return (o && typeof o === 'object') ? o : {};
+  } catch (e) { return {}; }
+}
+function _draftSaveAll(o) { try { localStorage.setItem(_draftStoreKey(), JSON.stringify(o)); } catch (e) {} }
+function draftSet(key, v) {
+  const o = _draftLoad(), now = Date.now();
+  Object.keys(o).forEach(function(k) { if (!o[k] || now - (o[k].t || 0) > DRAFT_TTL_MS) delete o[k]; });
+  if (v == null) delete o[key]; else o[key] = { v: v, t: now };
+  _draftSaveAll(o);
+}
+// notBefore: ISO/ms timestamp — a draft saved at or before it is stale (e.g. a
+// newer submission exists) and is ignored.
+function draftGet(key, notBefore) {
+  const d = _draftLoad()[key];
+  if (!d) return null;
+  if (notBefore && d.t <= new Date(notBefore).getTime()) return null;
+  return d.v;
+}
+function draftClear(prefix) {
+  const o = _draftLoad();
+  let changed = false;
+  Object.keys(o).forEach(function(k) { if (k.indexOf(prefix) === 0) { delete o[k]; changed = true; } });
+  if (changed) _draftSaveAll(o);
+}
+function draftHas(prefix, notBefore) {
+  const o = _draftLoad();
+  const nb = notBefore ? new Date(notBefore).getTime() : 0;
+  return Object.keys(o).some(function(k) { return k.indexOf(prefix) === 0 && o[k] && o[k].t > nb; });
+}
+function _draftOnField(e) {
+  const el = e.target;
+  const k = el && el.dataset && el.dataset.draft;
+  if (k) draftSet(k, el.value);
+}
+document.addEventListener('input', _draftOnField);
+document.addEventListener('change', _draftOnField);
+// Fill [data-draft] fields under root from saved drafts. Returns how many changed.
+function draftRestore(root, notBefore) {
+  let n = 0;
+  (root || document).querySelectorAll('[data-draft]').forEach(function(el) {
+    const v = draftGet(el.dataset.draft, notBefore);
+    if (v != null && el.value !== v) { el.value = v; n++; }
+  });
+  return n;
+}
+// Background (overlay) taps: a REAL tap must not close a sheet that has typing
+// in it — the athlete uses the sheet's own Close/Cancel. The Android back handler
+// below closes sheets via ov.click(), which is untrusted, so back still works.
+function sheetHasTyping(el) {
+  return !!el && Array.from(el.querySelectorAll('textarea, input[type="text"]'))
+    .some(function(f) { return (f.value || '').trim(); });
+}
+function sheetBackdropTap(e, closeFn, sheetId) {
+  if (e && e.isTrusted && sheetHasTyping(document.getElementById(sheetId))) {
+    toast('Use Close or Cancel to leave — your notes are saved', 2500);
+    return;
+  }
+  closeFn();
+}
+
+
 // ── Android back-button support ───────────────────────────────────────────────
 // Mirrors nutrition's layer stack (n-core.js nBackPush/nBackConsume) but is driven
 // by the DOM instead of per-sheet hooks, so every current and future sheet, prompt

@@ -5,25 +5,27 @@ function openReadiness() {
     <div class="form-section-label">Recovery & Readiness (1–5)</div>
     <div class="form-grid">
       <div class="form-field"><label>Energy</label>
-        <input type="number" min="1" max="5" inputmode="numeric" id="r-energy" placeholder="1–5"></div>
+        <input type="number" min="1" max="5" inputmode="numeric" id="r-energy" data-draft="rdy_${today()}_r-energy" placeholder="1–5"></div>
       <div class="form-field"><label>Soreness</label>
-        <input type="number" min="1" max="5" inputmode="numeric" id="r-soreness" placeholder="1–5"></div>
+        <input type="number" min="1" max="5" inputmode="numeric" id="r-soreness" data-draft="rdy_${today()}_r-soreness" placeholder="1–5"></div>
       <div class="form-field"><label>Stress</label>
-        <input type="number" min="1" max="5" inputmode="numeric" id="r-stress" placeholder="1–5"></div>
+        <input type="number" min="1" max="5" inputmode="numeric" id="r-stress" data-draft="rdy_${today()}_r-stress" placeholder="1–5"></div>
       <div class="form-field"><label>Motivation</label>
-        <input type="number" min="1" max="5" inputmode="numeric" id="r-motivation" placeholder="1–5"></div>
+        <input type="number" min="1" max="5" inputmode="numeric" id="r-motivation" data-draft="rdy_${today()}_r-motivation" placeholder="1–5"></div>
     </div>
     <div class="form-section-label">Sleep</div>
     <div class="form-grid">
       <div class="form-field"><label>Sleep (hrs)</label>
-        <input type="number" step="0.5" inputmode="decimal" id="r-sleep" placeholder="—"></div>
+        <input type="number" step="0.5" inputmode="decimal" id="r-sleep" data-draft="rdy_${today()}_r-sleep" placeholder="—"></div>
     </div>
     <div class="form-section-label">Notes</div>
     <div class="form-grid">
       <div class="form-field wide">
-        <textarea id="r-notes" placeholder="Anything else worth noting…"></textarea>
+        <textarea id="r-notes" data-draft="rdy_${today()}_r-notes" placeholder="Anything else worth noting…"></textarea>
       </div>
     </div>`;
+  // Restore anything typed earlier today but not yet saved (core.js drafts).
+  if (draftRestore(document.getElementById('ready-body'))) toast('Restored your unsaved readiness entry', 2500);
   showScreen('readiness');
 }
 
@@ -40,18 +42,21 @@ async function submitReadiness() {
       athlete_id: S.athlete.id, log_date: today(),
       energy, soreness, stress, motivation, sleep_hours: sleep, notes,
     }});
+    draftClear('rdy_');
     toast('Readiness saved offline ✓');
     showScreen('week');
     return;
   }
   try {
-    await db.from('readiness_logs').upsert({
+    const { error: rdyErr } = await db.from('readiness_logs').upsert({
       athlete_id:  S.athlete.id,
       log_date:    today(),
       energy, soreness, stress, motivation,
       sleep_hours: sleep,
       notes,
     }, { onConflict: 'athlete_id,log_date' });
+    if (rdyErr) throw rdyErr;
+    draftClear('rdy_');
     toast('Readiness logged ✓');
     showScreen('week');
   } catch (err) {
@@ -294,7 +299,7 @@ function renderPainForm(prefill) {
     ? '<input type="hidden" id="pain-region" value="' + prefill.body_region + '">'
       + '<div class="form-field wide"><label>Body Region</label>'
       + '<div style="padding:8px 0;font-weight:600">' + prefill.body_region + '</div></div>'
-    : '<div class="form-field"><label>Body Region</label><select id="pain-region" onchange="renderTriageBlock()">'
+    : '<div class="form-field"><label>Body Region</label><select id="pain-region" data-draft="pain_new_region" onchange="renderTriageBlock()">'
       + '<option value="">Select…</option>'
       + PAIN_REGIONS.map(function(r){ return '<option>' + r + '</option>'; }).join('')
       + '</select></div>';
@@ -304,6 +309,8 @@ function renderPainForm(prefill) {
     .map(function(o){ return '<option value="' + o[0] + '"' + (o[0]===statusDefault?' selected':'') + '>' + o[1] + '</option>'; }).join('');
 
   const exName  = prefill.exercise_name || '';
+  // Draft keys (core.js): per injury for updates, one shared slot for a new log.
+  const dk = 'pain_' + (prefill.injury_id || 'new') + '_';
   const exField = exName
     ? '<div class="form-field wide"><label>Flagged during</label>'
       + '<div style="padding:8px 0;font-weight:600">' + exName + '</div></div>'
@@ -317,19 +324,25 @@ function renderPainForm(prefill) {
     + exField
     + (isUpdate ? '' : '<div class="form-field wide" id="pain-triage"></div>')
     + '<div class="form-field"><label>Pain Score (0–10)</label>'
-    + '<input type="number" id="pain-score" min="0" max="10" inputmode="numeric" placeholder="0–10"></div>'
+    + '<input type="number" id="pain-score" data-draft="' + dk + 'score" min="0" max="10" inputmode="numeric" placeholder="0–10"></div>'
     + '<div class="form-field"><label>Status</label><select id="pain-status">' + statusOpts + '</select></div>'
     + '<div class="form-field"><label>Modified Training?</label><select id="pain-modified">'
     + '<option value="false">No</option><option value="true">Yes</option></select></div>'
     + '<div class="form-field wide"><label>Trigger / Description</label>'
-    + '<input type="text" id="pain-trigger" placeholder="What caused it or where it hurts"></div>'
+    + '<input type="text" id="pain-trigger" data-draft="' + dk + 'trigger" placeholder="What caused it or where it hurts"></div>'
     + '<div class="form-field wide"><label>Notes for coach</label>'
-    + '<textarea id="pain-notes" placeholder="Any extra context…"></textarea></div>'
+    + '<textarea id="pain-notes" data-draft="' + dk + 'notes" placeholder="Any extra context…"></textarea></div>'
     + '</div>'
     + '<button class="btn" style="margin-top:8px" onclick="submitPain()">' + (isUpdate ? 'Save Update' : 'Save Pain Log') + '</button>'
     + ((S.openInjuries || []).length
         ? '<button class="btn secondary" style="margin-top:8px" onclick="renderPainList()">Back</button>'
         : '<button class="btn secondary" style="margin-top:8px" onclick="closePainSheet()">Cancel</button>');
+  // Restore unsaved typing (core.js drafts); a restored region re-draws its triage questions.
+  const restored = draftRestore(document.getElementById('pain-sheet-body'));
+  if (restored) {
+    if (!isUpdate) renderTriageBlock();
+    toast('Restored your unsaved pain notes', 2500);
+  }
 }
 
 async function submitPain() {
@@ -344,6 +357,7 @@ async function submitPain() {
 
   if (!region) { toast('Please select a body region.'); return; }
   const injuryId = existingId || (crypto.randomUUID ? crypto.randomUUID() : null);
+  const painDraftPrefix = 'pain_' + (existingId || 'new') + '_';
 
   const payload = {
     athlete_id:        S.athlete.id,
@@ -362,12 +376,15 @@ async function submitPain() {
   if (isOffline) {
     await idbQueueWrite({ op: 'pain', payload: payload });
     applyPainLocally(payload);
+    draftClear(painDraftPrefix);
     toast('Pain log saved offline ✓');
     if ((score || 0) >= 4) renderPainRulesCard(); else afterPainSave();
     return;
   }
   try {
-    await db.from('pain_injury_logs').insert(payload);
+    const { error: painErr } = await db.from('pain_injury_logs').insert(payload);
+    if (painErr) throw painErr;
+    draftClear(painDraftPrefix);
     toast(existingId ? 'Update saved ✓' : 'Pain log saved ✓');
     await loadOpenInjuries();
     if ((score || 0) >= 4) renderPainRulesCard(); else afterPainSave();

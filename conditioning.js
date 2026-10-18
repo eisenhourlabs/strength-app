@@ -374,6 +374,13 @@ function skipPlannedConditioning(done) {
   }, done);
 }
 
+// Unsent-notes draft key (core.js drafts): per planned session, or per day for a
+// standalone log. S._condDraftKey is set by whichever screen renders the form.
+function condDraftKey() {
+  return S._condDraftKey || ('cond_' + ((S.activeSession && S.activeSession.id) || 'x') + '_notes');
+}
+function condDraftDone() { draftClear(condDraftKey()); }
+
 function renderCondSessionFields(pc) {
   let planHtml = '';
   if (pc) {
@@ -402,7 +409,7 @@ function renderCondSessionFields(pc) {
     + '<div class="form-field"><label>RPE (1–10)</label>'
     + '<input type="number" step="0.5" min="1" max="10" inputmode="decimal" id="cond-rpe" placeholder="—"></div>'
     + '<div class="form-field wide"><label>Notes</label>'
-    + '<textarea id="cond-notes" placeholder="How it felt, any issues…"></textarea></div>'
+    + '<textarea id="cond-notes" data-draft="' + condDraftKey() + '" placeholder="How it felt, any issues…"></textarea></div>'
     + '</div>';
 }
 
@@ -630,6 +637,7 @@ function buildCondRows(csId, sv) {
 }
 
 async function renderConditioningSessionBody() {
+  S._condDraftKey = 'cond_' + ((S.activeSession && S.activeSession.id) || 'x') + '_notes';
   const body = document.getElementById('session-body');
   const pc   = S.plannedConditioning;
 
@@ -711,6 +719,7 @@ async function renderConditioningSessionBody() {
       : '<button class="skip-sess-btn" onclick="openSkipSessionSheet(\'' + S.activeSession.id + '\')">⨯  Skip whole session</button>';
   }
   body.innerHTML = html;
+  if (draftRestore(body)) toast('Restored your unsaved conditioning notes', 2500);
 }
 
 async function editConditioningSession() {
@@ -801,8 +810,10 @@ function openStandaloneConditioning() {
   S.plannedConditioningBlocks = [];
   S.condBlocks = [{ id: 1, modality: '', workoutType: '', duration: '', distance: '', distUnit: 'mi', load: '', circuitDesc: '', circuitRounds: '', intRounds: '', intMaxHR: '' }];
   S.condBlockCounter = 1;
+  S._condDraftKey = 'cond_standalone_' + today() + '_notes';
   document.getElementById('cond-sub').textContent = 'Standalone session';
   document.getElementById('cond-body').innerHTML  = renderCondFormHtml(null);
+  if (draftRestore(document.getElementById('cond-body'))) toast('Restored your unsaved conditioning notes', 2500);
   const btn = document.getElementById('cond-submit-btn');
   btn.disabled = false; btn.textContent = 'Log Conditioning';
   showScreen('conditioning');
@@ -850,6 +861,7 @@ async function submitConditioningSession() {
         .eq('id', csId);
       Object.assign(S.activeCompletedSession, condSkipPatch(skips));
       S._editingConditioning = false;
+      condDraftDone();
       toast('Conditioning updated. ✓', 2500);
       renderConditioningSessionBody();
     } catch (err) {
@@ -873,6 +885,7 @@ async function submitConditioningSession() {
         isPlanned: !!S.plannedConditioning,
       }});
       S.completed[S.activeSession.id] = { id: tid, status: 'completed', _isTemp: true };
+      condDraftDone();
       showSuccess('Conditioning Logged', 'Saved offline — will sync when connected.');
       if (typeof bmOfferFromConditioning === 'function') bmOfferFromConditioning(blocks, sv, null);
       return;
@@ -909,6 +922,7 @@ async function submitConditioningSession() {
     S.completed[S.activeSession.id] = cs;
     S.activeCompletedSession        = cs;
     S._conditioningLogged           = true;
+    condDraftDone();
     toast('Conditioning logged. ✓', 2000);
     renderConditioningSessionBody();
     // Benchmarks (benchmarks.js §8): a block with purpose "Benchmark" → offer to save the result.
@@ -944,6 +958,7 @@ async function submitConditioning() {
         avg_heart_rate: sv.avgHR, overall_rpe: sv.rpe,
         blocks: blocks, notes: sv.notes,
       }});
+      condDraftDone();
       showSuccess('Conditioning Logged', 'Saved offline — will sync when connected.');
       if (typeof bmOfferFromConditioning === 'function') bmOfferFromConditioning(blocks, sv, null);
       return;
@@ -960,6 +975,7 @@ async function submitConditioning() {
     const { error: condErr } = await db.from('completed_conditioning').insert(buildCondRows(cs.id, sv));
     if (condErr) throw condErr;
 
+    condDraftDone();
     showSuccess('Conditioning Logged', 'Session saved. Good work.');
     if (typeof bmOfferFromConditioning === 'function') bmOfferFromConditioning(blocks, sv, cs.id);
   } catch (err) {
