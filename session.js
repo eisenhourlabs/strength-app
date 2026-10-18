@@ -69,7 +69,9 @@ async function openSession(sessionId) {
       return;
     }
     S.plannedExercises    = detail.exercises    || [];
-    S.plannedConditioning = detail.conditioning || null;
+    S.plannedConditioningBlocks = condSortPlanned(detail.conditioningBlocks
+      || (detail.conditioning ? [detail.conditioning] : []));
+    S.plannedConditioning = S.plannedConditioningBlocks[0] || null;
     if (detail.completedSession) {
       S.activeCompletedSession = detail.completedSession;
       (detail.savedSets || []).forEach(s => {
@@ -160,11 +162,14 @@ async function openSession(sessionId) {
         .select('*, exercise:exercise_library(id,name,movement_pattern,equipment)')
         .eq('session_id', sessionId)
         .order('item_order'),
+      // Every piece, not just the first: a session can hold several blocks
+      // done back to back (2026-10-18).
       db.from('planned_conditioning_blocks')
-        .select('*').eq('session_id', sessionId).limit(1),
+        .select('*').eq('session_id', sessionId),
     ]);
     S.plannedExercises   = exRes.data   || [];
-    S.plannedConditioning = (condRes.data && condRes.data.length) ? condRes.data[0] : null;
+    S.plannedConditioningBlocks = condSortPlanned(condRes.data || []);
+    S.plannedConditioning = S.plannedConditioningBlocks[0] || null;
 
     // Check for existing completed_sessions record
     const { data: csRows } = await db.from('completed_sessions')
@@ -211,7 +216,9 @@ async function openSession(sessionId) {
       return;
     }
     S.plannedExercises    = detail.exercises    || [];
-    S.plannedConditioning = detail.conditioning || null;
+    S.plannedConditioningBlocks = condSortPlanned(detail.conditioningBlocks
+      || (detail.conditioning ? [detail.conditioning] : []));
+    S.plannedConditioning = S.plannedConditioningBlocks[0] || null;
     if (detail.completedSession) {
       S.activeCompletedSession = detail.completedSession;
       (detail.savedSets || []).forEach(s => {
@@ -1597,11 +1604,14 @@ function togglePainFlag(key, exName) {
 }
 
 function showConditioningPrompt(onYes, onNo) {
-  const pc   = S.plannedConditioning;
-  const desc = pc
-    ? (pc.modality || 'Conditioning')
-        + (pc.workout_type     ? ' · ' + pc.workout_type     : '')
-        + (pc.target_duration_min ? ' · ' + pc.target_duration_min + ' min' : '')
+  const pcs  = (S.plannedConditioningBlocks && S.plannedConditioningBlocks.length)
+    ? S.plannedConditioningBlocks : (S.plannedConditioning ? [S.plannedConditioning] : []);
+  const desc = pcs.length
+    ? pcs.map(function(pc) {
+        return (pc.modality || 'Conditioning')
+          + (pc.workout_type     ? ' · ' + pc.workout_type     : '')
+          + (pc.target_duration_min ? ' · ' + pc.target_duration_min + ' min' : '');
+      }).join('<br>')
     : 'Conditioning block';
   const overlay = document.createElement('div');
   overlay.className = 'pain-prompt-overlay';
@@ -1631,7 +1641,9 @@ function checkAndPromptConditioning(successTitle, successMsg) {
         renderConditioningSessionBody();
         showScreen('session');
       },
-      () => showSuccess(successTitle, successMsg)
+      // "Skip" asks why and records it on this session (conditioning_skips) —
+      // before 2026-10-18 it saved nothing and the coach saw a silent gap.
+      () => skipPlannedConditioning(() => showSuccess(successTitle, successMsg))
     );
   } else {
     showSuccess(successTitle, successMsg);

@@ -76,6 +76,13 @@
       padding: 13px; font-size: 14px; cursor: pointer; }
     .skip-sess-btn:active  { border-color: var(--danger); color: var(--danger); }
     .skip-sess-btn.skipped { border-color: var(--accent); color: var(--accent); }
+    /* Per-piece skip inside a multi-block conditioning session (2026-10-18) */
+    .cond-piece-skip-btn { background: none; border: 1px solid var(--border); color: var(--muted);
+      border-radius: 6px; padding: 4px 9px; font-size: 12px; cursor: pointer; }
+    .cond-piece-skip-btn:active  { border-color: var(--danger); color: var(--danger); }
+    .cond-piece-skip-btn.skipped { border-color: var(--accent); color: var(--accent); }
+    .cond-block-skipped { opacity: .6; }
+    .cond-piece-plan { margin: 0 0 10px; padding: 8px 10px; }
 
     /* Exercise card (editable) */
     .ex-card { background: var(--surface); border: 1px solid var(--border);

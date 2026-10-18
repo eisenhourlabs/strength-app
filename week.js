@@ -219,6 +219,7 @@ async function loadProgram() {
       sessionDetailCache[sess.id] = {
         exercises:        (exAllRes.data   || []).filter(e => e.session_id === sess.id),
         conditioning:     (condAllRes.data || []).find(c2 => c2.session_id === sess.id) || null,
+        conditioningBlocks: (condAllRes.data || []).filter(c2 => c2.session_id === sess.id),
         completedSession: comp ? (compFullRes.data || []).find(c2 => c2.id === comp.id) || null : null,
         savedSets:        comp ? (setsRes.data     || []).filter(s => s.completed_session_id === comp.id) : [],
       };
@@ -281,6 +282,7 @@ const SKIP_REASONS = [
   ['⏱',  'No time'],
   ['😴', 'Too beat up'],
   ['🩹', 'Pain / injury'],
+  ['🔁', 'Replaced with other work'],   // the pull reads this as REPLACED, not missed
   ['⋯',  'Other'],
 ];
 

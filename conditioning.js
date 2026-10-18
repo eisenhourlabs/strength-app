@@ -104,6 +104,15 @@ function renderCondBlock(b, idx, total) {
   // two dropdowns both saying "Intervals" where only one had any effect. Type is
   // gone from the UI now and workout_type is DERIVED on save, purely so older
   // code that reads it (history.js, conditioning_summary_view) keeps working.
+  // Several planned pieces in one sitting (2026-10-18): each is its own card
+  // with the coach's plan, and is SKIPPED with a reason rather than removed.
+  const multiPlan = (S.condBlocks || []).filter(function(x) { return x.plannedBlockId; }).length > 1;
+  if (b.skipped) {
+    return '<div class="cond-block cond-block-skipped" id="cond-block-' + b.id + '">'
+      + '<div class="cond-block-hdr"><span class="cond-block-num">Piece ' + (idx + 1) + ' · ' + condPieceLabel(b.plan) + '</span>'
+      + '<button class="cond-piece-skip-btn skipped" style="margin-left:auto" onclick="unskipCondPiece(' + b.id + ')">↩ Undo</button></div>'
+      + '<div class="card-sub sess-skip-reason">Skipped — ' + (b.skipReason || 'no reason') + '</div></div>';
+  }
   const modOpts = ['<option value="">Select modality…</option>']
     .concat(COND_MODALITIES.map(function(m) { return '<option value="' + m + '"' + (b.modality === m ? ' selected' : '') + '>' + m + '</option>'; }))
     .join('');
@@ -113,9 +122,11 @@ function renderCondBlock(b, idx, total) {
   const isRepeats   = !isCircuit && b.sessionStructure === 'Repeats';
   const hasRounds   = isIntervals || isRepeats;
   const isMilesMod  = COND_MILES_MODS.includes(b.modality);
-  const removeBtn   = total > 1
-    ? '<button class="sess-del-btn" onclick="removeCondBlock(' + b.id + ')" style="margin-left:auto" title="Remove">&#x2715;</button>'
-    : '';
+  const removeBtn   = (b.plannedBlockId && multiPlan)
+    ? '<button class="cond-piece-skip-btn" onclick="openCondPieceSkip(' + b.id + ')" style="margin-left:auto" title="Skip this piece">⨯ Skip piece</button>'
+    : (total > 1
+      ? '<button class="sess-del-btn" onclick="removeCondBlock(' + b.id + ')" style="margin-left:auto" title="Remove">&#x2715;</button>'
+      : '');
 
   const sel = function(id, list, cur, handler) {
     return '<select id="' + id + '" onchange="' + handler + '">'
@@ -195,15 +206,172 @@ function renderCondBlock(b, idx, total) {
     + sel('cond-pur-' + b.id, COND_PURPOSE, b.sessionPurpose, 'markCondTaxonomyEdited(' + b.id + ')') + '</div>'
     + '</div></div>';
 
+  // Several pieces → each gets its own avg HR, so zone compliance is judged per
+  // piece (a run and a circuit should not share one session average).
+  const blkHrField = total > 1
+    ? '<div class="form-field"><label>Avg HR this piece</label>'
+      + '<input type="number" inputmode="numeric" id="cond-blk-hr-' + b.id + '" placeholder="—" value="' + (b.avgHR || '') + '"></div>'
+    : '';
+
   return '<div class="cond-block" id="cond-block-' + b.id + '">'
-    + '<div class="cond-block-hdr"><span class="cond-block-num">Block ' + (idx + 1) + '</span>' + removeBtn + '</div>'
+    + '<div class="cond-block-hdr"><span class="cond-block-num">'
+    + ((b.plannedBlockId && multiPlan) ? 'Piece ' + (idx + 1) + ' · ' + condPieceLabel(b.plan) : 'Block ' + (idx + 1))
+    + '</span>' + removeBtn + '</div>'
+    + ((b.plannedBlockId && multiPlan) ? condPiecePlanHtml(b.plan) : '')
     + '<div class="form-grid">'
     + primary
     + durField + distField + loadField
-    + workRest + roundsField + maxHrField
+    + workRest + roundsField + maxHrField + blkHrField
     + circuitFields
     + purposeBlock
     + '</div></div>';
+}
+
+// ── Planned pieces ──────────────────────────────────────────────────────────
+// A planned session can carry several conditioning blocks done back to back
+// (01_System/04_Output_Rules_and_Template.md, "One sitting = one session").
+// Each is logged with planned_block_id, or skipped into
+// completed_sessions.conditioning_skips — never into completed_conditioning,
+// so a skip cannot inflate trends. The pull reads both (conditioning_dose.py).
+function condSortPlanned(list) {
+  return (list || []).slice().sort(function(a, b) {
+    const ao = a.block_order == null ? 1e9 : a.block_order, bo = b.block_order == null ? 1e9 : b.block_order;
+    return ao - bo;
+  });
+}
+
+function condPieceLabel(pc) {
+  if (!pc) return 'Conditioning';
+  return (pc.modality || 'Conditioning') + (pc.target_duration_min ? ' · ' + pc.target_duration_min + ' min' : '');
+}
+
+function condHrRange(pc) {
+  if (!pc) return null;
+  return (pc.target_hr_low && pc.target_hr_high) ? pc.target_hr_low + '–' + pc.target_hr_high + ' bpm'
+    : (pc.target_hr_high ? '≤ ' + pc.target_hr_high + ' bpm' : (pc.target_hr_low ? '≥ ' + pc.target_hr_low + ' bpm' : null));
+}
+
+function condPiecePlanHtml(pc) {
+  if (!pc) return '';
+  const hr = condHrRange(pc);
+  const structure = (pc.work_duration_sec && pc.rest_duration_sec)
+    ? pc.work_duration_sec + 's work / ' + pc.rest_duration_sec + 's rest' + (pc.target_rounds ? ' × ' + pc.target_rounds : '')
+    : (pc.target_rounds ? pc.target_rounds + ' rounds' : null);
+  const bits = [hr ? 'HR ' + hr : null, structure,
+    pc.session_purpose ? condShortLabel(COND_PURPOSE, pc.session_purpose) : null].filter(Boolean).join(' · ');
+  return '<div class="cond-plan cond-piece-plan">'
+    + (bits ? '<div class="cond-plan-sub">' + bits + '</div>' : '')
+    + (pc.coach_notes ? '<div class="cond-plan-sub" style="color:var(--accent);margin-top:4px">' + pc.coach_notes + '</div>' : '')
+    + '</div>';
+}
+
+function condBlockFromPlan(pc, id) {
+  return Object.assign({ id: id,
+    modality:      (pc && pc.modality) || '',
+    workoutType:   (pc && pc.workout_type) || '',
+    duration: '', distance: '', distUnit: 'mi', load: '', circuitDesc: '', circuitRounds: '',
+    intWork:       (pc && pc.work_duration_sec != null) ? String(pc.work_duration_sec) : '',
+    intRest:       (pc && pc.rest_duration_sec != null) ? String(pc.rest_duration_sec) : '',
+    intRounds:     (pc && pc.target_rounds     != null) ? String(pc.target_rounds)     : '',
+    intMaxHR: '', avgHR: '',
+    taxonomyEdited: false,
+    plannedBlockId: (pc && pc.id) || null, plan: pc || null, skipped: false, skipReason: null },
+    condTaxonomyDefaults((pc && pc.workout_type) || '', (pc && pc.modality) || '', pc));
+}
+
+function getCondSkips() {
+  return (S.condBlocks || []).filter(function(b) { return b.skipped && b.plannedBlockId; })
+    .map(function(b) {
+      return { planned_block_id: b.plannedBlockId, reason: b.skipReason || 'Other',
+               modality: (b.plan && b.plan.modality) || b.modality || null,
+               target_duration_min: (b.plan && b.plan.target_duration_min != null) ? b.plan.target_duration_min : null };
+    });
+}
+
+// Only send conditioning_skips when there is something to say (or something to
+// clear), so ordinary logs never depend on the 2026-10-18 column.
+function condSkipPatch(skips) {
+  if (skips && skips.length) return { conditioning_skips: skips };
+  if (S.activeCompletedSession && S.activeCompletedSession.conditioning_skips) return { conditioning_skips: null };
+  return {};
+}
+
+function rerenderCondBlocks() {
+  const list = document.getElementById('cond-blocks-list');
+  if (list) list.innerHTML = S.condBlocks.map(function(x, k) { return renderCondBlock(x, k, S.condBlocks.length); }).join('');
+}
+
+function condReasonSheet(title, sub, onPick, onCancel) {
+  const chips = SKIP_REASONS.map(function(r, i) {
+    return '<button class="skip-reason-chip" data-i="' + i + '">' + r[0] + '  ' + r[1] + '</button>';
+  }).join('');
+  const overlay = document.createElement('div');
+  overlay.className = 'pain-prompt-overlay';
+  overlay.id        = 'cond-skip-overlay';
+  overlay.innerHTML = '<div class="pain-prompt-box">'
+    + '<div class="pain-prompt-title">' + title + '</div>'
+    + '<div class="pain-prompt-sub">' + sub + '<br>Why? Your coach sees this.</div>'
+    + '<div class="skip-reason-wrap">' + chips + '</div>'
+    + '<div class="pain-prompt-btns"><button class="pain-prompt-no" id="cond-skip-cancel">Cancel</button></div>'
+    + '</div>';
+  document.body.appendChild(overlay);
+  overlay.querySelectorAll('.skip-reason-chip').forEach(function(btn) {
+    btn.onclick = function() { overlay.remove(); onPick(SKIP_REASONS[+btn.getAttribute('data-i')][1]); };
+  });
+  document.getElementById('cond-skip-cancel').onclick = function() { overlay.remove(); if (onCancel) onCancel(); };
+}
+
+function openCondPieceSkip(id) {
+  const b = S.condBlocks.find(function(x) { return x.id === id; });
+  if (!b) return;
+  condReasonSheet('Skip this piece?', condPieceLabel(b.plan), function(reason) { chooseCondPieceSkip(id, reason); });
+}
+
+function chooseCondPieceSkip(id, reason) {
+  syncCondBlocksFromDOM();
+  const b = S.condBlocks.find(function(x) { return x.id === id; });
+  if (!b) return;
+  b.skipped = true; b.skipReason = reason;
+  rerenderCondBlocks();
+}
+
+function unskipCondPiece(id) {
+  syncCondBlocksFromDOM();
+  const b = S.condBlocks.find(function(x) { return x.id === id; });
+  if (!b) return;
+  b.skipped = false; b.skipReason = null;
+  rerenderCondBlocks();
+}
+
+// "Skip" on the post-lift "Log conditioning?" prompt. Records every planned
+// piece as skipped with a reason on THIS completed session — it must never mark
+// the strength session itself skipped.
+function skipPlannedConditioning(done) {
+  const pcs = (S.plannedConditioningBlocks && S.plannedConditioningBlocks.length)
+    ? S.plannedConditioningBlocks : (S.plannedConditioning ? [S.plannedConditioning] : []);
+  condReasonSheet('Skip the conditioning?', pcs.map(condPieceLabel).join('<br>'), async function(reason) {
+    const skips = pcs.filter(function(p) { return p.id; }).map(function(p) {
+      return { planned_block_id: p.id, reason: reason, modality: p.modality || null,
+               target_duration_min: p.target_duration_min != null ? p.target_duration_min : null };
+    });
+    const cs = S.activeCompletedSession;
+    try {
+      if (cs && skips.length) {
+        if (isOffline || cs._isTemp) {
+          await idbQueueWrite({ op: 'finish_session_update', tempSessionId: cs.id,
+            sessionId: cs._isTemp ? null : cs.id, payload: { conditioning_skips: skips } });
+        } else {
+          const { error } = await db.from('completed_sessions').update({ conditioning_skips: skips }).eq('id', cs.id);
+          if (error) throw error;
+        }
+        cs.conditioning_skips = skips;
+      }
+    } catch (err) {
+      console.error('skipPlannedConditioning:', err);
+      toast('Could not save the skip reason — check connection.', 4000);
+    }
+    done();
+  }, done);
 }
 
 function renderCondSessionFields(pc) {
@@ -248,7 +416,8 @@ function renderCondBlocksHtml() {
 }
 
 function renderCondFormHtml(pc) {
-  return renderCondBlocksHtml() + renderCondSessionFields(pc);
+  const multi = (S.condBlocks || []).filter(function(b) { return b.plannedBlockId; }).length > 1;
+  return renderCondBlocksHtml() + renderCondSessionFields(multi ? null : pc);
 }
 
 function toggleCondTaxonomy(id) {
@@ -319,6 +488,8 @@ function syncCondBlocksFromDOM() {
     const intRestEl    = document.getElementById('cond-int-rest-'       + b.id);
     const intRoundsEl  = document.getElementById('cond-int-rounds-'     + b.id);
     const intMaxHREl   = document.getElementById('cond-int-maxhr-'      + b.id);
+    const blkHrEl      = document.getElementById('cond-blk-hr-'         + b.id);
+    if (blkHrEl)      b.avgHR        = blkHrEl.value;
     if (modEl)        b.modality     = modEl.value;
     b.workoutType = deriveWorkoutType(b.sessionStructure, b.intensityDomain, b.modality);
     const circDurEl = document.getElementById('cond-circuit-dur-' + b.id);
@@ -358,7 +529,7 @@ function removeCondBlock(id) {
 }
 
 function getCondBlockValues() {
-  return S.condBlocks.map(function(b) {
+  return S.condBlocks.filter(function(b) { return !b.skipped; }).map(function(b) {
     const mod          = (document.getElementById('cond-mod-'            + b.id) || {value:''}).value.trim();
     const structure    = (document.getElementById('cond-str-' + b.id) || {value:''}).value || b.sessionStructure || 'Continuous';
     const isCircuit    = mod === 'Circuit Training' || structure === 'Circuit';
@@ -393,7 +564,9 @@ function getCondBlockValues() {
       sessionStructure: structure,
       sessionPurpose:   purEl ? purEl.value : b.sessionPurpose,
       impactLoad:       b.impactLoad || COND_IMPACT_BY_MODALITY[mod] || 'Low',
-      taxonomyEdited:   !!b.taxonomyEdited };
+      taxonomyEdited:   !!b.taxonomyEdited,
+      plannedBlockId:   b.plannedBlockId || null,
+      avgHR: parseInt((document.getElementById('cond-blk-hr-' + b.id) || {value: b.avgHR || ''}).value) || null };
   }).filter(function(b) { return b.modality; });
 }
 
@@ -414,7 +587,7 @@ function buildCondRows(csId, sv) {
     const notesVal = isCircuit
       ? [b.circuitDesc, sv.notes].filter(Boolean).join(' | ') || null
       : sv.notes;
-    return {
+    const row = {
       athlete_id:           S.athlete.id,
       completed_session_id: csId,
       conditioning_date:    today(),
@@ -423,7 +596,7 @@ function buildCondRows(csId, sv) {
       conditioning_phase:   (S.cycle && S.cycle.conditioning_phase)  || null,
       modality:             b.modality,
       workout_type:         b.workoutType || null,
-      is_planned:           !!S.plannedConditioning,
+      is_planned:           !!(b.plannedBlockId || S.plannedConditioning),
       duration_minutes:     b.duration,
       distance_meters:      isCircuit ? null : b.distanceMeters,
       load_lbs:             isCircuit ? null : b.load,
@@ -447,9 +620,12 @@ function buildCondRows(csId, sv) {
       taxonomy_source:      b.taxonomyEdited ? 'athlete'
                              : (S.plannedConditioning ? 'coach' : 'backfill'),
       rpe:                  sv.rpe,
-      avg_heart_rate:       sv.avgHR,
+      avg_heart_rate:       b.avgHR || sv.avgHR,
       notes:                notesVal,
     };
+    // Only when linked, so standalone logs never need the 2026-10-18 column.
+    if (b.plannedBlockId) row.planned_block_id = b.plannedBlockId;
+    return row;
   });
 }
 
@@ -492,6 +668,12 @@ async function renderConditioningSessionBody() {
       } else {
         summary += '<div class="cond-logged-details" style="color:var(--muted)">No details available.</div>';
       }
+      (S.activeCompletedSession.conditioning_skips || []).forEach(function(sk) {
+        summary += '<div class="cond-logged-block cond-block-skipped">'
+          + '<div class="cond-logged-modality">' + (sk.modality || 'Conditioning')
+          + (sk.target_duration_min ? ' · ' + sk.target_duration_min + ' min' : '') + '</div>'
+          + '<div class="cond-logged-details">Skipped — ' + (sk.reason || 'no reason') + '</div></div>';
+      });
       summary += '</div>';
       body.innerHTML = noteHtml + summary;
     } catch (_) {
@@ -506,23 +688,28 @@ async function renderConditioningSessionBody() {
   S._editingConditioning = false;
   // Prefill from the planned block so a compliant session is still Log -> done,
   // and so a DEVIATION is a quick edit of a number rather than a sentence in a note.
-  S.condBlocks = [{ id: 1,
-    modality:      (pc && pc.modality) || '',
-    workoutType:   (pc && pc.workout_type) || '',
-    duration: '', distance: '', distUnit: 'mi', load: '', circuitDesc: '', circuitRounds: '',
-    intWork:       (pc && pc.work_duration_sec != null) ? String(pc.work_duration_sec) : '',
-    intRest:       (pc && pc.rest_duration_sec != null) ? String(pc.rest_duration_sec) : '',
-    intRounds:     (pc && pc.target_rounds     != null) ? String(pc.target_rounds)     : '',
-    intMaxHR: '',
-    taxonomyEdited: false,
-    ...condTaxonomyDefaults((pc && pc.workout_type) || '', (pc && pc.modality) || '', pc) }];
-  S.condBlockCounter = 1;
+  // One card per planned piece, in sitting order.
+  const plan = condSortPlanned((S.plannedConditioningBlocks && S.plannedConditioningBlocks.length)
+    ? S.plannedConditioningBlocks : (pc ? [pc] : []));
+  S.condBlocks = plan.length
+    ? plan.map(function(p, i) { return condBlockFromPlan(p, i + 1); })
+    : [condBlockFromPlan(null, 1)];
+  S.condBlockCounter = S.condBlocks.length;
 
   const readinessHtml = await resolveInlineReadinessCard();
   let html = readinessHtml;
   if (S.activeSession && S.activeSession.session_notes)
     html += '<div class="info-card">📋 ' + S.activeSession.session_notes + '</div>';
   html += renderCondFormHtml(pc);
+  // Skip / un-skip the whole session — conditioning sessions only. After a lift
+  // this form is the conditioning add-on, and skipping here must never mark the
+  // strength session skipped.
+  const isCondSession = !(S.plannedExercises && S.plannedExercises.length);
+  if (isCondSession && S.activeSession && S.activeSession.id) {
+    html += (S.activeCompletedSession && S.activeCompletedSession.status === 'skipped')
+      ? '<button class="skip-sess-btn skipped" onclick="unskipSession(\'' + S.activeSession.id + '\')">↩  Un-skip this session</button>'
+      : '<button class="skip-sess-btn" onclick="openSkipSessionSheet(\'' + S.activeSession.id + '\')">⨯  Skip whole session</button>';
+  }
   body.innerHTML = html;
 }
 
@@ -561,9 +748,19 @@ async function editConditioningSession() {
           sessionPurpose:   r.session_purpose   || '',
           impactLoad:       r.impact_load       || 'Low',
           taxonomyEdited:   r.taxonomy_source === 'athlete',
+          avgHR:            r.avg_heart_rate != null ? String(r.avg_heart_rate) : '',
+          plannedBlockId:   r.planned_block_id || null,
+          plan:             (S.plannedConditioningBlocks || []).find(function(p) { return p.id === r.planned_block_id; }) || null,
+          skipped: false, skipReason: null,
         };
       });
-      S.condBlockCounter = rows.length;
+      (S.activeCompletedSession.conditioning_skips || []).forEach(function(sk) {
+        const pcSk = (S.plannedConditioningBlocks || []).find(function(p) { return p.id === sk.planned_block_id; })
+          || { id: sk.planned_block_id, modality: sk.modality, target_duration_min: sk.target_duration_min };
+        S.condBlocks.push(Object.assign(condBlockFromPlan(pcSk, S.condBlocks.length + 1),
+          { skipped: true, skipReason: sk.reason || null }));
+      });
+      S.condBlockCounter = S.condBlocks.length;
     } else {
       S.condBlocks = [Object.assign({ id: 1, modality: '', workoutType: '', duration: '', distance: '',
         distUnit: 'mi', load: '', circuitDesc: '', circuitRounds: '',
@@ -601,6 +798,7 @@ async function editConditioningSession() {
 
 function openStandaloneConditioning() {
   S.plannedConditioning = null;
+  S.plannedConditioningBlocks = [];
   S.condBlocks = [{ id: 1, modality: '', workoutType: '', duration: '', distance: '', distUnit: 'mi', load: '', circuitDesc: '', circuitRounds: '', intRounds: '', intMaxHR: '' }];
   S.condBlockCounter = 1;
   document.getElementById('cond-sub').textContent = 'Standalone session';
@@ -616,6 +814,17 @@ async function submitConditioningSession() {
 
   const sv     = getCondSessionValues();
   const blocks = getCondBlockValues();
+  const skips  = getCondSkips();
+  if (!blocks.length && skips.length && !S._editingConditioning) {
+    // Every planned piece skipped. A conditioning session is then a skipped
+    // session; a lift's conditioning add-on just records the skipped pieces.
+    if (!(S.plannedExercises && S.plannedExercises.length)) {
+      _applySkipSession(S.activeSession.id, skips[0].reason);
+    } else {
+      skipPlannedConditioning(function() { showSuccess('Done', 'Conditioning skipped.'); });
+    }
+    return;
+  }
   if (!blocks.length) {
     toast('Add at least one modality block.');
     btn.disabled = false; btn.textContent = S._editingConditioning ? 'Update Conditioning' : 'Log Conditioning';
@@ -637,8 +846,9 @@ async function submitConditioningSession() {
         .insert(buildCondRows(csId, sv));
       if (insErr) throw insErr;
       // Also update overall_rpe on completed_session
-      await db.from('completed_sessions').update({ overall_rpe: sv.rpe })
+      await db.from('completed_sessions').update(Object.assign({ overall_rpe: sv.rpe }, condSkipPatch(skips)))
         .eq('id', csId);
+      Object.assign(S.activeCompletedSession, condSkipPatch(skips));
       S._editingConditioning = false;
       toast('Conditioning updated. ✓', 2500);
       renderConditioningSessionBody();
@@ -658,7 +868,7 @@ async function submitConditioningSession() {
         session: { athlete_id: S.athlete.id, planned_session_id: S.activeSession.id,
           session_date: today(), week_of: (S.cycle && S.cycle.start_date) || today(),
           session_type: 'Conditioning Only', status: 'completed',
-          overall_rpe: sv.rpe, avg_heart_rate: sv.avgHR },
+          overall_rpe: sv.rpe, avg_heart_rate: sv.avgHR, ...condSkipPatch(skips) },
         blocks: blocks, notes: sv.notes,
         isPlanned: !!S.plannedConditioning,
       }});
@@ -676,7 +886,7 @@ async function submitConditioningSession() {
         athlete_id: S.athlete.id, planned_session_id: S.activeSession.id,
         session_date: today(), week_of: (S.cycle && S.cycle.start_date) || today(),
         session_type: S.activeSession.session_type || 'Conditioning Only', status: 'completed',
-        overall_rpe: sv.rpe, avg_heart_rate: sv.avgHR,
+        overall_rpe: sv.rpe, avg_heart_rate: sv.avgHR, ...condSkipPatch(skips),
       }).select().single();
       if (csErr) throw csErr;
       cs = csData;
@@ -684,8 +894,9 @@ async function submitConditioningSession() {
     } else {
       // Update rpe/hr on existing record
       await db.from('completed_sessions')
-        .update({ overall_rpe: sv.rpe, avg_heart_rate: sv.avgHR })
+        .update(Object.assign({ overall_rpe: sv.rpe, avg_heart_rate: sv.avgHR }, condSkipPatch(skips)))
         .eq('id', cs.id);
+      Object.assign(cs, condSkipPatch(skips));
     }
 
     const { error: condErr } = await db.from('completed_conditioning').insert(buildCondRows(cs.id, sv));

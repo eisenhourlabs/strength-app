@@ -65,6 +65,7 @@ let S = {
   activeSession:          null,
   plannedExercises:       [],
   plannedConditioning:    null,
+  plannedConditioningBlocks: [],
   activeCompletedSession: null,  // CS record (created lazily on first save)
 
   // savedExercises: peId (string) → array of set objects from DB
@@ -216,7 +217,7 @@ async function onLogin(user) {
 async function doLogout() {
   await db.auth.signOut();
   S = { user:null, athlete:null, cycle:null, sessions:[], completed:{},
-    activeSession:null, plannedExercises:[], plannedConditioning:null,
+    activeSession:null, plannedExercises:[], plannedConditioning:null, plannedConditioningBlocks:[],
     activeCompletedSession:null, savedExercises:{},
     exState:{}, addedExercises:[], addedCounter:0, condBlocks:[], condBlockCounter:0,
     exerciseLib:[], sheetMode:null, swapExKey:null, painFlags:{}, checkin:null };
@@ -461,6 +462,7 @@ async function syncQueue() {
             const isIntervals2 = !isCircuit2 && b.workoutType === 'Intervals';
             const notesVal2    = isCircuit2 ? [b.circuitDesc, p.notes].filter(Boolean).join(' | ') || null : p.notes || null;
             return {
+              ...(b.plannedBlockId ? { planned_block_id: b.plannedBlockId } : {}),
               athlete_id:           p.session.athlete_id,
               completed_session_id: cs2.id,
               conditioning_date:    p.session.session_date,
@@ -488,7 +490,7 @@ async function syncQueue() {
               impact_load:          b.impactLoad       || null,
               taxonomy_source:      b.taxonomyEdited ? 'athlete'
                                      : (p.isPlanned ? 'coach' : 'backfill'),
-              avg_heart_rate:       p.session.avg_heart_rate || null,
+              avg_heart_rate:       b.avgHR || p.session.avg_heart_rate || null,
               rpe:                  p.session.overall_rpe    || null,
               notes:                notesVal2,
             };
