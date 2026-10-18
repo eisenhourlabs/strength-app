@@ -10,11 +10,63 @@ const N_INV_TARGET = 8;
 const N_INV_FLOOR = 3;
 
 function nInvRows() { return (NS.freezerInventory || []).filter(r => (r.portions || 0) > 0); }
-function nInvForAthlete(aid) {
-  return nInvRows().filter(r => r.athlete_id === aid)
-    .sort((a, b) => String(a.frozen_on || '').localeCompare(String(b.frozen_on || '')));
+
+// One entry per person + recipe (Troy 2026-10-18): rows frozen on different nights
+// from the same recipe display — and act — as ONE entry with the summed count.
+// The group carries the OLDEST row's id/date/macros; touching a group (use, ±, add)
+// collapses its rows into that single DB row, so legacy duplicates heal on first touch.
+function nInvKey(aid, name) { return `${aid}|${String(name || '').trim().toLowerCase()}`; }
+function nInvGroups(aid) {
+  const map = new Map();
+  const rows = nInvRows().filter(r => !aid || r.athlete_id === aid)
+    .sort((a, b) => String(a.frozen_on || '').localeCompare(String(b.frozen_on || ''))
+      || String(a.created_at || '').localeCompare(String(b.created_at || '')));
+  for (const r of rows) {
+    const k = nInvKey(r.athlete_id, r.recipe_name);
+    let g = map.get(k);
+    if (!g) { g = { ...r, key: k, rows: [], portions: 0 }; map.set(k, g); }
+    g.rows.push(r);
+    g.portions += (r.portions || 0);
+  }
+  return [...map.values()];
+}
+function nInvForAthlete(aid) { return nInvGroups(aid); }
+function nInvGroupOf(id) {
+  const row = (NS.freezerInventory || []).find(x => x.id === id);
+  if (!row) return null;
+  const k = nInvKey(row.athlete_id, row.recipe_name);
+  return nInvGroups(row.athlete_id).find(g => g.key === k) || null;
+}
+function nInvFindGroup(aid, name) {
+  const k = nInvKey(aid, name);
+  return nInvGroups(aid).find(g => g.key === k) || null;
 }
 function nInvCount(aid) { return nInvForAthlete(aid).reduce((s, r) => s + (r.portions || 0), 0); }
+
+// Set a group's total. Keeps the oldest row (portions = total, plus any extra
+// fields), deletes the rest; total <= 0 deletes the whole group. Returns ok.
+async function nInvSetGroup(g, total, extra, failMsg) {
+  const keep = g.rows[0];
+  const others = g.rows.slice(1).map(r => r.id);
+  const fail = msg => { toast((failMsg || 'Freezer update failed') + (msg ? ': ' + msg : ''), 3500); return false; };
+  if (total <= 0) {
+    const ids = g.rows.map(r => r.id);
+    const { error } = await ndb.from('freezer_inventory').delete().in('id', ids);
+    if (error) return fail(error.message);
+    NS.freezerInventory = (NS.freezerInventory || []).filter(x => !ids.includes(x.id));
+    return true;
+  }
+  const patch = { portions: total, ...(extra || {}) };
+  const { error } = await ndb.from('freezer_inventory').update(patch).eq('id', keep.id);
+  if (error) return fail(error.message);
+  Object.assign(keep, patch);
+  if (others.length) {
+    const { error: e2 } = await ndb.from('freezer_inventory').delete().in('id', others);
+    if (e2) return fail(e2.message);
+    NS.freezerInventory = (NS.freezerInventory || []).filter(x => !others.includes(x.id));
+  }
+  return true;
+}
 
 // The inventory panel. interactive=true shows "Use" on the current user's own rows.
 function nInvPanelHtml(interactive) {
@@ -43,10 +95,16 @@ function nInvPanelHtml(interactive) {
       const macro = r.kcal != null ? `· ${Math.round(r.kcal)} kcal` : '';
       const use = (interactive && mine)
         ? `<button class="n-act small primary" onclick="nInvUse('${r.id}')">Use</button>` : '';
+      // −/+ correct the count (miscount, tossed, found one) — no meal is logged.
+      const adj = interactive
+        ? `<span class="n-inv-step">
+             <button class="n-act small" aria-label="One fewer" onclick="nInvAdjust('${r.id}', -1)">−</button>
+             <button class="n-act small" aria-label="One more" onclick="nInvAdjust('${r.id}', 1)">+</button></span>` : '';
+      const since = r.rows.length > 1 ? `since ${nEsc(nDayName(r.frozen_on, true))}` : nEsc(nDayName(r.frozen_on, true));
       body += `<div class="n-inv-item">
         <span class="n-inv-qty">${r.portions}×</span>
-        <span class="n-inv-name">${nEsc(r.recipe_name)}<span class="n-inv-sub"> · ${nEsc(nDayName(r.frozen_on, true))} ${macro}</span></span>
-        ${use}</div>`;
+        <span class="n-inv-name">${nEsc(r.recipe_name)}<span class="n-inv-sub"> · ${since} ${macro}</span></span>
+        ${adj}${use}</div>`;
     }
   }
   return `${addUi}<div class="n-panel"><div class="n-panel-title">🧊 Freezer inventory</div>${body}</div>`;
@@ -79,6 +137,15 @@ async function nInvAddSave() {
   const qty = Math.max(1, parseInt(document.getElementById('ninv-add-qty')?.value, 10) || 0);
   const rec = (NS.recipes || []).find(r => String(r.id) === String(rid));
   if (!aid || !rec) { toast('Pick a person and a recipe.', 2500); return; }
+  const g = nInvFindGroup(aid, rec.name);
+  if (g) {
+    if (!(await nInvSetGroup(g, g.portions + qty, null, 'Add failed'))) return;
+    N_INV_ADD = false;
+    if (typeof renderToday === 'function') renderToday();
+    nInfoRefresh('freezer', nInvPanelHtml(true));
+    toast(`Added ${qty} — now ${g.portions + qty}× ${rec.name} ✓`);
+    return;
+  }
   const { data, error } = await ndb.from('freezer_inventory').insert({
     household_id: NS.me.household_id,
     athlete_id: aid,
@@ -133,17 +200,21 @@ async function nInvUse(id) {
 
 // Decrement (and clean up) an inventory row after its portions were eaten.
 async function nInvConsume(id, n) {
-  const row = (NS.freezerInventory || []).find(x => x.id === id);
-  if (!row) return;
-  const left = (row.portions || 1) - (n || 1);
-  if (left <= 0) {
-    const { error } = await ndb.from('freezer_inventory').delete().eq('id', id);
-    if (error) toast('Logged, but inventory update failed', 3000);
-    NS.freezerInventory = (NS.freezerInventory || []).filter(x => x.id !== id);
-  } else {
-    const { error } = await ndb.from('freezer_inventory').update({ portions: left }).eq('id', id);
-    if (error) toast('Logged, but inventory update failed', 3000); else row.portions = left;
-  }
+  const g = nInvGroupOf(id);
+  if (!g) return;
+  await nInvSetGroup(g, g.portions - (n || 1), null, 'Logged, but inventory update failed');
+}
+
+// −/+ on an entry: correct the count without logging a meal. Reaching 0 removes it.
+async function nInvAdjust(id, delta) {
+  if (nOffline) { toast('Offline — reconnect to update the freezer.', 3000); return; }
+  const g = nInvGroupOf(id);
+  if (!g) return;
+  const total = g.portions + delta;
+  if (!(await nInvSetGroup(g, total))) return;
+  if (typeof renderToday === 'function') renderToday();
+  nInfoRefresh('freezer', nInvPanelHtml(true));
+  toast(total <= 0 ? `Removed ${g.recipe_name} from the freezer` : `${g.recipe_name}: ${total}×`, 1800);
 }
 
 // ── Prep-night "set aside to freeze" confirm cards ──
@@ -156,7 +227,7 @@ function nAthleteIdByName(name) {
 function nStockAlreadyDone(entry, aid) {
   return (NS.freezerInventory || []).some(r =>
     r.plan_week_id === (NS.planWeek && NS.planWeek.id) &&
-    r.athlete_id === aid && r.recipe_name === entry.recipe);
+    r.athlete_id === aid && nInvKey(aid, r.recipe_name) === nInvKey(aid, entry.recipe));
 }
 function nFreezerStockDue() {
   const day = nDayName(nToday(), true);
@@ -194,6 +265,15 @@ async function nStockConfirm(i) {
   const n = Math.max(0, parseInt(inp && inp.value, 10) || 0);
   if (!n) { toast('Enter how many you froze (or skip).', 2500); return; }
   const rec = (NS.recipes || []).find(r => r.name === e.recipe);
+  const g = nInvFindGroup(e._aid, e.recipe);
+  if (g) {
+    // Tag the merged row with this plan week so the confirm card stops showing.
+    const extra = { plan_week_id: NS.planWeek ? NS.planWeek.id : null };
+    if (!(await nInvSetGroup(g, g.portions + n, extra, 'Add failed'))) return;
+    if (typeof renderToday === 'function') renderToday();
+    toast(`Added ${n} to ${e.athlete}'s freezer — now ${g.portions + n}× ✓`);
+    return;
+  }
   const { data, error } = await ndb.from('freezer_inventory').insert({
     household_id: NS.me.household_id,
     athlete_id: e._aid,

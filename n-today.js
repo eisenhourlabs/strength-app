@@ -903,7 +903,7 @@ function nBasketAdd(kind, id) {
     if (r) item = { srcKind: 'z', srcId: id, kind: 'z', id, name: `🧊 ${r.recipe_name}`,
       qty: 1, kcal: r.kcal || 0, protein_g: r.protein_g || 0,
       carbs_g: r.carbs_g || 0, fat_g: r.fat_g || 0,
-      unit: 'portion', maxPortions: r.portions || 1, invRecipeId: r.recipe_id || null };
+      unit: 'portion', maxPortions: ((typeof nInvGroupOf === 'function' && nInvGroupOf(id)) || r).portions || 1, invRecipeId: r.recipe_id || null };
   }
   if (item) { b.push(item); renderNSheetList(); }
 }

@@ -258,6 +258,8 @@ body { background: var(--n-bg) !important; color: var(--n-text); }
 .n-inv-qty { font-weight:700; color:var(--n-text); font-size:13px; min-width:28px; }
 .n-inv-name { flex:1; font-size:14px; color:var(--n-text); min-width:0; }
 .n-inv-sub { color:var(--n-muted); font-size:12px; }
+.n-inv-step { display:inline-flex; gap:4px; }
+.n-inv-step .n-act { min-width:34px; padding-left:0; padding-right:0; font-weight:700; }
 
 /* ── Recipe filter chips + tappable meal->recipe link ── */
 .n-rec-chips { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0; }
