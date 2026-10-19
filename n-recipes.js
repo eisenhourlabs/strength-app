@@ -101,6 +101,17 @@ function nBatchOzNote(f, factor) {
 // part of any cook here. Freezer portions ride on the cook that makes them.
 // If nothing dates a cook (no block names it, nothing eaten fresh) the whole week is treated
 // as one cook — the pre-2026-09-20 behaviour — flagged `assumed` so the card omits a date.
+// Whole-batch recipes (Troy, 2026-10-18): a recipe tagged `whole_batch` (the oat bites) is
+// always made as ONE standard batch (Servings: = pieces) and kept in the fridge; each day's
+// planned piece is pulled from that supply, never made fresh. So its cooks come ONLY from
+// dated prep blocks that name it (and freezer_stock) -- a daily planned piece never starts a
+// cook, even when authored is_leftover:false -- and a cook is always whole batches, never a
+// fraction. A week whose blocks don't name it has no batch card: the pieces come from the
+// fridge supply made in an earlier week.
+function nIsWholeBatch(r) {
+  return Array.isArray(r && r.tags) && r.tags.some(t => String(t).toLowerCase() === 'whole_batch');
+}
+
 function nCookWhen(d) { return `${nDayName(d, true)} ${+d.slice(5, 7)}/${+d.slice(8, 10)}`; }
 
 function nRecipeCooks(r) {
@@ -120,10 +131,11 @@ function nRecipeCooks(r) {
     for (const b of nPrepBlocks().dated)
       if ((b.head + '\n' + b.steps.join('\n')).toLowerCase().includes(nm)) dates.add(b.date);
   }
-  for (const m of meals) if (!m.is_leftover) dates.add(m.meal_date);
+  const whole = nIsWholeBatch(r);
+  if (!whole) for (const m of meals) if (!m.is_leftover) dates.add(m.meal_date);
   for (const e of stock) { const d = stockDate(e); if (d) dates.add(d); }
   let assumed = false;
-  if (!dates.size && (meals.length || stock.length)) {
+  if (!dates.size && !whole && (meals.length || stock.length)) {
     assumed = true;
     dates.add(meals.map(m => m.meal_date).sort()[0] || NS.weekOf);
   }
@@ -164,7 +176,12 @@ function nCookCardHtml(r, labelName, cook, idx, count) {
     freezeParts.push(`${n} ${e.athlete || ''}`.trim());
     freezeServings += perServ ? n * ((Number(e.kcal) || perServ) / perServ) : n;
   }
-  const grand = total + freezeServings;
+  const whole = nIsWholeBatch(r);
+  const per = Number(r.servings_default) || 0;
+  // Whole-batch recipes always cook whole standard batches (at least one), however few
+  // pieces this week's plan draws from it -- the rest stay in the fridge.
+  const planned = total + freezeServings;
+  const grand = whole && per ? Math.max(1, Math.ceil(planned / per - 0.05)) * per : planned;
   if (!grand) {
     return `<div class="n-panel"><div class="n-panel-title">${title}</div>
       <div style="font-size:13px;color:var(--n-muted)">No servings planned from this cook.</div></div>`;
@@ -173,6 +190,12 @@ function nCookCardHtml(r, labelName, cook, idx, count) {
   const dinnerBits = Object.entries(perAth).map(([nm, c]) => `${c} ${nm}`).join(' + ');
   let makes = dinnerBits ? `${dinnerBits} dinner containers${days ? ' (' + days + ')' : ''}` : '';
   if (freezeParts.length) makes += `${makes ? ' + ' : ''}${freezeParts.join(' + ')} freezer portion${freezeServings > 1 ? 's' : ''}`;
+  if (whole) {
+    const nb = per ? grand / per : 1;
+    const plannedTxt = Math.round(planned * 10) / 10;
+    makes = `${nb > 1 ? nb + ' standard batches' : 'one standard batch'} — ${Math.round(grand)} pieces. `
+      + `${plannedTxt} planned from this cook this week${days ? ' (' + days + ')' : ''}; keep the rest in the fridge and pull one as planned.`;
+  }
   const batches = Number(r.servings_default) ? grand / Number(r.servings_default) : 1;
   const cookLine = Math.abs(batches - 1) <= 0.05
     ? `<b>one standard batch</b> — the Ingredients list below is exactly what to buy`
@@ -237,7 +260,9 @@ function nRecipeBatchHtml(r, labelName, atDate) {
   if (!cooks.length) {
     const title = '📦 This batch' + (labelName ? ` — ${nEsc(labelName)}` : '');
     return `<div class="n-panel"><div class="n-panel-title">${title}</div>
-      <div style="font-size:13px;color:var(--n-muted)">Not on this week's plan.</div></div>`;
+      <div style="font-size:13px;color:var(--n-muted)">${nIsWholeBatch(r) && (NS.meals || []).some(m => m.recipe_id === r.id)
+        ? 'No batch made this week — the planned pieces come from the fridge supply.'
+        : "Not on this week's plan."}</div></div>`;
   }
   let pick = cooks.map((c, i) => [c, i]);
   if (atDate) {
@@ -268,7 +293,7 @@ function nPrepBatchCardsHtml(blk, date) {
   }
   if (day) {
     for (const r of (NS.recipes || [])) {
-      if (!r.name || r.kind === 'assembly' || seen[r.id]) continue;
+      if (!r.name || r.kind === 'assembly' || seen[r.id] || nIsWholeBatch(r)) continue;
       if (!(NS.meals || []).some(m => m.recipe_id === r.id && m.meal_date === day && !m.is_leftover)) continue;
       seen[r.id] = true; hits.push(r);
     }
