@@ -152,6 +152,26 @@ function nRecipeCooks(r) {
   return cooks;
 }
 
+// Weigh-and-split (Troy, 2026-10-21): the % to divide THIS pot by = each person's planned
+// servings from this cook / the cook total. Container sizes are fixed (Troy 1.5 servings,
+// Amanda 1.0), so the pot is 60/40 only when both get the same number of containers;
+// 4 Troy + 5 Amanda is 6.0 / 11.0 = 55/45. Same math and rounding as expand_week.py
+// fmt_split, so the card and the {{split}} text in the prep plan always agree.
+function nSplitLineHtml(servBy, contBy) {
+  const names = Object.keys(servBy).filter(n => servBy[n] > 0 && n !== 'planned');
+  if (names.length < 2) return '';
+  names.sort((a, b) => ((a !== 'Troy') - (b !== 'Troy')) || (servBy[b] - servBy[a]));
+  const tot = names.reduce((s, n) => s + servBy[n], 0);
+  const pcts = names.map(n => Math.floor(servBy[n] / tot * 100 + 0.5));
+  pcts[pcts.length - 1] = 100 - pcts.slice(0, -1).reduce((s, x) => s + x, 0);
+  const pctTxt = names.map((n, i) => `${pcts[i]}% ${n}`).join(' / ');
+  const contTxt = names.map(n => `${contBy[n] || 0} ${n}`).join(' + ');
+  const uneven = new Set(names.map(n => contBy[n] || 0)).size > 1;
+  return `<div class="n-rec-batchline"><b>Split by weight:</b> ${nEsc(pctTxt)} \u2192 ${nEsc(contTxt)} containers`
+    + (uneven ? ` <span style="color:var(--n-muted);font-size:12px">(uneven container counts \u2014 not 60/40)</span>` : '')
+    + `</div>`;
+}
+
 // One cook's card. `idx`/`count` say which of the recipe's cooks this is (for the title).
 function nCookCardHtml(r, labelName, cook, idx, count) {
   const title = '📦 ' + (count > 1 ? `Batch ${idx + 1} of ${count}` : 'This batch')
@@ -159,6 +179,7 @@ function nCookCardHtml(r, labelName, cook, idx, count) {
     + (cook.assumed ? '' : ` · cook ${nCookWhen(cook.date)}`);
   // Planned servings and containers for THIS cook only. One planned meal row = one container.
   let total = 0; const byDate = {}; const perAth = {};
+  const servBy = {}, contBy = {};   // per-person servings + containers -> weigh-split %
   for (const m of cook.meals) {
     const s = Number(m.planned_servings) || 0;
     total += s;
@@ -166,6 +187,8 @@ function nCookCardHtml(r, labelName, cook, idx, count) {
     const a = (NS.household || []).find(h => h.id === m.athlete_id);
     const nm = (a && a.name) || 'planned';
     perAth[nm] = (perAth[nm] || 0) + 1;
+    servBy[nm] = (servBy[nm] || 0) + s;
+    contBy[nm] = (contBy[nm] || 0) + 1;
   }
   // Freezer portions this cook makes.
   const perServ = Number(r.kcal_per_serving) || 0;
@@ -174,7 +197,12 @@ function nCookCardHtml(r, labelName, cook, idx, count) {
     const n = Number(e.portions) || 0;
     if (!n) continue;
     freezeParts.push(`${n} ${e.athlete || ''}`.trim());
-    freezeServings += perServ ? n * ((Number(e.kcal) || perServ) / perServ) : n;
+    const fs = perServ ? n * ((Number(e.kcal) || perServ) / perServ) : n;
+    freezeServings += fs;
+    if (e.athlete) {
+      servBy[e.athlete] = (servBy[e.athlete] || 0) + fs;
+      contBy[e.athlete] = (contBy[e.athlete] || 0) + n;
+    }
   }
   const whole = nIsWholeBatch(r);
   const per = Number(r.servings_default) || 0;
@@ -246,6 +274,7 @@ function nCookCardHtml(r, labelName, cook, idx, count) {
     + (count > 1 ? ` This recipe is cooked ${count} separate times this week \u2014 this card is the ${nCookWhen(cook.date)} cook only.` : '');
   return `<div class="n-panel"><div class="n-panel-title">${title}</div>
     <div class="n-rec-batchline"><b>Makes:</b> ${nEsc(makes)}</div>
+    ${whole ? '' : nSplitLineHtml(servBy, contBy)}
     <div class="n-rec-batchline"><b>Cook:</b> ${cookLine}</div>
     ${pulls ? `<div style="font-size:11px;color:var(--n-muted);margin:4px 0 2px;text-transform:uppercase;letter-spacing:.04em">Buy / pull for this cook</div><div class="n-rec-pulls">${pulls}</div>`
             : `<div style="font-size:12px;color:var(--n-muted)">Add a <code>Components:</code> line to this recipe for an exact pull list.</div>`}
