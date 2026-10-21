@@ -17,6 +17,69 @@ function nextMondayLabel() {
 
 let _ciInjuryUpdates = {};
 
+// ── Deload request (2026-10-21) ──
+// The athlete can ask for a lighter week next week. A request is honoured by
+// default; the coach picks the form (deload / reduce / simplify / pain triage)
+// from the reasons — see 04_Operations/Coach_Workflow.md Step 1a.
+// Keys must match DELOAD_REASONS in 05_Scripts/deload_signals.py
+// (test_deload_signals.py checks the two lists agree).
+const CI_DELOAD_REASONS = [
+  ['run_down',    'Run down / tired'],
+  ['joints',      'Joints beat up'],
+  ['performance', 'Performance dropping'],
+  ['life_stress', 'Sleep / stress / life'],
+  ['busy_week',   'Busy week ahead'],
+  ['need_break',  'Just need a break'],
+];
+let _ciDeloadReasons = new Set();
+
+function ciDeloadHtml(ci, esc) {
+  const on  = ci.deload_requested === true;
+  const pos = (typeof blockPosLabel === 'function') ? blockPosLabel(S.cycle) : '';
+  const chips = CI_DELOAD_REASONS.map(function(r) {
+    return '<button type="button" class="triage-chip ci-dl-chip' + (_ciDeloadReasons.has(r[0]) ? ' active' : '') + '"'
+      + ' data-reason="' + r[0] + '" onclick="toggleDeloadReason(\'' + r[0] + '\',this)">' + r[1] + '</button>';
+  }).join('');
+  return `
+    <div class="checkin-section">
+      <div class="checkin-section-title">Recovery Week</div>
+      ${pos ? `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">This week: ${esc(pos)}</div>` : ''}
+      <div class="toggle-row">
+        <div><div class="toggle-label">Want a deload next week?</div>
+          <div style="font-size:12px;color:var(--muted)">Your coach will build a lighter week.</div></div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="ci-deload" ${on ? 'checked' : ''} onchange="toggleDeloadFields()">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="travel-sub ${on ? 'visible' : ''}" id="ci-deload-sub">
+        <label>What's going on? <span style="font-weight:400">(tap any — it helps pick the right kind of easy week)</span></label>
+        <div class="triage-chips" id="ci-dl-chips">${chips}</div>
+        <textarea id="ci-deload-note" data-draft="${ciDraftPrefix()}deload_note" placeholder="Anything to add? (optional)"
+          style="width:100%;margin-top:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;
+                 color:var(--text);font-size:14px;padding:10px 12px;resize:none;min-height:52px"
+        >${esc(ci.deload_note || '')}</textarea>
+      </div>
+    </div>`;
+}
+
+function toggleDeloadFields() {
+  const on = !!document.getElementById('ci-deload')?.checked;
+  document.getElementById('ci-deload-sub')?.classList.toggle('visible', on);
+  ciSaveState();
+}
+
+function toggleDeloadReason(key, btn) {
+  if (_ciDeloadReasons.has(key)) _ciDeloadReasons.delete(key); else _ciDeloadReasons.add(key);
+  if (btn) btn.classList.toggle('active', _ciDeloadReasons.has(key));
+  ciSaveState();
+}
+
+// Ordered list of the reason keys currently selected (stable for the DB).
+function ciDeloadReasonList() {
+  return CI_DELOAD_REASONS.map(r => r[0]).filter(k => _ciDeloadReasons.has(k));
+}
+
 // ── Unsent-draft autosave (2026-10-18) — helpers live in core.js ──
 // Text boxes autosave via data-draft="ci_<week>_<field>". The tap-driven state
 // (skipped days, travel toggles, equipment, injury updates) is saved as one
@@ -39,6 +102,8 @@ function ciSaveState() {
     travel_plans_to_train: traveling ? trainAway : null,
     travel_equipment_access: traveling && trainAway ? (document.getElementById('ci-equip')?.value || null) : null,
     injuries: Object.assign({}, _ciInjuryUpdates),
+    deload_requested: !!document.getElementById('ci-deload')?.checked,
+    deload_reasons: ciDeloadReasonList(),
   });
 }
 function ciDiscardDraft() {
@@ -125,6 +190,8 @@ async function openCheckin() {
   const draftState  = draftGet(ciDraftPrefix() + 'state', submittedAt);
   const ci = Object.assign({}, S.checkin || {}, draftState || {});
   const hadDraft = !!draftState || draftHas(ciDraftPrefix(), submittedAt);
+
+  _ciDeloadReasons = new Set(ci.deload_requested ? (ci.deload_reasons || []) : []);
 
   // Refresh open injuries for the interactive review below.
   _ciInjuryUpdates = {};
@@ -251,6 +318,8 @@ async function openCheckin() {
         >${_esc(ci.health_recovery_notes || '')}</textarea>
       </div>
     </div>
+
+    ${ciDeloadHtml(ci, _esc)}
 
     <div class="checkin-section">
       <div class="checkin-section-title">Notes for Coach <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--muted)">(all optional)</span></div>
@@ -389,10 +458,32 @@ async function submitCheckin() {
     resubmitted:               isResubmit,
   };
 
+  // Deload request. Sent only when on, or to switch an earlier request off, so a
+  // phone running this build before the DB migration still submits normally.
+  const deloadOn   = !!document.getElementById('ci-deload')?.checked;
+  const deloadNote = document.getElementById('ci-deload-note')?.value.trim() || null;
+  if (deloadOn || (S.checkin && S.checkin.deload_requested)) {
+    payload.deload_requested = deloadOn;
+    payload.deload_reasons   = deloadOn && ciDeloadReasonList().length ? ciDeloadReasonList() : null;
+    payload.deload_note      = deloadOn ? deloadNote : null;
+  }
+
   try {
-    const { data, error } = await db.from('athlete_weekly_checkin')
+    let { data, error } = await db.from('athlete_weekly_checkin')
       .upsert(payload, { onConflict: 'athlete_id,week_start_date' })
       .select().single();
+    if (error && 'deload_requested' in payload && /deload_/.test(String(error.message || ''))) {
+      // DB not migrated yet — keep the request by folding it into the general note.
+      const r = payload.deload_requested
+        ? 'DELOAD REQUESTED' + (payload.deload_reasons ? ' (' + payload.deload_reasons.join(', ') + ')' : '')
+          + (payload.deload_note ? ': ' + payload.deload_note : '')
+        : null;
+      delete payload.deload_requested; delete payload.deload_reasons; delete payload.deload_note;
+      if (r) payload.general_notes = payload.general_notes ? r + ' \u2014 ' + payload.general_notes : r;
+      ({ data, error } = await db.from('athlete_weekly_checkin')
+        .upsert(payload, { onConflict: 'athlete_id,week_start_date' })
+        .select().single());
+    }
     if (error) throw error;
     S.checkin = data;
     draftClear(ciDraftPrefix());

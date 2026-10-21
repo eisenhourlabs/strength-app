@@ -25,8 +25,10 @@ async function renderWeek() {
   const skipSess  = S.sessions.filter(s => S.completed[s.id]?.status === 'skipped').length;
   const planSess  = totalSess - skipSess;   // skipped sessions drop out of the target
   const skipNote  = skipSess ? ` · ${skipSess} skipped` : '';
+  const blockPos = blockPosLabel(S.cycle);
   const progressHtml = (S.cycle && totalSess > 0) ? `
-    <div class="week-progress">
+    <div class="week-progress">${blockPos ? `
+      <div class="week-progress-label block-pos" style="color:var(--muted);margin-bottom:4px">${blockPos}</div>` : ''}
       <div class="week-progress-label">${doneSess} of ${planSess} session${planSess !== 1 ? 's' : ''} complete${(planSess > 0 && doneSess === planSess) ? ' — week done! 🎉' : ''}${skipNote}</div>
       <div class="week-progress-track"><div class="week-progress-fill" style="width:${planSess > 0 ? Math.round(doneSess / planSess * 100) : 100}%"></div></div>
     </div>` : '';
@@ -905,3 +907,19 @@ function initSessionSort() {
     if (event === 'SIGNED_OUT') showScreen('login');
   });
 })();
+
+// ── Block position (2026-10-21) ──────────────────────────────────────────────
+// From the optional training_cycles columns block_week / block_weeks / is_deload
+// (set by push_program.py). block_weeks counts the planned deload as the last
+// week of the block, so "weeks left" is the countdown to it. Returns '' when the
+// coach did not send a position (older cycles, systems with no fixed deload).
+function blockPosLabel(c) {
+  if (!c) return '';
+  if (c.is_deload) return 'Deload week';
+  const w = parseInt(c.block_week, 10), n = parseInt(c.block_weeks, 10);
+  if (!w) return '';
+  if (!n) return 'Block week ' + w;
+  const left = n - w;
+  if (left <= 0) return 'Week ' + w + ' of ' + n;
+  return 'Week ' + w + ' of ' + n + ' · deload ' + (left === 1 ? 'next week' : 'in ' + left + ' weeks');
+}
