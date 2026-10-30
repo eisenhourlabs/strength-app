@@ -31,7 +31,7 @@
 </head>
 <body>
   <div class="rv-bar" id="rv-bar" style="display:none">
-    <a href="index.html">&#8249; App</a>
+    <a href="index.html?side=training">&#8249; App</a>
     <button id="rv-prev" title="Previous week">&#9664;</button>
     <span class="rv-week" id="rv-week"></span>
     <button id="rv-next" title="Next week">&#9654;</button>
@@ -105,7 +105,7 @@
         var e = res.error;
         if (e.code === '42501' || /not authorized/i.test(e.message || '')) {
           blocked = true;
-          msg('The Week Review is for the coach only.<br><br><a href="index.html">Back to the app</a>');
+          msg('The Week Review is for the coach only.<br><br><a href="index.html?side=training">Back to the app</a>');
         } else if (e.code === 'PGRST202' || /could not find the function/i.test(e.message || '')) {
           msg('The review isn’t set up in the database yet. Run <b>05_Scripts/sql/2026-10-18_coach_week_review.sql</b> in the Supabase SQL editor.');
         } else {

@@ -156,6 +156,21 @@ async function doLogin() {
   await onLogin(data.user);
 }
 
+// True when the user picked the training side this session (dual users only).
+function trainingSideChosen() {
+  try {
+    const u = new URL(window.location.href);
+    if (u.searchParams.get('side') === 'training') {
+      sessionStorage.setItem('sv8_side', 'training');
+      u.searchParams.delete('side');
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+    }
+    return sessionStorage.getItem('sv8_side') === 'training';
+  } catch (_) {
+    return true;   // storage blocked: never trap the user on one side
+  }
+}
+
 async function onLogin(user) {
   S.user = user;
 
@@ -171,6 +186,13 @@ async function onLogin(user) {
     // Nutrition-only users (training_active=false) go straight to the nutrition app
     if (athlete.nutrition_active && athlete.training_active === false) {
       window.location.href = 'nutrition.html';
+      return;
+    }
+    // Dual users open on the nutrition side (Troy, 2026-10-29). The 🏋 Training
+    // link comes back here with ?side=training, which holds for the rest of the
+    // browser session so reloads and in-app links stay on the training side.
+    if (athlete.nutrition_active && !trainingSideChosen()) {
+      window.location.replace('nutrition.html');
       return;
     }
     // Dual users get the header link to the nutrition side
