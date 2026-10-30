@@ -207,7 +207,7 @@ async function nInit(user) {
   NS.user = user;
   try {
     const { data: me, error } = await ndb.from('athletes')
-      .select('id,name,email,household_id,training_active,nutrition_active')
+      .select('id,name,email,household_id,training_active,nutrition_active,activity_mode')
       .eq('email', user.email).single();
     if (error || !me) throw (error || new Error('no athlete'));
     if (!me.nutrition_active) {
@@ -476,9 +476,17 @@ async function nLoadAll() {
 }
 
 // ── Activity estimate helpers (N09 §3.13) ──
-// Strength-app users log steps OUTSIDE their logged workouts (full credit);
-// nutrition-only users log total daily steps (first 3,000/day not credited).
-function nStepsMode() { return NS.me && NS.me.training_active ? 'extra' : 'total'; }
+// athletes.activity_mode (2026-10-29): 'strength' = every workout comes from the
+// strength app and steps are logged OUTSIDE workouts (full credit); 'manual' =
+// nutrition-only logging of total daily steps (first 3,000/day not credited);
+// 'hybrid' = strength-app sessions sync AND other workouts + total steps are
+// logged by hand (Amanda). NULL falls back to training_active.
+function nActMode() {
+  const m = NS.me && NS.me.activity_mode;
+  if (m === 'strength' || m === 'manual' || m === 'hybrid') return m;
+  return NS.me && NS.me.training_active ? 'strength' : 'manual';
+}
+function nStepsMode() { return nActMode() === 'strength' ? 'extra' : 'total'; }
 // completed_sessions row with an embedded completed_strength_sets(count) ->
 // the engine's { ..., set_count } shape. Without the embed, set_count stays
 // undefined and nmActIsLift falls back to session_type / attached conditioning.

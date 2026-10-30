@@ -1234,9 +1234,12 @@ function nActivityCardHtml() {
   const { steps, wMin, wType, sleep } = nActFor(d);
   const kS = 'act-steps-' + d, kW = 'act-workout-' + d;
   const extra = nStepsMode() === 'extra';
-  const hint = NS.me.training_active
+  const mode = nActMode();
+  const hint = mode === 'strength'
     ? 'Sessions from the strength app sync automatically (⇄ rows, lifting counted as 60 min). Log steps outside those workouts, and only extra activity below.'
-    : 'Log total steps for the day and your workouts so they show in your trends.';
+    : mode === 'hybrid'
+      ? 'Strength-app sessions sync automatically (⇄ rows, lifting counted as 60 min) — don\'t log those again. Log total steps for the day and your other workouts below.'
+      : 'Log total steps for the day and your workouts so they show in your trends.';
   const stepWord = extra ? 'steps outside workouts' : 'steps';
 
   const stepsRow = (steps != null && !N_OPEN[kS])
@@ -1260,7 +1263,7 @@ function nActivityCardHtml() {
       </div>`;
 
   return `<div class="n-panel" style="margin-top:14px"><div class="n-panel-title">⚡ Activity ${isBack ? '— ' + nDayName(d, true) : 'today'}</div>
-    ${!NS.me.training_active ? `<div class="n-prompt-row" style="margin-bottom:8px">
+    ${mode !== 'strength' ? `<div class="n-prompt-row" style="margin-bottom:8px">
       <input type="number" step="0.5" inputmode="decimal" id="na-sleep" placeholder="sleep ${isBack ? 'the night before' : 'last night'} (hrs)" value="${sleep ?? ''}">
       <button class="n-act small primary" onclick="submitSleep()">Save sleep</button></div>` : ''}
     ${NS.me.training_active ? nSyncedRowsHtml(d) : ''}
