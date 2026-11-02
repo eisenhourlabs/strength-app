@@ -22,8 +22,8 @@ const NTM = (() => {
     drawers: { activity: false, adherence: false, history: false } }, saved);
 })();
 function nmSaveUi() { try { localStorage.setItem('ntm_ui', JSON.stringify(NTM)); } catch (e) { /* ignore */ } }
-function nmToggleUi(k) { NTM[k] = !NTM[k]; nmSaveUi(); renderNTrends(); }
-function nmToggleDrawer(k) { NTM.drawers[k] = !NTM.drawers[k]; nmSaveUi(); renderNTrends(); }
+function nmToggleUi(k) { NTM[k] = !NTM[k]; nmSaveUi(); nRerenderTrends(); }
+function nmToggleDrawer(k) { NTM.drawers[k] = !NTM.drawers[k]; nmSaveUi(); nRerenderTrends(); }
 
 function nmFmt(n) { return n == null ? '—' : Math.round(n).toLocaleString('en-US'); }
 function nmSigned(n, d) { return (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(n).toFixed(d == null ? 0 : d); }

@@ -134,19 +134,42 @@ async function renderNTrends() {
   D.measureRows = mq.data || [];
   D.maint = nMaintDerive(D, { checkins: (ciq && !ciq.error && ciq.data) || [], ACT: ACT0 });
 
-  // Order per the 2026-11-01 spec §5: answer first (overview, weight,
-  // maintenance), then tape and macros; detail lives in collapsed drawers whose
-  // headers carry a one-line summary so a closed drawer still says something.
+  NT.last = { D, ACT: ACT0, reports, measures: mq.data || [] };
+  nPaintTrends();
+}
+
+// Draw the Trends cards from the last fetch. Order per the 2026-11-01 spec §5:
+// answer first (overview, weight, maintenance), then tape and macros; detail
+// lives in collapsed drawers whose headers carry a one-line summary.
+function nPaintTrends() {
+  const body = document.getElementById('ntrends-body');
+  const L = NT.last;
+  if (!body || !L) return;
+  const { D, ACT, reports, measures } = L;
   let html = '';
   html += nOverviewHtml(D, reports);
   html += nWeightEnergyCardHtml(D);
   html += nMaintenanceHtml(D);
-  html += nMeasurementsHtml(mq.data || []);
+  html += nMeasurementsHtml(measures);
   html += nMacrosHtml(D);
-  html += nDrawerHtml('activity', 'Activity', nActivitySummary(ACT0), () => nActivityTrendHtml(ACT0));
+  html += nDrawerHtml('activity', 'Activity', nActivitySummary(ACT), () => nActivityTrendHtml(ACT));
   html += nDrawerHtml('adherence', 'Adherence &amp; logging', nAdherenceSummary(D), () => nAdherenceHtml(D));
   html += nDrawerHtml('history', 'History &amp; coach reports', nHistorySummary(D, reports), () => nHistoryHtml(D, reports));
   body.innerHTML = html;
+}
+
+// Open/close taps (carets, drawers, report rows, activity weeks) redraw from
+// the data already loaded — no refetch, no spinner — and keep the reader where
+// they were. Re-fetching blanked the screen to a spinner, which collapsed the
+// page and threw the reader back to the top (Troy, 2026-11-01).
+function nRerenderTrends() {
+  if (!NT.last) { renderNTrends(); return; }
+  const body = document.getElementById('ntrends-body');
+  const top = body ? body.scrollTop : 0;
+  const winY = typeof window !== 'undefined' && window.scrollY != null ? window.scrollY : 0;
+  nPaintTrends();
+  if (body) body.scrollTop = top;
+  if (winY && typeof window.scrollTo === 'function') window.scrollTo(0, winY);
 }
 
 function nSetRange(r) { NT.range = r; renderNTrends(); }
@@ -163,10 +186,10 @@ function nPlanBasisFromReports(reports, thisWeek) {
     activity: Number(e.activity_planned_kcal) || 0, outlook: e.activity_outlook || null,
     forecast: Number(e.forecast_maintenance_kcal), target: e.kcal_target != null ? Number(e.kcal_target) : null };
 }
-function nToggleMacros() { NT.showMacros = !NT.showMacros; renderNTrends(); }
-function nToggleReport(id) { NT.openReport = (NT.openReport === id) ? null : id; renderNTrends(); }
-function nToggleEnergyTable() { NT.energyTable = !NT.energyTable; renderNTrends(); }
-function nToggleActWeek(w) { NT.actWeek = (NT.actWeek === w) ? null : w; renderNTrends(); }
+function nToggleMacros() { NT.showMacros = !NT.showMacros; nRerenderTrends(); }
+function nToggleReport(id) { NT.openReport = (NT.openReport === id) ? null : id; nRerenderTrends(); }
+function nToggleEnergyTable() { NT.energyTable = !NT.energyTable; nRerenderTrends(); }
+function nToggleActWeek(w) { NT.actWeek = (NT.actWeek === w) ? null : w; nRerenderTrends(); }
 
 // ── Shared derivations (fetch -> N09 engine) ──
 function nTrendsDerive(weights, summary, planned, logs, phases, targets, dayView, nullKcal, ACT, opts) {
