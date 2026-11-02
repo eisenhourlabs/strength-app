@@ -1,11 +1,11 @@
-// ══════════════ Kardia Nutrition — metric engine (N09, calc_version 1) ══════════════
+// ══════════════ Kardia Nutrition — metric engine (N09, calc_version 2) ══════════════
 // Pure functions implementing 08_Nutrition/N09_Metric_Definitions.md §3 and §4.
 // NO DOM, NO Supabase, NO globals beyond the exports at the bottom — this file is
 // loaded by the app AND required by node for the golden-file calc tests, and it is
 // mirrored formula-for-formula by 05_Scripts/nutrition_metrics.py (the coach side).
 // If you change a formula here, change it there, bump NM_CALC_VERSION, and update N09.
 
-const NM_CALC_VERSION = 1;
+const NM_CALC_VERSION = 2;   // 2026-11-01: §3.7 window = 4 completed plan weeks (N09 §7)
 const NM_ALPHA = 0.25;               // N09 §3.1
 const NM_TREND_MIN_POINTS = 5;       // display gate
 const NM_TREND_MIN_SPAN_DAYS = 14;   // display gate
@@ -397,15 +397,40 @@ function nmTdee(o) {
 
   const meanIntake = eligible.reduce((a, d) => a + d.actual_kcal, 0) / eligible.length;
   const dTrend = wp[wp.length - 1].trend - wp[0].trend;
-  const mid = Math.round((meanIntake - NM_KCAL_PER_LB * (dTrend / span)) / 50) * 50;
+  const exact = meanIntake - NM_KCAL_PER_LB * (dTrend / span);
+  const mid = Math.round(exact / 50) * 50;
   const band = nmTdeeBand(conf);
-  return { sufficient: true, window: [start, end], mid, low: mid - band, high: mid + band,
+  return { sufficient: true, window: [start, end], mid, exact: Math.round(exact),
+    low: mid - band, high: mid + band,
     band, confidence: conf, meanIntake: Math.round(meanIntake),
     deltaTrend: Math.round(dTrend * 100) / 100, spanDays: span,
     nDays: eligible.length, nWeighIns: wp.length, reason: null };
 }
 
+// §3.7 window end (calc_version 2): the Tuesday closing the most recent plan
+// week (Wed–Tue) that finished on or before `lastCompleteDay` — pass yesterday
+// in the app. A Tuesday is its own answer (its week is complete).
+function nmLastCompletedPlanWeekEnd(lastCompleteDay) {
+  return nmAddDays(nmWeekOf(nmAddDays(lastCompleteDay, 1)), -1);
+}
+
+// §3.7.2 automatic week check — re-run §3.7 with one plan week's INTAKE days
+// removed (weigh-ins stay) and report the difference in exact kcal. Reporting
+// only: the headline estimate never drops a week on the strength of this.
+// o: nmTdee inputs plus excludeStart / excludeEnd (inclusive).
+function nmTdeeWeekEffect(o) {
+  const base = nmTdee(o);
+  if (!base.sufficient) return null;
+  const kept = (o.days || []).filter(d => d && !(d.day >= o.excludeStart && d.day <= o.excludeEnd));
+  const without = nmTdee({ ...o, days: kept });
+  if (!without.sufficient)
+    return { exact: base.exact, exactWithout: null, delta: null, reason: without.reason };
+  return { exact: base.exact, exactWithout: without.exact, delta: without.exact - base.exact, reason: null };
+}
+
 // Weekly walk-forward used by the chart and the data table.
+// Cap origin (calc_version 2): `shown` depends on where the sequence starts, so
+// pass weekEnds from a FIXED origin — never from the user's chart range.
 //
 // The §3.7 "never moves more than 100 kcal/week" rule is a property of a
 // SEQUENCE, not of a point, which is why it lives here and not in nmTdee. Each
@@ -429,7 +454,11 @@ function nmTdeeSeries(o) {
     let shown = null, recalibrating = false;
     if (r.sufficient) {
       if (prevShown == null) shown = r.mid;
-      else if (Math.abs(r.mid - prevShown) > NM_TDEE_MAX_STEP_KCAL) { shown = prevShown; recalibrating = true; }
+      // calc_version 2: STEP toward the new figure by at most the cap instead of
+      // freezing — a freeze never released on its own (no "coach accepted"
+      // signal exists), so one bad first window could pin the headline.
+      else if (Math.abs(r.mid - prevShown) > NM_TDEE_MAX_STEP_KCAL) {
+        shown = prevShown + (r.mid > prevShown ? NM_TDEE_MAX_STEP_KCAL : -NM_TDEE_MAX_STEP_KCAL); recalibrating = true; }
       else shown = r.mid;
       prevShown = shown;
     }
@@ -816,7 +845,7 @@ if (typeof module !== 'undefined' && module.exports) {
     nmConfidence, nmPlateau,
     nmCheckWeight, nmSuggestTypoFix, nmCheckTape, nmCheckCaliper,
     nmCheckDuplicate, nmCheckActivity, nmGoalProgress,
-    nmTdee, nmTdeeSeries, nmTdeeDayEligible, nmTdeeBand,
+    nmTdee, nmTdeeSeries, nmTdeeDayEligible, nmTdeeBand, nmLastCompletedPlanWeekEnd, nmTdeeWeekEffect,
     nmGoalEta, nmPhaseForecast, nmPhaseEnd, nmPhaseDefaultWeeks,
     nmProjectionSuppression, nmHalfMonth, nmHalfMonthRange,
     nmWeekOf, nmAddDays, nmDayDiff,
