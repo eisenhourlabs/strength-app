@@ -921,6 +921,26 @@
 .mv-screen-dot { display: flex; flex-direction: column; align-items: center; }
 .mv-tilt-result { color: var(--success); }
 .mv-tilt-diag { font-size: 10px; color: var(--muted); opacity: .7; margin: 0 0 10px; font-family: monospace; }
+/* Self-tests phone run v2 (selftests.js): guard covers the whole app while measuring */
+.mv-tilt-cta { margin: 4px 0 10px; text-align: center; }
+.mv-tilt-cta .btn { margin-bottom: 4px; }
+.mv-tilt-place { text-align: left; font-size: 14px; background: var(--surface2); border-radius: 8px; padding: 8px 10px; margin: 6px 0 10px; }
+.mv-tilt-side-res { font-size: 16px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.mv-speak-chips { justify-content: center; margin: 4px 0 10px; }
+.mv-num-src { margin-left: 6px; font-size: 12px; }
+.mv-guard { display: none; position: fixed; inset: 0; z-index: 1000; background: var(--bg); color: var(--text);
+  flex-direction: column; align-items: center; justify-content: center; text-align: center;
+  padding: calc(var(--safe-top) + 20px) 20px calc(var(--safe-bot) + 20px); touch-action: none; user-select: none; -webkit-user-select: none; }
+.mv-guard.open { display: flex; }
+.mv-guard-side { font-size: 34px; font-weight: 800; letter-spacing: .04em; }
+.mv-guard-live { font-size: 96px; font-weight: 800; color: var(--accent); margin: 10px 0; }
+.mv-guard-say { font-size: 20px; min-height: 2.6em; max-width: 26em; margin-bottom: 12px; }
+.mv-guard-off .btn { margin: 4px 0; }
+.mv-guard-stop { position: relative; overflow: hidden; margin-top: auto; width: 100%; max-width: 420px; padding: 18px; border-radius: 12px;
+  border: 1px solid var(--border); background: var(--surface2); font-weight: 700; }
+.mv-guard-stop span { position: relative; }
+.mv-guard-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--accent); opacity: .35; }
+.mv-guard-stop.holding .mv-guard-fill { width: 100%; transition: width 1s linear; }
 
 /* ── Benchmarks (benchmarks.js) ─────────────────────────────────────────── */
 .bm-sec { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin: 18px 0 8px; }
