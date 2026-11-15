@@ -941,6 +941,38 @@
 .mv-guard-stop span { position: relative; }
 .mv-guard-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--accent); opacity: .35; }
 .mv-guard-stop.holding .mv-guard-fill { width: 100%; transition: width 1s linear; }
+/* Self-tests screen (selftests.js, redesign Phase 3): home, four-step test, bands, figures */
+.mv-band { font-size: 10px; font-weight: 700; border-radius: 10px; padding: 1px 7px; border: 1px solid; }
+.mv-band-good { color: var(--success); border-color: var(--success); }
+.mv-band-fine { color: var(--muted); border-color: var(--border); }
+.mv-band-work { color: #d9a441; border-color: #d9a441; }
+.mv-test-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.mv-need { font-size: 11px; color: var(--muted); background: var(--surface2); border-radius: 8px; padding: 1px 6px; }
+.mv-test-reason { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.mv-test-item-due .mv-drill-name { color: var(--text); }
+.mv-suggest-btns { margin-top: 6px; }
+.mv-st-none { font-size: 12px; padding: 4px; }
+.mv-st-group { border-bottom: 1px solid var(--border); }
+.mv-st-group-hdr { padding: 10px 4px; cursor: pointer; display: flex; gap: 6px; align-items: center; }
+.mv-st-chev { margin-left: auto; color: var(--muted); }
+.mv-st-settings { padding: 4px 0 20px; }
+.mv-st-steps { display: flex; gap: 4px; margin: 0 0 12px; overflow-x: auto; }
+.mv-st-step { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 10px; padding: 2px 8px; white-space: nowrap; }
+.mv-st-step.on { color: var(--text); border-color: var(--accent); background: var(--accent); }
+.mv-st-fig { background: var(--surface2); border-radius: 10px; padding: 6px; margin: 8px 0 12px; }
+.mv-st-fig svg { display: block; width: 100%; height: auto; }
+.mv-st-fig.small { margin: 0 0 8px; }
+.mv-st-facts { font-size: 14px; line-height: 1.6; margin-bottom: 10px; }
+.mv-st-coach { font-size: 14px; border: 1px solid var(--accent); border-radius: 10px; padding: 8px 10px; margin: 8px 0; }
+.mv-st-watch { font-size: 13px; color: #d9a441; margin: 6px 0 10px; }
+.mv-st-video { display: block; margin: 6px 0 10px; }
+.mv-side-tabs { display: flex; gap: 6px; margin: 6px 0 8px; }
+.mv-side-tab { flex: 1; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); font-weight: 600; }
+.mv-side-tab.on { border-color: var(--accent); background: var(--accent); }
+.mv-side-big { font-size: 26px; font-weight: 800; letter-spacing: .04em; margin: 6px 0 8px; }
+.mv-hidden { display: none; }
+.mv-side-next { margin-top: 8px; }
+.mv-old-note { font-size: 12px; margin-top: 6px; }
 
 /* ── Benchmarks (benchmarks.js) ─────────────────────────────────────────── */
 .bm-sec { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin: 18px 0 8px; }

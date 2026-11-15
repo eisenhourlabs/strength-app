@@ -636,8 +636,8 @@ function bmRenderScreen() {
     h += '</div>';
   });
 
-  if (typeof openMvTests === 'function' && typeof MV !== 'undefined' && MV.loaded && typeof mvPlan === 'function' && mvPlan('mobility')) {
-    h += '<div class="bm-link" onclick="openMvTests()">Mobility self-tests ›</div>';
+  if (typeof openMvTests === 'function' && typeof MV !== 'undefined' && MV.loaded && MV.tests && MV.tests.length) {
+    h += '<div class="bm-link" onclick="openMvTests(\'benchmarks\')">📏 Self-tests ›</div>';
   }
   h += '<div class="bm-sec">Settings</div><div class="card bm-settings">'
     + '<div class="bm-set-row"><span>WOD standard</span><div class="bm-seg">'

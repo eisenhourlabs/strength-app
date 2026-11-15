@@ -93,13 +93,25 @@ function mvScreenValueOk(test, stored) {
 }
 function mvTiltFmt(test, a) { return Math.round(a) + '°'; }
 
-function mvScreenRows(screens, key) {
-  return (screens || []).filter(function (s) { return s.test_key === key; })
+// ── Versions (Plan §6.5 Ver) ──
+// Results carry the version they were taken under (mobility_screens.test_version; a
+// row without one counts as 1). Only rows of the test's current version are compared.
+// `test` may be a test object (filtered to its version) or a bare key (all versions —
+// kept for callers that only need "any result").
+function mvRowVer(r) { return r.test_version == null ? 1 : Number(r.test_version); }
+function mvScreenRows(screens, test) {
+  const key = typeof test === 'string' ? test : test.key;
+  const ver = typeof test === 'string' ? null : (test.version || 1);
+  return (screens || []).filter(function (s) { return s.test_key === key && (ver == null || mvRowVer(s) === ver); })
     .sort(function (a, b) { return a.test_date < b.test_date ? -1 : a.test_date > b.test_date ? 1 : 0; });
 }
+// Rows taken under an older version of the test ("earlier method").
+function mvScreenOldRows(screens, test) {
+  return (screens || []).filter(function (s) { return s.test_key === test.key && mvRowVer(s) !== (test.version || 1); });
+}
 // The most recent test date for a test, with its rows by side.
-function mvScreenLatest(screens, key) {
-  const rows = mvScreenRows(screens, key);
+function mvScreenLatest(screens, test) {
+  const rows = mvScreenRows(screens, test);
   if (!rows.length) return null;
   const d = rows[rows.length - 1].test_date;
   const out = { date: d, sides: {}, pain: false, finding: null };
@@ -164,19 +176,19 @@ function mvScreenChange(test, baseline, latest) {
 }
 
 // One side's history, oldest first. "It hurt" rows carry no score and are left out.
-function mvScreenTrend(screens, key, side) {
-  return mvScreenRows(screens, key).filter(function (r) {
+function mvScreenTrend(screens, test, side) {
+  return mvScreenRows(screens, test).filter(function (r) {
     return r.side === side && !r.pain_flag && (r.value != null || r.passed != null);
   }).map(function (r) {
     return { date: r.test_date, value: r.value == null ? null : Number(r.value), passed: r.passed == null ? null : !!r.passed };
   });
 }
 
-// Per side: baseline (first result), latest, previous, and the changes.
+// Per side: baseline (first result), latest, previous, and the changes — current version only.
 function mvScreenSummary(test, screens) {
   const out = {};
   mvScreenSides(test).forEach(function (s) {
-    const tr = mvScreenTrend(screens, test.key, s);
+    const tr = mvScreenTrend(screens, test, s);
     if (!tr.length) return;
     const base = tr[0], last = tr[tr.length - 1], prev = tr.length > 1 ? tr[tr.length - 2] : null;
     out[s] = { baseline: base, latest: last, previous: prev, count: tr.length,
@@ -186,69 +198,226 @@ function mvScreenSummary(test, screens) {
   return out;
 }
 
-// Why a test can't be prompted right now (ex = mvExclusions()).
+// Result band (Plan §6.5 Target): at or past Target → 'good'; past the Deficient
+// line → 'work' ("Worth working on"); between → 'fine' ("Fine — room to improve").
+// value may be a number or a pass (true) / fail (false). null when the test has no lines.
+function mvScreenBand(test, value) {
+  if (value === true) return 'good';
+  if (value === false) return 'work';
+  if (value == null || !isFinite(Number(value))) return null;
+  const v = Number(value), eps = 1e-9;
+  if (test.defValue != null && (test.defOp === '<' || test.defOp === '>')) {
+    if (test.defOp === '<' ? v < test.defValue - eps : v > test.defValue + eps) return 'work';
+  }
+  if (test.target != null) {
+    const good = test.better === 'lower' ? v <= test.target + eps : v >= test.target - eps;
+    return good ? 'good' : 'fine';
+  }
+  return test.defValue != null && (test.defOp === '<' || test.defOp === '>') ? 'fine' : null;
+}
+const MV_BAND_TEXT = { good: 'Good', fine: 'Fine — room to improve', work: 'Worth working on' };
+
+// Why a test can't be prompted right now (ex = mvExclusions(); ctx.coachAssigned = {key:true}).
 // kind 'paused' (red pain / neuro — unavailable), 'caution' (coach caution — skipped),
 // 'amber' (open pain 3–5 — not prompted, still takeable by hand). null = fine.
-function mvScreenBlock(test, ex) {
+// Plan §4.4: pain_rule 'safe' is never blocked by pain (knee swelling). A coach-assigned
+// test is still prompted during amber pain → { kind: 'pain_free', painFree: true }.
+function mvScreenBlock(test, ex, ctx) {
   if (!ex) return null;
+  const safe = test.painRule === 'safe';
   const regs = mvRegion(test.region).loads || [test.region];       // whole_body → hip, knee, ankle, low back
   const red = regs.map(function (r) { return ex.red && ex.red[r]; }).filter(Boolean)[0];
-  if (red) return { kind: 'paused', why: red.neuro ? 'nerve symptoms flagged' : 'open pain episode ' + red.score + '/10' };
+  if (red && !safe) return { kind: 'paused', why: red.neuro ? 'nerve symptoms flagged' : 'open pain episode ' + red.score + '/10' };
   for (let i = 0; i < (test.tags || []).length; i++) {
     const why = ex.tags && ex.tags[test.tags[i]];
     if (why) return { kind: 'caution', why: why };
   }
   const amb = regs.map(function (r) { return ex.amber && ex.amber[r]; }).filter(Boolean)[0];
-  if (amb) return { kind: 'amber', why: 'open pain episode ' + amb.score + '/10 — scores during a pain episode aren\'t comparable' };
+  if (amb && !safe) {
+    if (ctx && ctx.coachAssigned && ctx.coachAssigned[test.key]) {
+      return { kind: 'pain_free', painFree: true, why: 'open pain episode ' + amb.score + '/10 — pain-free range only' };
+    }
+    return { kind: 'amber', why: 'open pain episode ' + amb.score + '/10 — scores during a pain episode aren\'t comparable' };
+  }
   return null;
 }
+function mvBlocks(b) { return !!(b && b.kind !== 'pain_free'); }
 
-// Which tests are due (framework §10.2). Region tests only while mobility is on;
-// a whole-body test (offersHabit, e.g. sit_rise → floor) also while that habit is
-// on, and is retested every 28 days while the habit is on and the latest result
-// is deficient. o.habitsOn = { habitKey: true } for every habit that is on.
-//   focus area (targeted mode, active): never taken → 'baseline'; latest result
-//     deficient and ≥ 28 days old → 'retest'; area (re)started since the last
-//     result and ≥ 28 days → 'baseline'.
-//   otherwise: never taken or ≥ 182 days → 'checkup'.
-// o: { mobilityOn, mode, habitsOn: {key:true}, optouts: {key:true}, snoozes: {key:'YYYY-MM-DD'}, exclusions }
-// Returns { due, skipped, snoozed, optedOut }; due items = { test, reason, focus, last, age }.
-function mvScreensDue(areas, screens, tests, todayStr, o) {
-  o = o || {};
+// Active assignment rows by test (mobility_test_assignments). Coach rows win over the
+// athlete's own; 'suggested' rows that were accepted (status active) count as the athlete's.
+function mvAssignIndex(assignments) {
+  const out = { coach: {}, mine: {}, dismissed: {} };
+  (assignments || []).forEach(function (a) {
+    if (a.status === 'active') {
+      if (a.source === 'coach') out.coach[a.test_key] = a;
+      else if (!out.mine[a.test_key] || a.source === 'athlete') out.mine[a.test_key] = a;
+    } else if (a.status === 'dismissed' && a.source === 'suggested') out.dismissed[a.test_key] = a;
+  });
+  return out;
+}
+function mvFocusRegions(ctx) {
+  const f = {};
+  if (ctx && ctx.mobilityOn && ctx.mode === 'targeted') (ctx.areas || []).forEach(function (a) { if (a.is_active !== false) f[a.region] = a; });
+  return f;
+}
+function mvCtxCoach(ctx) {
+  if (ctx.coachAssigned) return ctx.coachAssigned;
+  const c = {};
+  Object.keys(mvAssignIndex(ctx.assignments).coach).forEach(function (k) { c[k] = true; });
+  return c;
+}
+function mvSortTests(list) { return list.slice().sort(function (a, b) { return a.sort - b.sort; }); }
+
+// My tests (Plan §4.2). ctx = { areas, mobilityOn, mode, habitsOn, optouts, snoozes,
+// exclusions, assignments, painHistory, remindersOff, coachAssigned, screens?, today? }.
+// Lists may overlap (a coach-assigned core test is in both); the screen shows each test
+// once, in the first of: coach, core, focus, mine, suggested.
+//   core      — Quick Screen: every core test not opted out
+//   coach     — [{test, row}] active coach assignments
+//   focus     — core + follow-up tests of active focus-area regions (never monitor tests)
+//   mine      — [{test, row}] added by the athlete (from All tests, or a suggestion they accepted)
+//   suggested — [{test, why, trigger}] (needs ctx.screens + ctx.today)
+//   all       — every test
+function mvTestsMine(tests, ctx) {
+  ctx = ctx || {};
+  const opt = ctx.optouts || {}, ai = mvAssignIndex(ctx.assignments), focusR = mvFocusRegions(ctx);
+  const ts = mvSortTests(tests || []);
+  const out = { core: [], coach: [], focus: [], mine: [], suggested: [], all: ts };
+  ts.forEach(function (t) {
+    if (t.tier === 'core' && !opt[t.key]) out.core.push(t);
+    if (ai.coach[t.key]) out.coach.push({ test: t, row: ai.coach[t.key] });
+    else if (ai.mine[t.key]) out.mine.push({ test: t, row: ai.mine[t.key] });
+    if (focusR[t.region] && t.tier !== 'monitor' && !opt[t.key]) out.focus.push(t);
+  });
+  out.suggested = ctx.today ? mvSuggestions(tests, ctx.screens || [], ctx, ctx.today) : [];
+  return out;
+}
+
+// Suggested follow-up tests (Plan §4.2). Triggers from the test's Suggest When:
+//   flag:<test>          that test's latest (current-version) result is worth working on
+//   finding:<test>=<chip> that test's latest result carries that chip
+//   history              a pain episode in this body area in the last 365 days (open or closed)
+//   blocked:<test>       that test is skipped for this athlete by a coach caution
+// Not suggested when: already in My tests (coach / added / focus), opted out, itself
+// blocked, or "Not now" (a dismissed 'suggested' row) less than 182 days ago.
+const MV_SUGGEST_HIDE_DAYS = 182;
+const MV_HISTORY_DAYS = 365;
+function mvSuggestions(tests, screens, ctx, todayStr) {
+  ctx = ctx || {};
+  const ai = mvAssignIndex(ctx.assignments), focusR = mvFocusRegions(ctx), opt = ctx.optouts || {};
+  const byKey = {};
+  (tests || []).forEach(function (t) { byKey[t.key] = t; });
+  const out = [];
+  mvSortTests(tests || []).forEach(function (t) {
+    if (t.tier !== 'follow_up' || !(t.suggestWhen || []).length) return;
+    if (ai.coach[t.key] || ai.mine[t.key] || focusR[t.region] || opt[t.key]) return;
+    const dis = ai.dismissed[t.key];
+    if (dis && mvDaysBetween(String(dis.updated_at || dis.assigned_on || '').slice(0, 10), todayStr) < MV_SUGGEST_HIDE_DAYS) return;
+    if (mvBlocks(mvScreenBlock(t, ctx.exclusions, ctx))) return;
+    let hit = null;
+    (t.suggestWhen || []).some(function (trig) {
+      const m = /^(flag|finding|blocked):([a-z0-9_]+)(?:=(.+))?$/.exec(trig);
+      if (trig === 'history') {
+        const ph = ctx.painHistory || {};
+        const reg = mvRegion(t.region);
+        const last = (reg.pain || []).map(function (p) { return ph[p]; }).filter(Boolean).sort().pop();
+        if (last && mvDaysBetween(last, todayStr) <= MV_HISTORY_DAYS) {
+          hit = { trigger: trig, why: 'You logged ' + reg.label.toLowerCase() + ' pain in the last year.' };
+        }
+      } else if (m && byKey[m[2]]) {
+        const src = byKey[m[2]];
+        if (m[1] === 'flag') {
+          if (mvScreenDeficient(src, mvScreenLatest(screens, src)).deficient) hit = { trigger: trig, why: 'Your ' + src.name.toLowerCase() + ' result is worth working on.' };
+        } else if (m[1] === 'finding') {
+          const lt = mvScreenLatest(screens, src);
+          const chips = lt && lt.finding ? String(lt.finding).split(';').map(function (x) { return x.trim(); }) : [];
+          if (chips.indexOf(m[3]) >= 0) hit = { trigger: trig, why: src.name + ': “' + m[3] + '”.' };
+        } else if (m[1] === 'blocked') {
+          const b = mvScreenBlock(src, ctx.exclusions, ctx);
+          if (b && b.kind === 'caution') hit = { trigger: trig, why: 'Your coach\'s caution skips the ' + src.name.toLowerCase() + ' test; this one avoids that position.' };
+        }
+      }
+      return !!hit;
+    });
+    if (hit) out.push({ test: t, why: hit.why, trigger: hit.trigger });
+  });
+  return out;
+}
+
+// What is due (Plan §4.3). For each test in My tests, the first rule that applies:
+//   1. coach or athlete assignment, cadence N days: due when there is no result since it
+//      was assigned, then every N days counted from the later of assigned_on and the last
+//      result. Cadence 0 = once.                                       → reason 'assigned'
+//   2. focus area: never taken → 'baseline'; latest deficient and ≥ 28 days → 'retest';
+//      area (re)started since the last result and ≥ 28 days → 'baseline'
+//   3. habit-linked whole-body test (sit_rise while Floor sitting is on): deficient and
+//      ≥ 28 days → 'retest'
+//   4. Quick Screen: never taken or ≥ 182 days → 'checkup'
+// Mobility being off no longer hides anything (only rule 2 needs it). Monitor and
+// follow-up tests are never due without an assignment or a focus area.
+// Returns { due, skipped, snoozed, optedOut }; items = { test, reason, source, focus,
+// last, age, cadence, row, painFree }. Snoozes ("Later") hold every item for 7 days.
+function mvScreensDue(tests, screens, ctx, todayStr) {
+  ctx = ctx || {};
   const out = { due: [], skipped: [], snoozed: [], optedOut: [] };
-  const habitsOn = o.habitsOn || {};
-  if (!o.mobilityOn && !Object.keys(habitsOn).some(function (k) { return habitsOn[k]; })) return out;
-  const focus = {};
-  if (o.mobilityOn && o.mode === 'targeted') (areas || []).forEach(function (a) { if (a.is_active !== false) focus[a.region] = a; });
-  (tests || []).slice().sort(function (a, b) { return a.sort - b.sort; }).forEach(function (t) {
+  const ai = mvAssignIndex(ctx.assignments), focusR = mvFocusRegions(ctx);
+  const habitsOn = ctx.habitsOn || {}, opt = ctx.optouts || {};
+  const bctx = Object.assign({}, ctx, { coachAssigned: mvCtxCoach(ctx) });
+  mvSortTests(tests || []).forEach(function (t) {
+    const asg = ai.coach[t.key] || ai.mine[t.key] || null;
+    const area = t.tier !== 'monitor' ? focusR[t.region] : null;
     const viaHabit = !!(t.offersHabit && habitsOn[t.offersHabit]);
-    if (!o.mobilityOn && !viaHabit) return;
-    if (o.optouts && o.optouts[t.key]) { out.optedOut.push(t); return; }
-    const block = mvScreenBlock(t, o.exclusions);
-    if (block) { out.skipped.push({ test: t, kind: block.kind, why: block.why }); return; }
-    const rows = mvScreenRows(screens, t.key);
+    if (!asg && !area && t.tier !== 'core') return;
+    if (opt[t.key]) { out.optedOut.push(t); return; }
+    const block = mvScreenBlock(t, ctx.exclusions, bctx);
+    if (mvBlocks(block)) { out.skipped.push({ test: t, kind: block.kind, why: block.why }); return; }
+    const rows = mvScreenRows(screens, t);
     const last = rows.length ? rows[rows.length - 1].test_date : null;
     const age = last ? mvDaysBetween(last, todayStr) : null;
-    const area = focus[t.region];
     let reason = null;
-    if (area) {
+    if (asg) {
+      const since = asg.assigned_on || null;
+      const cad = asg.cadence_days == null ? (t.defaultEvery || 0) : Number(asg.cadence_days);
+      if (!last || (since && last < since)) reason = 'assigned';
+      else if (cad > 0) {
+        const from = since && since > last ? since : last;
+        if (mvDaysBetween(from, todayStr) >= cad) reason = 'assigned';
+      }
+    } else if (area) {
       if (!last) reason = 'baseline';
-      else if (age >= MV_SCREEN_RETEST_DAYS && mvScreenDeficient(t, mvScreenLatest(screens, t.key)).deficient) reason = 'retest';
+      else if (age >= MV_SCREEN_RETEST_DAYS && mvScreenDeficient(t, mvScreenLatest(screens, t)).deficient) reason = 'retest';
       else if (age >= MV_SCREEN_RETEST_DAYS && area.started_on && area.started_on > last) reason = 'baseline';
-    } else if (viaHabit && last && age >= MV_SCREEN_RETEST_DAYS
-               && mvScreenDeficient(t, mvScreenLatest(screens, t.key)).deficient) {
+    } else if (viaHabit && last && age >= MV_SCREEN_RETEST_DAYS && mvScreenDeficient(t, mvScreenLatest(screens, t)).deficient) {
       reason = 'retest';
     }
-    if (!reason && (!last || age >= MV_SCREEN_CHECKUP_DAYS)) reason = 'checkup';
+    if (!reason && !asg && t.tier === 'core' && (!last || age >= MV_SCREEN_CHECKUP_DAYS)) reason = 'checkup';
     if (!reason) return;
-    const item = { test: t, reason: reason, focus: reason !== 'checkup', last: last, age: age };
-    const sn = o.snoozes && o.snoozes[t.key];
+    const item = { test: t, reason: reason, source: asg ? (asg.source === 'coach' ? 'coach' : 'mine') : area ? 'focus' : 'core',
+      focus: reason === 'retest' || reason === 'baseline', last: last, age: age,
+      cadence: asg ? (asg.cadence_days == null ? t.defaultEvery : Number(asg.cadence_days)) : null, row: asg,
+      painFree: !!(block && block.painFree) };
+    const sn = ctx.snoozes && ctx.snoozes[t.key];
     if (sn && todayStr < sn) { out.snoozed.push(item); return; }
     out.due.push(item);
   });
-  out.due.sort(function (a, b) { return (b.focus - a.focus) || (a.test.sort - b.test.sort); });
+  const rank = { coach: 0, focus: 1, mine: 2, core: 3 };
+  out.due.sort(function (a, b) { return (rank[a.source] - rank[b.source]) || (a.test.sort - b.test.sort); });
   return out;
 }
+// When an assigned test is next due (for "Every 7 days · next Thursday"), or null.
+function mvNextDue(test, screens, row, todayStr) {
+  if (!row) return null;
+  const cad = row.cadence_days == null ? (test.defaultEvery || 0) : Number(row.cadence_days);
+  const rows = mvScreenRows(screens, test);
+  const last = rows.length ? rows[rows.length - 1].test_date : null;
+  if (!last || (row.assigned_on && last < row.assigned_on)) return todayStr;
+  if (!cad) return null;
+  const from = row.assigned_on && row.assigned_on > last ? row.assigned_on : last;
+  return mvAddDays(from, cad);
+}
+// The phone's / an older app's measure we can't show → "update the app" instead of a crash.
+const MV_KNOWN_MEASURES = ['number', 'pass', 'both'];
+function mvMeasureKnown(test) { return MV_KNOWN_MEASURES.indexOf(test.measure) >= 0; }
 
 // ── Phone tilt v2 (Plan §5.2, 2026-11-15) ──
 // One reading: the elevation of the phone's LONG edge (y axis), from the gravity
@@ -538,11 +707,14 @@ function mvTiltCheckOk(step, absE) {
 MV.tests = MV.tests || [];
 MV.screens = MV.screens || [];
 MV.screenPrefs = MV.screenPrefs || [];
+MV.assignments = MV.assignments || [];   // mobility_test_assignments (coach / athlete / suggested)
 MV.screenUi = MV.screenUi || { unit: 'in', snoozes: {}, declined: {}, speak: true, tiltChecked: null };
-MV.testDrafts = MV.testDrafts || {};   // unsaved entries per test (today) — survive closing / reopening the sheet
+MV.testDrafts = MV.testDrafts || {};   // unsaved entries per test (today) — survive leaving / reopening the test
+MV.st = MV.st || { from: 'week', allOpen: {} };
+const MV_REMINDERS_KEY = 'reminders';  // mobility_screen_prefs row: opted_out = reminders off (Plan §9)
 
-// Called inside loadMovement() when online. Its own try: a missing Phase 3
-// table must never break the walk / mobility check-off.
+// Called inside loadMovement() when online. Its own try: a missing table must never
+// break the walk / mobility check-off. Assignments have their own try too.
 async function mvLoadScreens() {
   try {
     const id = S.athlete.id;
@@ -557,6 +729,11 @@ async function mvLoadScreens() {
     MV.screens = res[1].data || [];
     MV.screenPrefs = res[2].data || [];
   } catch (e) { console.error('mvLoadScreens:', e); }
+  try {
+    const r = await db.from('mobility_test_assignments').select('*').eq('athlete_id', S.athlete.id);
+    if (r.error) throw r.error;
+    MV.assignments = r.data || [];
+  } catch (e) { console.error('mvLoadScreens (assignments):', e); }
 }
 async function mvLoadScreenUi() {
   try {
@@ -590,26 +767,44 @@ async function mvSetOptOut(key, out) {
   await mvSaveCache();
   return true;
 }
+// One assignment row (upsert on athlete_id, test_key, source). The athlete writes only
+// 'athlete' and 'suggested' rows; coach rows come from push_program.py (RLS enforces it).
+async function mvSaveAssignment(key, source, patch) {
+  const cur = MV.assignments.filter(function (a) { return a.test_key === key && a.source === source; })[0];
+  const t = mvTest(key);
+  const row = Object.assign({ athlete_id: S.athlete.id, test_key: key, source: source, status: 'active',
+    cadence_days: t && t.defaultEvery != null ? t.defaultEvery : 0, reason: null, trigger: null,
+    assigned_on: mvToday(), ended_on: null }, cur || {}, patch || {}, { updated_at: new Date().toISOString() });
+  delete row.id; delete row.created_at;
+  const ok = await mvWrite('movement_test_assignment', row);
+  if (!ok) return false;
+  MV.assignments = MV.assignments.filter(function (a) { return !(a.test_key === key && a.source === source); }).concat([row]);
+  await mvSaveCache();
+  return true;
+}
 
 function mvTest(key) { return MV.tests.filter(function (t) { return t.key === key; })[0] || null; }
 function mvOptouts() {
   const o = {};
-  MV.screenPrefs.forEach(function (p) { if (p.opted_out) o[p.test_key] = true; });
+  MV.screenPrefs.forEach(function (p) { if (p.opted_out && p.test_key !== MV_REMINDERS_KEY) o[p.test_key] = true; });
   return o;
 }
+function mvRemindersOff() { return MV.screenPrefs.some(function (p) { return p.test_key === MV_REMINDERS_KEY && p.opted_out; }); }
 function mvScreenEx() { return mvExclusions(MV.cautions, (S && S.openInjuries) || []); }
 function mvHabitsOn() {
   const on = {};
   mvHabits().forEach(function (h) { if (mvPlan(h.key)) on[h.key] = true; });
   return on;
 }
-function mvDueNow() {
+function mvCtx() {
   const mob = mvPlan('mobility');
-  return mvScreensDue(MV.areas, MV.screens, MV.tests, mvToday(), {
-    mobilityOn: !!mob, mode: mob ? mob.mode : null, habitsOn: mvHabitsOn(), optouts: mvOptouts(),
-    snoozes: MV.screenUi.snoozes, exclusions: mvScreenEx(),
-  });
+  const ctx = { areas: MV.areas, mobilityOn: !!mob, mode: mob ? mob.mode : null, habitsOn: mvHabitsOn(), optouts: mvOptouts(),
+    snoozes: MV.screenUi.snoozes, exclusions: mvScreenEx(), assignments: MV.assignments,
+    painHistory: (S && S.painHistory) || {}, remindersOff: mvRemindersOff(), screens: MV.screens, today: mvToday() };
+  ctx.coachAssigned = mvCtxCoach(ctx);
+  return ctx;
 }
+function mvDueNow() { return mvScreensDue(MV.tests, MV.screens, mvCtx(), mvToday()); }
 function mvFocusArea(region) {
   const mob = mvPlan('mobility');
   if (!mob || mob.mode !== 'targeted') return null;
@@ -619,8 +814,13 @@ function mvShortDate(ds) {
   const p = ds.split('-');
   return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][+p[1] - 1] + ' ' + (+p[2]);
 }
+function mvDayName(ds) {
+  const p = ds.split('-');
+  return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2], 12)).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+}
+function mvCadenceText(n) { return !n ? 'Once' : n === 7 ? 'Every week' : n % 7 === 0 ? 'Every ' + (n / 7) + ' weeks' : 'Every ' + n + ' days'; }
 
-// "L 152° (+6°) · R 160°" — latest per side, change since the first result.
+// "L 152° (+6°) · R 160°" — latest per side, change since the first result (current version).
 function mvScreenResultText(test, sum) {
   const u = MV.screenUi.unit;
   return mvScreenSides(test).filter(function (s) { return sum[s]; }).map(function (s) {
@@ -642,26 +842,47 @@ function mvDefReasonText(test, r) {
   if (r.kind === 'above') return side + mvFmtScreenValue(test, r.value, u) + ' (over ' + mvFmtScreenValue(test, test.defValue, u) + ')';
   return 'left/right gap of ' + mvFmtScreenValue(test, r.value, u);
 }
+// One band for a test date: worth working on if deficient; good if every scored side is good.
+function mvLatestBand(test, latest) {
+  if (!latest || latest.pain) return null;
+  if (mvScreenDeficient(test, latest).deficient) return 'work';
+  const bands = Object.keys(latest.sides).filter(function (s) { return !(test.sides === 'LR+B' && s === 'B'); }).map(function (s) {
+    const r = latest.sides[s];
+    const byPass = test.defOp === 'fail' || test.defOp === 'fail_pain' || !(mvSideTakesNumber(test, s) && r.value != null);
+    return mvScreenBand(test, byPass ? r.passed : Number(r.value));
+  }).filter(Boolean);
+  if (!bands.length) return null;
+  return bands.every(function (b) { return b === 'good'; }) ? 'good' : 'fine';
+}
+function mvBandPill(b) { return b ? '<span class="mv-band mv-band-' + b + '">' + MV_BAND_TEXT[b] + '</span>' : ''; }
 
 // ── Self-tests: UI ──
 
-// Today card row — only while mobility is on and something is due (never "overdue").
+// Today card row — shown whenever something is due, even with every habit off
+// (Plan §4.3). Wording: coach-assigned due → retest due → Quick Screen. Never "overdue".
 function mvTestRowHtml() {
-  if (!MV.tests.length) return '';
+  if (!MV.tests.length || mvRemindersOff()) return '';
   const d = mvDueNow().due;
   if (!d.length) return '';
-  const focus = d.filter(function (x) { return x.focus; });
-  const title = focus.some(function (x) { return x.reason === 'retest'; }) ? 'Retest due'
-    : focus.length ? 'Self-test due' : mvPlan('mobility') ? 'Mobility check-up' : 'Self-test check-up';
-  const list = focus.length ? focus : d;
-  const sub = focus.length
-    ? list.slice(0, 2).map(function (x) { return x.test.name; }).join(' · ') + (list.length > 2 ? ' +' + (list.length - 2) : '')
-    : d.length + ' test' + (d.length === 1 ? '' : 's') + ' · any order, any day';
+  const coach = d.filter(function (x) { return x.source === 'coach'; });
+  const retest = d.filter(function (x) { return x.reason === 'retest'; });
+  const focus = d.filter(function (x) { return x.source === 'focus' || x.source === 'mine'; });
+  const core = d.filter(function (x) { return x.source === 'core'; });
+  const names = function (l) { return l.slice(0, 2).map(function (x) { return x.test.name; }).join(' · ') + (l.length > 2 ? ' +' + (l.length - 2) : ''); };
+  let title, sub;
+  if (coach.length) { title = 'From your coach'; sub = names(coach); }
+  else if (retest.length) { title = 'Retest due'; sub = names(retest); }
+  else if (focus.length) { title = 'Self-test due'; sub = names(focus); }
+  else {
+    const mins = Math.round(core.reduce(function (s, x) { return s + (x.test.estMinutes || 2); }, 0));
+    title = 'Quick Screen';
+    sub = core.length + ' short test' + (core.length === 1 ? '' : 's') + ' · about ' + mins + ' min in total · any order, any day';
+  }
   return '<div class="mv-row mv-test-row"><div class="mv-test-icon">📏</div>'
-    + '<div class="mv-row-body" onclick="openMvTests()"><div class="mv-row-title">' + title + '</div>'
+    + '<div class="mv-row-body" onclick="openMvTests(\'week\')"><div class="mv-row-title">' + title + '</div>'
     + '<div class="mv-row-sub">' + mvEsc(sub) + '</div></div>'
     + '<button class="mv-mini mv-later" onclick="mvSnoozeDue()">Later</button>'
-    + '<div class="arrow" onclick="openMvTests()">›</div></div>';
+    + '<div class="arrow" onclick="openMvTests(\'week\')">›</div></div>';
 }
 function mvSnoozeDue() {
   const until = mvAddDays(mvToday(), MV_SCREEN_SNOOZE_DAYS);
@@ -678,152 +899,348 @@ function mvScreensCardHtml() {
   return '<div class="card"><div class="card-title" style="font-size:16px">📏 Self-tests</div>'
     + '<div class="card-sub" style="margin:4px 0 10px">Short checks that show whether your range is changing. '
     + (n ? '<b>' + n + ' due.</b> ' : '') + 'Optional — take any test any time.</div>'
-    + '<button class="btn secondary" onclick="openMvTests()">Open self-tests</button></div>';
+    + '<button class="btn secondary" onclick="openMvTests(\'movement\')">Open self-tests</button></div>';
 }
 
 // Focus-area row line in the Movement screen.
 function mvAreaScreenLineHtml(region) {
-  const tests = MV.tests.filter(function (t) { return t.region === region; });
+  const tests = MV.tests.filter(function (t) { return t.region === region && t.tier !== 'monitor'; });
   if (!tests.length) return '';
   const parts = tests.map(function (t) {
     const txt = mvScreenResultText(t, mvScreenSummary(t, MV.screens));
     return txt ? mvEsc(t.name) + ': ' + mvEsc(txt) : '';
   }).filter(Boolean);
-  return '<div class="mv-area-test" onclick="openMvTests()">📏 '
+  return '<div class="mv-area-test" onclick="openMvTests(\'movement\')">📏 '
     + (parts.length ? parts.join('<br>') : 'No self-test yet — take one') + '</div>';
 }
 
-function mvOpenSheetDom() {
-  document.getElementById('mv-overlay').classList.add('open');
-  document.getElementById('mv-sheet').classList.add('open');
+// ── The self-tests screen (#screen-selftests): home, then one test in four steps ──
+function mvStBody() { return document.getElementById('st-body'); }
+function mvStHeader(title, sub) {
+  const a = document.getElementById('st-title'), b = document.getElementById('st-sub');
+  if (a) a.textContent = title;
+  if (b) b.textContent = sub || '';
+}
+function mvStActive() { const s = document.getElementById('screen-selftests'); return !!(s && s.classList.contains('active')); }
+function openMvTests(from) {
+  mvTiltStop();
+  if (from) MV.st.from = from;
+  MV.test = null; MV.tiltCheck = null;
+  if (!mvStActive()) showScreen('selftests');
+  mvRenderTestList();
+  const b = mvStBody(); if (b && b.parentNode) b.parentNode.scrollTop = 0;
+  window.scrollTo(0, 0);
+}
+function mvStBack() {
+  if (MV.test && MV.test.tilt && MV.test.tilt.phase === 'run') return;   // the guard owns the screen
+  if (MV.test || MV.tiltCheck) { openMvTests(); return; }
+  mvTiltStop();
+  const from = MV.st.from;
+  if (from === 'movement' && typeof openMovement === 'function') openMovement();
+  else if (from === 'benchmarks' && typeof openBenchmarks === 'function') openBenchmarks();
+  else if (typeof renderWeek === 'function') { showScreen('week'); renderWeek(); }
+  else showScreen('week');
 }
 
-// Self-tests list (sheet).
-function openMvTests() {
-  mvTiltStop();
-  MV.sheet = null; MV.test = null;
-  mvRenderTestList();
-  mvOpenSheetDom();
-}
+// Self-tests home (Plan §7.1).
 function mvRenderTestList() {
-  document.getElementById('mv-sheet-title').textContent = '📏 Self-tests';
-  const body = document.getElementById('mv-sheet-body');
+  mvStHeader('📏 Self-tests', 'Short checks that track your range');
+  const body = mvStBody();
+  if (!body) return;
   if (!MV.tests.length) {
-    body.innerHTML = '<div class="mv-note">The self-test library hasn\'t synced yet — ask your coach to run sync_mobility.py.</div>'
-      + '<button class="btn secondary" onclick="closeMvSheet()">Close</button>';
+    body.innerHTML = '<div class="mv-note">The self-test library hasn\'t synced yet — ask your coach to run sync_mobility.py.</div>';
     return;
   }
-  const dn = mvDueNow();
+  const ctx = mvCtx(), today = mvToday();
+  const dn = mvScreensDue(MV.tests, MV.screens, ctx, today);
+  const mine = mvTestsMine(MV.tests, ctx);
+  const shown = {};
   const due = {};
   dn.due.forEach(function (x) { due[x.test.key] = x; });
-  let h = '<div class="mv-note">Short checks that show whether your range is changing. Optional — take any test any time, skip any you like. '
+  const rows = function (list, info) {
+    return list.filter(function (t) { return !shown[t.key]; }).map(function (t) { shown[t.key] = true; return mvTestListRow(t, info ? info(t) : null); }).join('');
+  };
+  let h = '<div class="mv-note">Optional checks that show whether your range is changing. Take any test any time, skip any you like. '
     + 'They track change; they don\'t diagnose.</div>';
   if (dn.due.length) {
-    h += '<div class="form-section-label">Due now</div>' + dn.due.map(function (x) { return mvTestListRow(x.test, x); }).join('');
+    h += '<div class="form-section-label">Due now</div>' + rows(dn.due.map(function (x) { return x.test; }), function (t) { return { due: due[t.key] }; });
   }
+  if (mine.coach.length) {
+    const ch = rows(mine.coach.map(function (x) { return x.test; }), function (t) { return { row: mine.coach.filter(function (x) { return x.test === t; })[0].row }; });
+    h += '<div class="form-section-label">From your coach</div>' + (ch || '<div class="mv-muted mv-st-none">All due ones are above.</div>');
+  }
+  if (mine.core.length) {
+    const fresh = function (t) { const r = mvScreenRows(MV.screens, t); return r.length && mvDaysBetween(r[r.length - 1].test_date, today) < MV_SCREEN_CHECKUP_DAYS; };
+    const done = mine.core.filter(fresh).length;
+    const qs = rows(mine.core);
+    h += '<div class="form-section-label">Quick Screen <span class="mv-muted">· ' + done + ' of ' + mine.core.length + ' done</span></div>'
+      + (qs || '<div class="mv-muted mv-st-none">Due ones are above.</div>');
+  }
+  const fo = rows(mine.focus);
+  if (fo) h += '<div class="form-section-label">For your focus areas</div>' + fo;
+  const sg = mine.suggested.filter(function (x) { return !shown[x.test.key]; });
+  if (sg.length) {
+    h += '<div class="form-section-label">Suggested for you</div>' + sg.map(function (x) {
+      shown[x.test.key] = true;
+      return mvTestListRow(x.test, { suggest: x });
+    }).join('');
+  }
+  const mi = rows(mine.mine.map(function (x) { return x.test; }), function (t) { return { row: mine.mine.filter(function (x) { return x.test === t; })[0].row }; });
+  if (mi) h += '<div class="form-section-label">Added by you</div>' + mi;
+  // All tests, by body area, collapsed
+  h += '<div class="form-section-label">All tests</div><div class="mv-st-all">';
   MV_REGION_ORDER.concat(MV_TEST_REGIONS.map(function (r) { return r.key; })).forEach(function (region) {
-    const ts = MV.tests.filter(function (t) { return t.region === region && !due[t.key]; });
+    const ts = mvSortTests(MV.tests.filter(function (t) { return t.region === region; }));
     if (!ts.length) return;
-    h += '<div class="form-section-label">' + mvEsc(mvRegion(region).label) + '</div>'
-      + ts.map(function (t) { return mvTestListRow(t, null); }).join('');
+    const open = !!MV.st.allOpen[region];
+    h += '<div class="mv-st-group" data-region="' + region + '"><div class="mv-st-group-hdr" onclick="mvStToggleGroup(\'' + region + '\')">'
+      + mvEsc(mvRegion(region).label) + ' <span class="mv-muted">(' + ts.length + ')</span><span class="mv-st-chev">' + (open ? '▾' : '▸') + '</span></div>'
+      + (open ? ts.map(function (t) { return mvTestListRow(t, { all: true }); }).join('') : '') + '</div>';
   });
-  if (MV.tests.some(function (t) { return t.tiltCfg; })) {
-    h += '<div class="form-section-label">Phone measuring</div>' + mvSpeakToggleHtml()
-      + '<div class="mv-test-optout" style="text-align:left"><a class="mv-link" id="mv-open-tiltcheck" onclick="mvTiltCheckOpen(false)">📐 Tilt check — live angle readout</a></div>';
-  }
-  h += '<button class="btn secondary" onclick="closeMvSheet()">Close</button>';
+  h += '</div>';
+  // Settings
+  const u = MV.screenUi.unit, rem = !mvRemindersOff();
+  h += '<div class="form-section-label">Settings</div><div class="mv-st-settings">' + mvSpeakToggleHtml()
+    + '<div class="triage-chips mv-speak-chips"><span class="mv-muted" style="align-self:center">Distances</span>'
+    + '<button class="triage-chip' + (u !== 'cm' ? ' active' : '') + '" onclick="mvSetScreenUnit(\'in\')">Inches</button>'
+    + '<button class="triage-chip' + (u === 'cm' ? ' active' : '') + '" onclick="mvSetScreenUnit(\'cm\')">cm</button></div>'
+    + '<div class="triage-chips mv-speak-chips"><span class="mv-muted" style="align-self:center">Remind me on Today</span>'
+    + '<button class="triage-chip' + (rem ? ' active' : '') + '" id="mv-rem-on" onclick="mvSetReminders(true)">On</button>'
+    + '<button class="triage-chip' + (!rem ? ' active' : '') + '" id="mv-rem-off" onclick="mvSetReminders(false)">Off</button></div>'
+    + '<div class="mv-test-optout" style="text-align:left"><a class="mv-link" id="mv-open-tiltcheck" onclick="mvTiltCheckOpen(false)">📐 Tilt check — live angle readout</a></div></div>';
   body.innerHTML = h;
 }
-function mvTestListRow(t, dueItem) {
-  const block = mvScreenBlock(t, mvScreenEx());
-  const opted = mvOptouts()[t.key];
-  const latest = mvScreenLatest(MV.screens, t.key);
-  const def = mvScreenDeficient(t, latest);
-  let status;
-  if (dueItem) status = dueItem.reason === 'retest' ? 'Monthly retest' : dueItem.reason === 'baseline' ? 'First test for this focus area' : 'Check-up';
-  else if (opted) status = 'Opted out';
-  else if (block && block.kind !== 'amber') status = 'Skipped — ' + block.why;
-  else if (block) status = 'Not now — ' + block.why;
-  else status = latest ? 'Last taken ' + mvShortDate(latest.date) : 'Not taken yet';
-  const res = mvScreenResultText(t, mvScreenSummary(t, MV.screens));
-  return '<div class="mv-test-item' + (opted || (block && block.kind !== 'amber') ? ' mv-test-item-off' : '') + '" data-test="' + t.key + '" onclick="openMvTest(\'' + t.key + '\')">'
-    + '<div class="mv-test-item-top"><span class="mv-drill-name">' + mvEsc(t.name) + '</span>'
-    + (def.deficient ? '<span class="mv-test-flag-tag">worth working on</span>' : '')
-    + (latest && latest.pain ? '<span class="mv-test-flag-tag">hurt</span>' : '') + '</div>'
-    + (res ? '<div class="mv-test-res">' + mvEsc(res) + '</div>' : '')
-    + '<div class="mv-drill-dose' + (dueItem ? ' mv-test-due' : '') + '">' + mvEsc(status) + '</div></div>';
+function mvStToggleGroup(r) { MV.st.allOpen[r] = !MV.st.allOpen[r]; mvRenderTestList(); }
+async function mvSetReminders(on) {
+  const ok = await mvSetOptOut(MV_REMINDERS_KEY, !on);
+  if (!ok) return;
+  toast(on ? 'Self-test reminders on' : 'Okay — no self-test row on Today');
+  mvRenderTestList();
+  mvPaintCard();
 }
 
-// One test (sheet): steps → per-side inputs → Save; result view after saving.
+const MV_NEED_CHIP = { 'phone': '📱 phone', 'tape measure': '📏 tape', 'soft tape': '📏 soft tape', 'long sock': '🧦 sock',
+  'strap': '🎗 strap', 'bed or bench': '🛏 bed or bench', 'chair': '🪑 chair', 'mirror': '🪞 mirror', 'wall': '🧱 wall' };
+function mvNeedChips(t) {
+  const c = (t.needs || []).map(function (n) { return MV_NEED_CHIP[n]; }).filter(Boolean);
+  if (t.helper === 'yes') c.push('👥 helper');
+  return c;
+}
+// info: { due } | { row } (assignment) | { suggest: {why, trigger} } | { all: true } | null
+function mvTestListRow(t, info) {
+  info = info || {};
+  const ctx = mvCtx();
+  const block = mvScreenBlock(t, ctx.exclusions, ctx);
+  const opted = mvOptouts()[t.key];
+  const latest = mvScreenLatest(MV.screens, t);
+  const band = mvLatestBand(t, latest);
+  const dueItem = info.due;
+  const ai = mvAssignIndex(MV.assignments);
+  const row = info.row || ai.coach[t.key] || ai.mine[t.key] || null;
+  let status;
+  if (dueItem) {
+    status = dueItem.reason === 'assigned' ? (dueItem.source === 'coach' ? 'Due · from your coach' : 'Due · you added this')
+      : dueItem.reason === 'retest' ? 'Due · monthly retest' : dueItem.reason === 'baseline' ? 'Due · first test for this focus area' : 'Due · Quick Screen';
+    if (dueItem.painFree) status += ' · pain-free range only';
+  } else if (opted) status = 'Opted out';
+  else if (block && (block.kind === 'paused' || block.kind === 'caution')) status = 'Skipped — ' + block.why;
+  else if (block && block.kind === 'amber') status = 'Not now — ' + block.why;
+  else if (row) {
+    const nx = mvNextDue(t, MV.screens, row, mvToday());
+    status = mvCadenceText(row.cadence_days == null ? t.defaultEvery : Number(row.cadence_days))
+      + (nx ? ' · next ' + mvDayName(nx) + ', ' + mvShortDate(nx) : latest ? ' · done ' + mvShortDate(latest.date) : '');
+  } else status = latest ? 'Last taken ' + mvShortDate(latest.date) : 'Not taken yet';
+  const res = mvScreenResultText(t, mvScreenSummary(t, MV.screens));
+  const chips = mvNeedChips(t);
+  const off = opted || (block && (block.kind === 'paused' || block.kind === 'caution'));
+  let h = '<div class="mv-test-item' + (off ? ' mv-test-item-off' : '') + (dueItem ? ' mv-test-item-due' : '') + '" data-test="' + t.key + '">'
+    + '<div onclick="openMvTest(\'' + t.key + '\')">'
+    + '<div class="mv-test-item-top"><span class="mv-drill-name">' + mvEsc(t.name) + '</span>'
+    + (latest && latest.pain ? '<span class="mv-test-flag-tag">hurt</span>' : mvBandPill(band)) + '</div>'
+    + '<div class="mv-test-meta">' + chips.map(function (c) { return '<span class="mv-need">' + c + '</span>'; }).join('')
+    + (t.estMinutes ? '<span class="mv-need mv-need-min">' + t.estMinutes + ' min</span>' : '') + '</div>'
+    + (res ? '<div class="mv-test-res">' + mvEsc(res) + '</div>' : '')
+    + (row && row.source === 'coach' && row.reason ? '<div class="mv-test-reason">Coach: ' + mvEsc(row.reason) + '</div>' : '')
+    + '<div class="mv-drill-dose' + (dueItem ? ' mv-test-due' : '') + '">' + mvEsc(status) + '</div></div>';
+  if (info.suggest) {
+    h += '<div class="mv-test-reason">' + mvEsc(info.suggest.why) + '</div><div class="triage-chips mv-suggest-btns">'
+      + '<button class="triage-chip" onclick="mvSuggestAdd(\'' + t.key + '\',\'' + mvEsc(info.suggest.trigger) + '\')">Add</button>'
+      + '<button class="triage-chip" onclick="mvSuggestNotNow(\'' + t.key + '\',\'' + mvEsc(info.suggest.trigger) + '\')">Not now</button></div>';
+  }
+  return h + '</div>';
+}
+async function mvSuggestAdd(key, trigger) {
+  const ok = await mvSaveAssignment(key, 'suggested', { status: 'active', trigger: trigger, assigned_on: mvToday(), ended_on: null });
+  if (!ok) return;
+  toast(mvTest(key).name + ' added to your tests');
+  if (MV.test) mvRenderTest(); else mvRenderTestList();
+  mvPaintCard();
+}
+async function mvSuggestNotNow(key, trigger) {
+  const ok = await mvSaveAssignment(key, 'suggested', { status: 'dismissed', trigger: trigger, assigned_on: mvToday() });
+  if (!ok) return;
+  toast('Okay — not suggested again for 6 months');
+  if (MV.test) mvRenderTest(); else mvRenderTestList();
+}
+async function mvAddMine(key, add) {
+  const t = mvTest(key);
+  const ok = await mvSaveAssignment(key, 'athlete', add
+    ? { status: 'active', cadence_days: t.defaultEvery != null ? t.defaultEvery : 0, assigned_on: mvToday(), ended_on: null }
+    : { status: 'ended', ended_on: mvToday() });
+  if (!ok) return;
+  toast(add ? t.name + ' added to your tests' : t.name + ' removed from your tests');
+  mvRenderTest();
+  mvPaintCard();
+}
+
+// One test in four steps (Plan §7.2): ready → setup → measure → result.
 function openMvTest(key) {
   const t = mvTest(key);
   if (!t) return;
   mvTiltStop();
-  MV.sheet = null;
+  MV.sheet = null; MV.tiltCheck = null;
+  if (!mvStActive()) showScreen('selftests');
   const d = mvToday();
   const dr = MV.testDrafts[key];
   if (dr && dr.date === d && !dr.saved) {           // unsaved typed / measured values come back
     dr.tilt = null; dr.offer = null;
     MV.test = dr;
     mvRenderTest();
-    mvOpenSheetDom();
     return;
   }
-  const st = { key: key, date: d, sides: {}, finding: null, notes: '', saved: false, tilt: null, offer: null };
-  MV.screens.filter(function (r) { return r.test_key === key && r.test_date === d && !r.pain_flag; }).forEach(function (r) {
+  const st = { key: key, date: d, step: 'ready', side: null, sides: {}, finding: null, notes: '', saved: false, tilt: null, offer: null };
+  MV.screens.filter(function (r) { return r.test_key === key && r.test_date === d && !r.pain_flag && mvRowVer(r) === t.version; }).forEach(function (r) {
     if (r.finding) st.finding = r.finding;
     if (r.notes) st.notes = r.notes;
   });
   mvScreenSides(t).forEach(function (s) {
-    const r = MV.screens.filter(function (x) { return x.test_key === key && x.test_date === d && x.side === s && !x.pain_flag; })[0];
+    const r = MV.screens.filter(function (x) { return x.test_key === key && x.test_date === d && x.side === s && !x.pain_flag && mvRowVer(x) === t.version; })[0];
     st.sides[s] = { value: r && r.value != null ? String(mvScreenDisp(t, r.value, MV.screenUi.unit)) : '',
       passed: r && r.passed != null ? !!r.passed : null };
   });
+  st.side = mvScreenSides(t)[0];
   MV.test = st;
   MV.testDrafts[key] = st;
   mvRenderTest();
-  mvOpenSheetDom();
+}
+function mvTestStep(step) {
+  if (!MV.test) return;
+  MV.test.step = step;
+  mvRenderTest();
+  window.scrollTo(0, 0);
+}
+function mvTestSide(s) { if (MV.test) { MV.test.side = s; mvRenderTest(); } }
+
+function mvStepsHtml(list) {
+  return (list && list.length) ? '<ol class="mv-test-steps">' + list.map(function (s) { return '<li>' + mvEsc(s) + '</li>'; }).join('') + '</ol>' : '';
+}
+function mvStepDots(step) {
+  const all = [['ready', 'Get ready'], ['setup', 'Set up'], ['measure', 'Measure'], ['result', 'Result']];
+  return '<div class="mv-st-steps">' + all.map(function (x, i) {
+    return '<span class="mv-st-step' + (x[0] === step ? ' on' : '') + '">' + (i + 1) + ' ' + x[1] + '</span>';
+  }).join('') + '</div>';
+}
+function mvFigure(t, small) {
+  try { if (typeof stFigureSvg === 'function') { const s = stFigureSvg(t.key); if (s) return '<div class="mv-st-fig' + (small ? ' small' : '') + '">' + s + '</div>'; } } catch (_) {}
+  return '';
 }
 
 function mvRenderTest() {
   const st = MV.test;
   if (!st) return;
   const t = mvTest(st.key);
-  const body = document.getElementById('mv-sheet-body');
-  document.getElementById('mv-sheet-title').textContent = '📏 ' + t.name;
+  const body = mvStBody();
+  if (!t || !body) return;
+  mvStHeader('📏 ' + t.name, t.tier === 'core' ? 'Quick Screen' : t.tier === 'monitor' ? 'Monitoring test' : 'Follow-up test');
   if (st.tilt) { body.innerHTML = mvTiltHtml(t, st.tilt); return; }
-  if (st.saved) { body.innerHTML = mvTestResultHtml(t, st); return; }
-  const u = MV.screenUi.unit;
-  const block = mvScreenBlock(t, mvScreenEx());
+  if (st.saved) { body.innerHTML = mvStepDots('result') + mvTestResultHtml(t, st); return; }
+  if (!mvMeasureKnown(t)) {
+    body.innerHTML = '<div class="mv-paused">This test needs a newer version of the app. Close the app fully and reopen it to update.</div>'
+      + '<button class="btn secondary" onclick="openMvTests()">Back to self-tests</button>';
+    return;
+  }
+  const ctx = mvCtx();
+  const block = mvScreenBlock(t, ctx.exclusions, ctx);
   const opted = mvOptouts()[t.key];
-  let h = '<div class="mv-test-shows">' + mvEsc(t.shows) + '</div>';
-  if (block && block.kind !== 'amber') {
-    h += '<div class="mv-paused">' + (block.kind === 'paused' ? '⏸ Paused — ' : 'Skipped — ') + mvEsc(block.why) + '</div>';
-    h += block.kind === 'caution'
-      ? '<div class="card-sub">Your coach suggests avoiding this position for now. You can change that under Cautions in 🚶 Movement.</div>'
-      : '<div class="card-sub">This area has an open pain episode. <a class="mv-link" onclick="closeMvSheet();openPainSheet()">Open 🚩 Pain</a></div>';
+  const ai = mvAssignIndex(MV.assignments);
+  const coachRow = ai.coach[t.key], mineRow = ai.mine[t.key];
+  const g = t.guide || {};
+  let h = mvStepDots(st.step);
+  if (block && (block.kind === 'paused' || block.kind === 'caution')) {
+    h += '<div class="mv-test-shows">' + mvEsc(t.shows) + '</div>'
+      + '<div class="mv-paused">' + (block.kind === 'paused' ? '⏸ Paused — ' : 'Skipped — ') + mvEsc(block.why) + '</div>'
+      + (block.kind === 'caution'
+        ? '<div class="card-sub">Your coach suggests avoiding this position for now. You can change that under Cautions in 🚶 Movement.</div>'
+        : '<div class="card-sub">This area has an open pain episode. <a class="mv-link" onclick="openPainSheet()">Open 🚩 Pain</a></div>');
     body.innerHTML = h + '<button class="btn secondary" onclick="openMvTests()">Back to self-tests</button>';
     return;
   }
-  if (block) h += '<div class="mv-note">⚠ ' + mvEsc(block.why) + '. You can still take it — keep it pain-free.</div>';
-  h += '<ol class="mv-test-steps">' + t.steps.map(function (s) { return '<li>' + mvEsc(s) + '</li>'; }).join('') + '</ol>'
-    + '<div class="mv-test-safety">Stop if pain goes above 2/10 and tap <b>It hurt</b>.</div>'
-    + '<div class="mv-test-good"><b>Good:</b> ' + mvEsc(t.good) + (t.provisional ? ' <span class="mv-muted">(rough guide for now)</span>' : '') + '</div>';
+  if (st.step === 'ready') {
+    const needs = g.need_note || (t.needs || []).join(', ');
+    h += '<div class="mv-test-shows">' + mvEsc(t.shows) + '</div>' + mvFigure(t)
+      + '<div class="mv-st-facts">'
+      + '<div><b>You need:</b> ' + mvEsc(needs || 'nothing') + '</div>'
+      + '<div><b>Helper:</b> ' + (t.helper === 'yes' ? 'yes — this test needs a second person' : t.helper === 'optional' ? 'optional' : 'no') + (g.helper_note ? ' <span class="mv-muted">' + mvEsc(g.helper_note) + '</span>' : '') + '</div>'
+      + (t.estMinutes ? '<div><b>Time:</b> about ' + t.estMinutes + ' min, both sides</div>' : '')
+      + '</div>';
+    if (coachRow) h += '<div class="mv-st-coach"><b>From your coach</b> · ' + mvEsc(mvCadenceText(coachRow.cadence_days)) + (coachRow.reason ? '<br>' + mvEsc(coachRow.reason) : '') + '</div>';
+    if (block && block.painFree) h += '<div class="mv-note">⚠ Pain-free range only — ' + mvEsc(block.why.replace(/ — pain-free range only$/, '')) + '. Stop before it hurts.</div>';
+    else if (block) h += '<div class="mv-note">⚠ ' + mvEsc(block.why) + '. You can still take it — keep it pain-free.</div>';
+    if (t.videoUrl) h += '<a class="mv-link mv-st-video" href="' + mvEsc(t.videoUrl) + '" target="_blank" rel="noopener">▶ Watch a demo</a>';
+    h += '<button class="btn" id="mv-step-next" onclick="mvTestStep(\'setup\')">Set up →</button>'
+      + '<div class="mv-test-optout">'
+      + (coachRow ? '' : mineRow ? '<a class="mv-link" onclick="mvAddMine(\'' + t.key + '\',false)">Remove from my tests</a> · '
+        : (t.tier !== 'core' ? '<a class="mv-link" id="mv-add-mine" onclick="mvAddMine(\'' + t.key + '\',true)">Add to my tests</a> · ' : ''))
+      + '<a class="mv-link" onclick="mvTestOptOut(\'' + t.key + '\',' + (opted ? 'false' : 'true') + ')">'
+      + (opted ? 'Show this test again' : 'Don\'t suggest this test') + '</a></div>'
+      + '<button class="btn secondary" onclick="openMvTests()">Back to self-tests</button>';
+    body.innerHTML = h;
+    return;
+  }
+  if (st.step === 'setup') {
+    const setup = (g.setup && g.setup.length) ? g.setup : t.steps;
+    h += '<div class="mv-st-setup">' + mvFigure(t, true) + '<div>'
+      + (setup.length ? '<div class="form-section-label">Set up</div>' + mvStepsHtml(setup) : '')
+      + (t.tiltCfg ? '<div class="mv-tilt-place">📱 <b>Phone:</b> ' + mvEsc(t.tiltCfg.placement) + ' Long edge in line, screen facing out.</div>' : '')
+      + (g.do && g.do.length ? '<div class="form-section-label">Do it</div>' + mvStepsHtml(g.do) : '')
+      + '</div></div>'
+      + ((g.watch || []).length ? '<div class="mv-st-watch"><b>Watch for:</b> ' + g.watch.map(mvEsc).join(' · ') + '</div>' : '')
+      + '<div class="mv-test-safety">Stop if pain goes above 2/10 and tap <b>It hurt</b>. Same set-up every time: same spot, shoes off.</div>'
+      + '<button class="btn" id="mv-step-next" onclick="mvTestStep(\'measure\')">Measure →</button>'
+      + '<button class="btn secondary" onclick="mvTestStep(\'ready\')">← Back</button>';
+    body.innerHTML = h;
+    return;
+  }
+  // measure — one side at a time with a large side label
+  const u = MV.screenUi.unit;
+  const sides = mvScreenSides(t);
+  if (sides.indexOf(st.side) < 0) st.side = sides[0];
+  h += '<div class="mv-test-good"><b>Good:</b> ' + mvEsc(t.good) + (t.provisional ? ' <span class="mv-muted">(rough guide for now)</span>' : '') + '</div>';
+  if (g.measure && g.measure.length) h += mvStepsHtml(g.measure);
   if (t.unit === 'cm') {
     h += '<div class="triage-chips mv-unit-chips">'
       + '<button class="triage-chip' + (u !== 'cm' ? ' active' : '') + '" onclick="mvSetScreenUnit(\'in\')">Inches</button>'
       + '<button class="triage-chip' + (u === 'cm' ? ' active' : '') + '" onclick="mvSetScreenUnit(\'cm\')">cm</button></div>';
   }
   if (t.tiltCfg && mvTiltSidesOf(t).length) {
-    const sides = mvTiltSidesOf(t);
+    const ts = mvTiltSidesOf(t);
     h += '<div class="mv-tilt-cta"><button class="btn secondary" id="mv-tilt-open" onclick="mvTiltOpen(null)">📐 Measure with phone'
-      + (sides.length > 1 ? ' — both sides' : '') + '</button>'
-      + '<div class="mv-muted">Or type the number' + (sides.length > 1 ? 's' : '') + ' below.</div></div>';
+      + (ts.length > 1 ? ' — both sides' : '') + '</button>'
+      + '<div class="mv-muted">Or type the number' + (ts.length > 1 ? 's' : '') + ' below.</div></div>';
   }
-  mvScreenSides(t).forEach(function (s) {
+  if (sides.length > 1) {
+    h += '<div class="mv-side-tabs">' + sides.map(function (s) {
+      const x = st.sides[s];
+      const has = (x.value != null && String(x.value).trim() !== '') || x.passed != null;
+      return '<button class="mv-side-tab' + (s === st.side ? ' on' : '') + '" data-side="' + s + '" onclick="mvTestSide(\'' + s + '\')">'
+        + (s === 'B' ? 'Both' : MV_SIDE_LABEL[s]) + (has ? ' ✓' : '') + '</button>';
+    }).join('') + '</div>';
+  }
+  sides.forEach(function (s) {
     const x = st.sides[s];
     const nm = mvSideName(t, s);
-    h += '<div class="mv-test-side">' + (nm ? '<div class="form-section-label">' + nm + '</div>' : '');
+    h += '<div class="mv-test-side' + (s === st.side ? '' : ' mv-hidden') + '" data-side="' + s + '">'
+      + (nm ? '<div class="mv-side-big">' + mvEsc(nm.toUpperCase()) + '</div>' : '');
     if (mvSideTakesPass(t, s)) {
       h += '<div class="triage-chips">'
         + '<button class="triage-chip' + (x.passed === true ? ' active' : '') + '" onclick="mvTestPass(\'' + s + '\',true)">Pass</button>'
@@ -837,6 +1254,8 @@ function mvRenderTest() {
         + (x.tilt && String(x.value) === x.tilt.value ? '<span class="mv-muted mv-num-src">📐 phone</span>' : '')
         + '</div>';
     }
+    const i = sides.indexOf(s);
+    if (i < sides.length - 1) h += '<button class="btn secondary mv-side-next" onclick="mvTestSide(\'' + sides[i + 1] + '\')">Next: ' + mvEsc(mvSideName(t, sides[i + 1]) || '') + ' →</button>';
     h += '</div>';
   });
   if (t.findings.length) {
@@ -848,9 +1267,7 @@ function mvRenderTest() {
   h += '<textarea class="sheet-search mv-notes" placeholder="Notes (optional)" oninput="MV.test.notes=this.value">' + mvEsc(st.notes) + '</textarea>'
     + '<button class="btn" id="mv-test-save" onclick="mvTestSave(false)">Save</button>'
     + '<button class="btn secondary mv-hurt" onclick="mvTestHurt()">⚠ It hurt</button>'
-    + '<button class="btn secondary" onclick="openMvTests()">Back to self-tests</button>'
-    + '<div class="mv-test-optout"><a class="mv-link" onclick="mvTestOptOut(\'' + t.key + '\',' + (opted ? 'false' : 'true') + ')">'
-    + (opted ? 'Show this test again' : 'Don\'t suggest this test') + '</a></div>';
+    + '<button class="btn secondary" onclick="mvTestStep(\'setup\')">← Back</button>';
   body.innerHTML = h;
 }
 
@@ -877,7 +1294,7 @@ function mvSetScreenUnit(u) {
   }
   MV.screenUi.unit = u;
   mvSaveScreenUi();
-  mvRenderTest();
+  if (MV.test) mvRenderTest(); else mvRenderTestList();
 }
 
 // How a result was taken (mobility_screens.method): the phone reading when the field
@@ -913,7 +1330,7 @@ async function mvTestSave(hurt) {
     let value = null, passed = mvSideTakesPass(t, s) ? x.passed : null;
     if (mvSideTakesNumber(t, s) && String(x.value).trim() !== '') {
       value = mvScreenToStored(t, x.value, u);
-      if (value == null || !mvScreenValueOk(t, value)) { toast('Check the ' + (nm ? nm.toLowerCase() + ' ' : '') + 'number', 3000); return; }
+      if (value == null || !mvScreenValueOk(t, value)) { st.side = s; mvRenderTest(); toast('Check the ' + (nm ? nm.toLowerCase() + ' ' : '') + 'number', 3000); return; }
     }
     // Lower-is-better tests with the pass line at 0 (Thomas, toe touch, heel-to-butt).
     if (t.measure === 'both' && t.better === 'lower') {
@@ -932,19 +1349,23 @@ async function mvTestSave(hurt) {
   if (!ok) return;
   if (MV.screenUi.snoozes[t.key]) { delete MV.screenUi.snoozes[t.key]; mvSaveScreenUi(); }
   st.saved = true;
+  st.step = 'result';
   st.hurt = !!hurt;
   delete MV.testDrafts[t.key];
   mvRenderTest();
   mvPaintCard();
+  window.scrollTo(0, 0);
 }
 function mvTestHurt() {
   showConfirm('Stop this test?', 'A painful test isn\'t a mobility problem. We\'ll note it for your coach — no score is saved for it.',
     'It hurt', function () { mvTestSave(true); });
 }
 
+// Result (Plan §7.2 step 4): per side the number and its band in words, change since
+// last time and since the first test, then what happens next.
 function mvTestResultHtml(t, st) {
   const u = MV.screenUi.unit;
-  const latest = mvScreenLatest(MV.screens, t.key);
+  const latest = mvScreenLatest(MV.screens, t);
   const def = mvScreenDeficient(t, latest);
   const sum = mvScreenSummary(t, MV.screens);
   let h = '<div class="mv-test-saved">✓ Saved</div>';
@@ -956,12 +1377,15 @@ function mvTestResultHtml(t, st) {
       const x = sum[s];
       if (!x) return;
       const nm = mvSideName(t, s);
-      const cur = mvSideTakesNumber(t, s) && x.latest.value != null ? mvFmtScreenValue(t, x.latest.value, u)
-        : (x.latest.passed ? 'Pass' : 'Not yet');
-      h += '<div class="mv-test-change"><b>' + (nm ? nm + ': ' : '') + mvEsc(cur) + '</b>';
-      [['sinceBaseline', 'first test', x.baseline], ['sinceLast', 'last time', x.previous]].forEach(function (c) {
+      const num = mvSideTakesNumber(t, s) && x.latest.value != null;
+      const cur = num ? mvFmtScreenValue(t, x.latest.value, u) : (x.latest.passed ? 'Pass' : 'Not yet');
+      const byPass = t.defOp === 'fail' || t.defOp === 'fail_pain' || !num;      // pass/fail tests: the pass decides the band
+      const band = t.sides === 'LR+B' && s === 'B' ? null : mvScreenBand(t, byPass ? x.latest.passed : x.latest.value);
+      h += '<div class="mv-test-change" data-side="' + s + '"><b>' + (nm ? nm + ': ' : '') + mvEsc(cur) + '</b> ' + mvBandPill(band);
+      if (x.count < 2) h += '<div class="mv-muted">First result — your baseline.</div>';
+      [['sinceLast', 'last time', x.previous], ['sinceBaseline', 'your first test', x.baseline]].forEach(function (c) {
         const ch = x[c[0]];
-        if (!ch || (c[0] === 'sinceLast' && x.count < 3)) return;
+        if (!ch || (c[0] === 'sinceBaseline' && x.count < 3)) return;
         const d = ch.delta != null && mvSideTakesNumber(t, s) ? mvFmtScreenValue(t, ch.delta, u, true)
           : (ch.flip ? (ch.direction === 'better' ? 'now passes' : 'no longer passes') : 'no change');
         h += '<div class="mv-muted">vs ' + c[1] + ' (' + mvShortDate(c[2].date) + '): ' + mvEsc(d)
@@ -970,23 +1394,39 @@ function mvTestResultHtml(t, st) {
       });
       h += '</div>';
     });
+    const old = mvScreenOldRows(MV.screens, t);
+    if (old.length) h += '<div class="mv-muted" style="margin:4px 0">Results from an earlier method of this test aren\'t compared.</div>';
     if (def.hint === 'upper_back') h += '<div class="mv-note">Each arm passes alone but not both together — that points to your upper back.</div>';
     if (def.hint === 'hip') h += '<div class="mv-note">Passing only with knees bent points to the front of the hips — try the hip flexor (Thomas) test.</div>';
     if (def.deficient) {
       h += '<div class="mv-test-flag">⚑ Worth working on — ' + mvEsc(def.reasons.map(function (r) { return mvDefReasonText(t, r); }).join('; ')) + '.'
         + (t.provisional ? ' <span class="mv-muted">(rough guide for now)</span>' : '') + '</div>';
-      h += mvTestOfferHtml(t, st, latest);
-    } else if (latest && !latest.pain) {
-      h += '<div class="card-sub" style="margin:8px 0">No flag. ' + (mvFocusArea(t.region) ? '' : 'Next check-up in about 6 months.') + '</div>';
+      if (t.region !== 'low_back' || t.defOp !== 'fail_pain') h += mvTestOfferHtml(t, st, latest);
+    }
+    // What happens next
+    const ctx = mvCtx();
+    const sugg = mvSuggestions(MV.tests, MV.screens, ctx, mvToday()).filter(function (x) {
+      return x.trigger.indexOf(':' + t.key) >= 0;
+    });
+    if (sugg.length) {
+      h += '<div class="form-section-label">Suggested next</div>' + sugg.map(function (x) { return mvTestListRow(x.test, { suggest: x }); }).join('');
+    }
+    const ai = mvAssignIndex(MV.assignments), row = ai.coach[t.key] || ai.mine[t.key];
+    if (row) {
+      const nx = mvNextDue(t, MV.screens, row, mvToday());
+      h += '<div class="card-sub" style="margin:8px 0">' + (nx ? 'Next check ' + mvDayName(nx) + ', ' + mvShortDate(nx) + ' (' + mvEsc(mvCadenceText(row.cadence_days).toLowerCase()) + ').'
+        : 'Done — your ' + (row.source === 'coach' ? 'coach asked' : 'plan was') + ' for this once.') + '</div>';
+    } else if (!def.deficient && latest && !latest.pain) {
+      h += '<div class="card-sub" style="margin:8px 0">' + (mvFocusArea(t.region) ? 'Comes back with your focus area.' : t.tier === 'core' ? 'Next check in about 6 months.' : 'Take it again any time.') + '</div>';
     }
   }
-  h += '<button class="btn secondary" onclick="openMvTests()">Back to self-tests</button>'
-    + '<button class="btn secondary" onclick="closeMvSheet()">Done</button>';
+  h += '<button class="btn" onclick="openMvTests()">Back to self-tests</button>';
   return h;
 }
 // Deficient → focus-area OFFER, never automatic (framework §10.2). A whole-body
 // test offers its habit instead (sit_rise → Floor sitting).
 function mvTestOfferHtml(t, st, latest) {
+  if (t.region === 'whole_body' && !t.offersHabit) return '';
   if (t.offersHabit) return mvTestHabitOfferHtml(t, st, latest);
   const label = mvRegion(t.region).label;
   if (st.offer === 'added') return '<div class="mv-levelup">' + mvEsc(label) + ' added as a focus area.</div>';
@@ -1046,7 +1486,7 @@ function mvTestHabitAccept() {
 }
 function mvTestOfferDecline() {
   const t = mvTest(MV.test.key);
-  const latest = mvScreenLatest(MV.screens, t.key);
+  const latest = mvScreenLatest(MV.screens, t);
   if (latest) MV.screenUi.declined[t.key + '|' + latest.date] = true;
   mvSaveScreenUi();
   MV.test.offer = 'declined';
@@ -1054,7 +1494,7 @@ function mvTestOfferDecline() {
 }
 function mvTestPain() {
   const t = mvTest(MV.test.key);
-  closeMvSheet();
+  openMvTests();
   const r = mvRegion(t.region);
   mvOpenPainFor(r.loads ? null : r.pain[0]);      // whole-body test: no preselected region
 }
@@ -1094,7 +1534,7 @@ function mvSay(text) {
 function mvSetSpeak(on) {
   MV.screenUi.speak = !!on;
   mvSaveScreenUi();
-  if (MV.test && MV.test.tilt) mvRenderTest(); else if (document.getElementById('mv-sheet').classList.contains('open')) mvRenderTestList();
+  if (MV.test) mvRenderTest(); else if (mvStActive()) mvRenderTestList();
 }
 function mvSpeakToggleHtml() {
   const on = mvSpeakOn();
@@ -1370,9 +1810,9 @@ function mvTiltCheckOpen(first) {
     mvRenderTest();
   } else {
     MV.tiltCheck = ck;
-    document.getElementById('mv-sheet-title').textContent = '📐 Tilt check';
-    document.getElementById('mv-sheet-body').innerHTML = mvTiltCheckHtml(ck);
-    mvOpenSheetDom();
+    if (!mvStActive()) showScreen('selftests');
+    mvStHeader('📐 Tilt check', 'Live angle of the phone\'s long edge');
+    mvStBody().innerHTML = mvTiltCheckHtml(ck);
   }
 }
 function mvTiltCheckCur() { return (MV.test && MV.test.tilt && MV.test.tilt.phase === 'check') ? MV.test.tilt.check : MV.tiltCheck; }
@@ -1479,13 +1919,15 @@ function mvTiltCheckClose(finished) {
 // ── Trends: one line per test per side, next to compliance ──
 function mvScreenTrendsHtml() {
   const u = MV.screenUi.unit;
-  const tests = MV.tests.filter(function (t) { return MV.screens.some(function (r) { return r.test_key === t.key && !r.pain_flag; }); });
-  if (!tests.length) return '';
+  // Current-version results only (Plan §7.4); an older method's results are left off the line.
+  const tests = MV.tests.filter(function (t) { return mvScreenRows(MV.screens, t).some(function (r) { return !r.pain_flag; }); });
+  const older = MV.tests.filter(function (t) { return mvScreenOldRows(MV.screens, t).some(function (r) { return !r.pain_flag; }); });
+  if (!tests.length && !older.length) return '';
   let h = '<div class="trends-chart-title" style="margin-top:10px">📏 Self-tests</div>';
   tests.forEach(function (t) {
     const sum = mvScreenSummary(t, MV.screens);
     mvScreenSides(t).forEach(function (s) {
-      const tr = mvScreenTrend(MV.screens, t.key, s).slice(-12);
+      const tr = mvScreenTrend(MV.screens, t, s).slice(-12);
       if (!tr.length) return;
       const nm = mvSideName(t, s);
       const title = mvEsc(t.name) + (nm ? ' — ' + nm.toLowerCase() : '');
@@ -1515,6 +1957,7 @@ function mvScreenTrendsHtml() {
       }
     });
   });
+  if (older.length) h += '<div class="mv-muted mv-old-note">Earlier method not shown: ' + older.map(function (t) { return mvEsc(t.name); }).join(', ') + '.</div>';
   return h;
 }
 

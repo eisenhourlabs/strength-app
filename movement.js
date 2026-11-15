@@ -482,7 +482,7 @@ async function mvSaveCache() {
   try {
     await idbSet('movementCache', { athleteId: S.athlete.id, plans: MV.plans, areas: MV.areas, logs: MV.logs,
       cautions: MV.cautions, recs: MV.recs, drillMap: MV.drillMap, habits: MV.habits,
-      tests: MV.tests, screens: MV.screens, screenPrefs: MV.screenPrefs });
+      tests: MV.tests, screens: MV.screens, screenPrefs: MV.screenPrefs, assignments: MV.assignments });
   } catch (_) {}
 }
 
@@ -528,6 +528,7 @@ async function loadMovement(force) {
           MV.cautions = c.cautions || []; MV.recs = c.recs || []; MV.drillMap = c.drillMap || [];
           MV.habits = c.habits || MV.habits;
           MV.tests = c.tests || MV.tests; MV.screens = c.screens || MV.screens; MV.screenPrefs = c.screenPrefs || MV.screenPrefs;
+          MV.assignments = c.assignments || MV.assignments || [];
         }
       } catch (_) {}
     }
@@ -567,6 +568,8 @@ async function mvSyncOp(op, p) {
     r = await db.from('mobility_screens').upsert(p.rows, { onConflict: 'athlete_id,test_key,side,test_date' });
   } else if (op === 'movement_screen_pref') {
     r = await db.from('mobility_screen_prefs').upsert(p, { onConflict: 'athlete_id,test_key' });
+  } else if (op === 'movement_test_assignment') {      // self-tests: athlete / suggested rows only (RLS)
+    r = await db.from('mobility_test_assignments').upsert(p, { onConflict: 'athlete_id,test_key,source' });
   } else {
     throw new Error('unknown movement op ' + op);
   }
@@ -629,8 +632,13 @@ function mvPaintCard() {
   if (dot) dot.style.display = mvPendingRec() ? '' : 'none';
   const slot = document.getElementById('mv-card-slot');
   if (!slot) return;
-  if (!MV.loaded || !mvAnyOn()) { slot.innerHTML = ''; return; }
+  if (!MV.loaded) { slot.innerHTML = ''; return; }
   const t = mvToday();
+  if (!mvAnyOn()) {                     // no habits: the card carries only the self-test row, when one is due
+    const tr = mvTestRowHtml();
+    slot.innerHTML = tr ? '<div class="card mv-card"><div class="mv-card-hdr"><span class="card-label" style="margin:0">Self-tests</span></div>' + tr + '</div>' : '';
+    return;
+  }
   const dateLbl = new Date(mvUtc(t) + 12 * 3600000).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
   let rows = '';
   mvHabits().forEach(function (hb) {
@@ -662,7 +670,7 @@ function mvPaintCard() {
       + '<div class="arrow" onclick="openMvLogSheet(\'' + kind + '\')">›</div></div>'
       + mvStripHtml(kind, t);
   });
-  rows += mvTestRowHtml();   // Phase 3: retest / check-up row (only when something is due)
+  rows += mvTestRowHtml();   // self-test row (only when something is due; selftests.js)
   slot.innerHTML = '<div class="card mv-card">'
     + '<div class="mv-card-hdr"><span class="card-label" style="margin:0">Today · ' + mvEsc(dateLbl) + '</span>'
     + '<button class="mv-gear" onclick="openMovement()" aria-label="Movement settings">⚙</button></div>'

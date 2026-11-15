@@ -609,7 +609,8 @@ async function syncQueue() {
         case 'movement_rec_status':
         case 'movement_caution_override':
         case 'movement_screen_upsert':
-        case 'movement_screen_pref': {
+        case 'movement_screen_pref':
+        case 'movement_test_assignment': {
           await mvSyncOp(item.op, p);
           break;
         }

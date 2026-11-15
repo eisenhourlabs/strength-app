@@ -206,15 +206,26 @@ function computeOpenInjuries(rows) {
 async function loadOpenInjuries() {
   if (!S.athlete) return;
   if (isOffline) {
-    try { const c = await idbGet('openInjuriesCache'); if (c && c.athleteId === S.athlete.id) S.openInjuries = c.items || []; } catch (_) {}
+    try { const c = await idbGet('openInjuriesCache'); if (c && c.athleteId === S.athlete.id) { S.openInjuries = c.items || []; S.painHistory = c.history || {}; } } catch (_) {}
     return;
   }
   try {
     const { data } = await db.from('pain_injury_logs')
       .select('*').eq('athlete_id', S.athlete.id).order('log_date');
     S.openInjuries = computeOpenInjuries(data);
-    try { await idbSet('openInjuriesCache', { athleteId: S.athlete.id, items: S.openInjuries }); } catch (_) {}
+    S.painHistory = painHistoryByRegion(data);      // self-tests "history" suggestions
+    try { await idbSet('openInjuriesCache', { athleteId: S.athlete.id, items: S.openInjuries, history: S.painHistory }); } catch (_) {}
   } catch (_) {}
+}
+
+// Per pain region, the latest log_date of any episode, open or resolved (self-tests use
+// it to suggest a follow-up test after pain in that area in the last year).
+function painHistoryByRegion(rows) {
+  const out = {};
+  (rows || []).forEach(function (r) {
+    if (r.body_region && r.log_date && (!out[r.body_region] || r.log_date > out[r.body_region])) out[r.body_region] = r.log_date;
+  });
+  return out;
 }
 
 function updatePainBadge() {
