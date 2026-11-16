@@ -973,6 +973,15 @@
 .mv-hidden { display: none; }
 .mv-side-next { margin-top: 8px; }
 .mv-old-note { font-size: 12px; margin-top: 6px; }
+/* Checklist tests (deep squat, build Phase 5) */
+.mv-check-list { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.mv-check-item { display: flex; align-items: center; gap: 10px; text-align: left; width: 100%; padding: 12px; font-size: 15px;
+  background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+.mv-check-item.on { border-color: var(--accent); }
+.mv-check-box { font-size: 22px; line-height: 1; }
+.mv-check-num { font-size: 12px; font-weight: 700; color: var(--muted); min-width: 12px; }
+.mv-check-score { font-weight: 700; margin: 4px 0 10px; }
+.mv-check-missed { margin: 8px 0; }
 
 /* ── Benchmarks (benchmarks.js) ─────────────────────────────────────────── */
 .bm-sec { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin: 18px 0 8px; }

@@ -178,6 +178,18 @@ const ST_FIGS = {
     const m = stBody({ hip: [210, 84], trunk: 90, arms: [[-82, -90]], legs: [[-90, -90, 0]] });
     return stDraw({ floor: 166, grey: g, main: m, dash: [[[124, 112], [188, 84]]] });
   },
+  // Side view, bottom of a squat facing right: heels down, hips below the top of the knee,
+  // chest up, arms reaching forward. Numbered callouts match the four checklist lines
+  // (1 hips below knees · 2 heels down · 3 knees over toes · 4 chest up); dashed = knee-top line.
+  deep_squat: function () {
+    const p = { hip: [146, 122], kn: [188, 108], an: [176, 150], hl: [166, 158], toe: [194, 158],
+      sh: [174, 74], hd: [181, 61], el: [204, 80], wr: [232, 80] };
+    const m = { pts: p, limbs: [['sh', 'hip', 'kn', 'an', 'hl', 'toe'], ['sh', 'el', 'wr']], head: 'hd' };
+    const A = 'var(--accent)';
+    return stDraw({ floor: 160, main: m, dash: [[[118, 108], [222, 108]]],
+      label: [[124, 140, '1', A], [150, 176, '2', A], [204, 124, '3', A], [150, 88, '4', A],
+        [296, 20, 'side view', 'var(--muted)', 'end']] });
+  },
   // Side view on the back, upper arm straight out to the side (toward you), elbow bent 90°:
   // forearm straight up (grey), then turned toward the feet. Arc from vertical.
   shoulder_ir_supine: function () { return stShoulderRot(35); },

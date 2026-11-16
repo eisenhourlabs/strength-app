@@ -36,12 +36,15 @@ function mvTestNorm(r) {
     tier: r.tier || 'core', version: num(r.version) || 1, target: num(r.target),
     needs: r.needs || [], helper: r.helper || 'no', estMinutes: num(r.est_minutes), painRule: r.pain_rule || 'standard',
     suggestWhen: r.suggest_when || [], defaultEvery: num(r.default_every), implication: r.implication || '',
-    guide: r.guide || {}, checklist: r.checklist || null, videoUrl: r.video_url || null,
+    guide: r.guide || {}, videoUrl: r.video_url || null,
     mdc: r.mdc == null ? null : Number(r.mdc), defOp: r.deficient_op || null,
     defValue: r.deficient_value == null ? null : Number(r.deficient_value),
     asym: r.asymmetry == null ? null : Number(r.asymmetry), provisional: !!r.provisional,
     tags: r.caution_tags || [], findings: r.findings || [], good: r.good || '', shows: r.shows || '',
     steps: r.steps || [], sort: Number(r.sort_order || 0), offersHabit: r.offers_habit || null,
+    checklist: (r.checklist || []).length ? r.checklist.map(function (c) {
+      return { key: c.key, text: c.text, pointsTo: c.points_to || [] };
+    }) : null,
   };
 }
 function mvScreenSides(test) {
@@ -49,7 +52,9 @@ function mvScreenSides(test) {
 }
 // On an LR+B test the "both together" step is pass/fail only.
 function mvSideTakesNumber(test, side) { return test.measure !== 'pass' && !(test.sides === 'LR+B' && side === 'B'); }
-function mvSideTakesPass(test, side) { return test.measure !== 'number' || (test.sides === 'LR+B' && side === 'B'); }
+function mvSideTakesPass(test, side) {
+  return (test.measure !== 'number' && test.measure !== 'checklist') || (test.sides === 'LR+B' && side === 'B');
+}
 function mvSideName(test, side) {
   if (test.sides === 'B') return '';
   if (side === 'B') return 'Both arms together';
@@ -416,8 +421,32 @@ function mvNextDue(test, screens, row, todayStr) {
   return mvAddDays(from, cad);
 }
 // The phone's / an older app's measure we can't show → "update the app" instead of a crash.
-const MV_KNOWN_MEASURES = ['number', 'pass', 'both'];
-function mvMeasureKnown(test) { return MV_KNOWN_MEASURES.indexOf(test.measure) >= 0; }
+const MV_KNOWN_MEASURES = ['number', 'pass', 'both', 'checklist'];
+function mvMeasureKnown(test) { return MV_KNOWN_MEASURES.indexOf(test.measure) >= 0 && (test.measure !== 'checklist' || !!test.checklist); }
+
+// ── Checklist tests (build Phase 5: deep_squat) ──
+// The athlete ticks the lines that are true; score = lines ticked (stored as value, unit
+// points); the MISSED lines are saved in `finding` as their item keys joined with ';'.
+function mvChecklistScore(test, checks) {
+  return (test.checklist || []).filter(function (c) { return !!(checks && checks[c.key]); }).length;
+}
+function mvChecklistFinding(test, checks) {
+  const miss = (test.checklist || []).filter(function (c) { return !(checks && checks[c.key]); }).map(function (c) { return c.key; });
+  return miss.length ? miss.join(';') : null;
+}
+// The missed lines of a result (latest = mvScreenLatest), in checklist order. [] for a
+// non-checklist test, a painful test, or every line ticked.
+function mvChecklistMissed(test, latest) {
+  if (!test.checklist || !latest || latest.pain) return [];
+  const keys = String(latest.finding || '').split(';').map(function (x) { return x.trim(); }).filter(Boolean);
+  return test.checklist.filter(function (c) { return keys.indexOf(c.key) >= 0; });
+}
+// Tests to check next: the Points To keys of the missed lines, de-duplicated, in order.
+function mvChecklistNext(test, latest) {
+  const out = [];
+  mvChecklistMissed(test, latest).forEach(function (c) { c.pointsTo.forEach(function (k) { if (out.indexOf(k) < 0) out.push(k); }); });
+  return out;
+}
 
 // ── Phone tilt v2 (Plan §5.2, 2026-11-15) ──
 // One reading: the elevation of the phone's LONG edge (y axis), from the gravity
@@ -1119,6 +1148,12 @@ function openMvTest(key) {
       passed: r && r.passed != null ? !!r.passed : null };
   });
   st.side = mvScreenSides(t)[0];
+  if (t.checklist) {
+    st.checks = {};
+    const saved = st.sides.B && st.sides.B.value !== '';
+    const miss = String(st.finding || '').split(';');
+    t.checklist.forEach(function (c) { st.checks[c.key] = saved && miss.indexOf(c.key) < 0; });
+  }
   MV.test = st;
   MV.testDrafts[key] = st;
   mvRenderTest();
@@ -1217,6 +1252,23 @@ function mvRenderTest() {
   if (sides.indexOf(st.side) < 0) st.side = sides[0];
   h += '<div class="mv-test-good"><b>Good:</b> ' + mvEsc(t.good) + (t.provisional ? ' <span class="mv-muted">(rough guide for now)</span>' : '') + '</div>';
   if (g.measure && g.measure.length) h += mvStepsHtml(g.measure);
+  if (t.checklist) {
+    st.checks = st.checks || {};
+    const n = mvChecklistScore(t, st.checks);
+    h += '<div class="mv-check-list">' + t.checklist.map(function (c, i) {
+      const on = !!st.checks[c.key];
+      return '<button class="mv-check-item' + (on ? ' on' : '') + '" data-item="' + c.key + '" onclick="mvTestCheck(' + i + ')">'
+        + '<span class="mv-check-box">' + (on ? '☑' : '☐') + '</span><span class="mv-check-num">' + (i + 1) + '</span>'
+        + '<span>' + mvEsc(c.text) + '</span></button>';
+    }).join('') + '</div>'
+      + '<div class="mv-check-score" id="mv-check-score">Score: ' + n + ' of ' + t.checklist.length + '</div>'
+      + '<textarea class="sheet-search mv-notes" placeholder="Notes (optional)" oninput="MV.test.notes=this.value">' + mvEsc(st.notes) + '</textarea>'
+      + '<button class="btn" id="mv-test-save" onclick="mvTestSave(false)">Save</button>'
+      + '<button class="btn secondary mv-hurt" onclick="mvTestHurt()">⚠ It hurt</button>'
+      + '<button class="btn secondary" onclick="mvTestStep(\'setup\')">← Back</button>';
+    body.innerHTML = h;
+    return;
+  }
   if (t.unit === 'cm') {
     h += '<div class="triage-chips mv-unit-chips">'
       + '<button class="triage-chip' + (u !== 'cm' ? ' active' : '') + '" onclick="mvSetScreenUnit(\'in\')">Inches</button>'
@@ -1271,6 +1323,14 @@ function mvRenderTest() {
   body.innerHTML = h;
 }
 
+function mvTestCheck(i) {
+  const t = MV.test && mvTest(MV.test.key);
+  if (!t || !t.checklist || !t.checklist[i]) return;
+  const k = t.checklist[i].key;
+  MV.test.checks = MV.test.checks || {};
+  MV.test.checks[k] = !MV.test.checks[k];
+  mvRenderTest();
+}
 function mvTestPass(side, v) {
   const x = MV.test.sides[side];
   x.passed = x.passed === v ? null : v;
@@ -1323,7 +1383,19 @@ async function mvTestSave(hurt) {
   const t = mvTest(st.key);
   const u = MV.screenUi.unit;
   let rows = [];
-  const sides = mvScreenSides(t);
+  if (t.checklist && !hurt) {
+    const score = mvChecklistScore(t, st.checks);
+    if (!score && !st.confirmZero) {
+      showConfirm('None of the lines were true?', 'That saves a score of 0. Tick each line that is true at the bottom of your squat.',
+        'Save 0', function () { st.confirmZero = true; mvTestSave(false); });
+      return;
+    }
+    st.confirmZero = false;
+    st.finding = mvChecklistFinding(t, st.checks);
+    st.sides.B = { value: String(score), passed: null };
+    rows.push(mvScreenRow(t, 'B', score, null, false));
+  }
+  const sides = t.checklist ? [] : mvScreenSides(t);
   for (let i = 0; i < sides.length; i++) {
     const s = sides[i], x = st.sides[s];
     const nm = mvSideName(t, s);
@@ -1402,6 +1474,21 @@ function mvTestResultHtml(t, st) {
       h += '<div class="mv-test-flag">⚑ Worth working on — ' + mvEsc(def.reasons.map(function (r) { return mvDefReasonText(t, r); }).join('; ')) + '.'
         + (t.provisional ? ' <span class="mv-muted">(rough guide for now)</span>' : '') + '</div>';
       if (t.region !== 'low_back' || t.defOp !== 'fail_pain') h += mvTestOfferHtml(t, st, latest);
+    }
+    if (t.checklist && latest && !latest.pain) {
+      const miss = mvChecklistMissed(t, latest);
+      if (miss.length) {
+        h += '<div class="mv-check-missed"><div class="form-section-label">Not yet</div>'
+          + miss.map(function (c) { return '<div class="mv-muted">☐ ' + mvEsc(c.text) + '</div>'; }).join('') + '</div>';
+      }
+      const nextKeys = mvChecklistNext(t, latest).filter(function (k) { return mvTest(k); });
+      if (nextKeys.length) {
+        h += '<div class="form-section-label">Check next</div>'
+          + '<div class="card-sub" style="margin:0 0 6px">These tests show what is limiting those lines.</div>'
+          + nextKeys.map(function (k) { return mvTestListRow(mvTest(k)); }).join('');
+      } else if (miss.length) {
+        h += '<div class="card-sub" style="margin:6px 0">Your coach will see this.</div>';
+      }
     }
     // What happens next
     const ctx = mvCtx();
