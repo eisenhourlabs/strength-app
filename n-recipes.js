@@ -169,6 +169,8 @@ function nSplitLineHtml(servBy, contBy) {
   const uneven = new Set(names.map(n => contBy[n] || 0)).size > 1;
   return `<div class="n-rec-batchline"><b>Split by weight:</b> ${nEsc(pctTxt)} \u2192 ${nEsc(contTxt)} containers`
     + (uneven ? ` <span style="color:var(--n-muted);font-size:12px">(uneven container counts \u2014 not 60/40)</span>` : '')
+    + (typeof nOpenSplit === 'function'
+        ? ` <button class="n-chip" style="margin-left:4px" onclick="nOpenSplit(${names.indexOf('Amanda') >= 0 ? pcts[names.indexOf('Amanda')] : ''})">Split \u2696</button>` : '')
     + `</div>`;
 }
 
