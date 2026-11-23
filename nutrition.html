@@ -1,206 +1,29 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="theme-color" content="#f4f4f1">
-  <title>Kardia Nutrition</title>
-  <link rel="manifest" href="manifest.json">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-  <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="n-styles.css">
-  <script>
-    if ('serviceWorker' in navigator)
-      window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
-  </script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The app has moved</title>
+<meta name="robots" content="noindex">
+<meta http-equiv="refresh" content="3; url=https://kardiastrength.pages.dev/nutrition.html">
+<style>
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#111;color:#eee;font:16px/1.5 system-ui,sans-serif;text-align:center;padding:24px}
+  a{color:#7cc4ff;font-weight:600}
+  .box{max-width:420px}
+</style>
 </head>
 <body>
-
-<div class="offline-banner" id="offline-banner">⚡ Offline — logging is disabled until you reconnect</div>
-<div class="toast" id="toast"></div>
-
-<!-- ══════════════════ LOGIN ══════════════════ -->
-<div class="screen active" id="screen-login">
-  <div class="login-wrap">
-    <div class="login-logo">
-      <svg viewBox="0 0 300 175" xmlns="http://www.w3.org/2000/svg">
-        <text x="150" y="52" text-anchor="middle"
-          font-family="'Arial Black','Arial Bold',Arial,sans-serif"
-          font-size="48" font-weight="900" fill="#ff2712" letter-spacing="6">KARDIA</text>
-        <polyline points="0,70 55,70 68,84 82,38 104,84 118,58 132,84 300,70"
-          fill="none" stroke="#ff2712" stroke-width="2.5"
-          stroke-linecap="round" stroke-linejoin="round"/>
-        <text x="150" y="128" text-anchor="middle"
-          font-family="'Arial Black','Arial Bold',Arial,sans-serif"
-          font-size="40" font-weight="900" fill="#1c1c1c" letter-spacing="3">NUTRITION</text>
-        <line x1="18" y1="147" x2="88" y2="147" stroke="#bbb" stroke-width="1"/>
-        <text x="150" y="151" text-anchor="middle"
-          font-family="Arial,sans-serif" font-size="11"
-          fill="#888" letter-spacing="5">ALL HEART</text>
-        <line x1="212" y1="147" x2="282" y2="147" stroke="#bbb" stroke-width="1"/>
-      </svg>
-    </div>
-    <div class="login-tag">Log in to view your meal plan</div>
-    <div class="field-wrap">
-      <label>Email</label>
-      <input type="email" id="login-email" autocomplete="email" placeholder="you@email.com">
-    </div>
-    <div class="field-wrap">
-      <label>Password</label>
-      <input type="password" id="login-password" autocomplete="current-password" placeholder="••••••••">
-    </div>
-    <div class="login-error" id="login-error"></div>
-    <button class="btn" id="login-btn" style="margin-top:24px" onclick="nDoLogin()">Log In</button>
-  </div>
+<div class="box">
+  <h1>The app has moved</h1>
+  <p>Taking you to the new address now.</p>
+  <p><a id="go" href="https://kardiastrength.pages.dev/nutrition.html">kardiastrength.pages.dev/nutrition.html</a></p>
+  <p style="font-size:14px;opacity:.75">Please re-add the new link to your home screen, and log in again.</p>
 </div>
-
-<!-- ══════════════════ TODAY ══════════════════ -->
-<div class="screen" id="screen-today">
-  <div class="header">
-    <div>
-      <div class="header-title n-daynav"><button class="n-dnav" id="today-prev" onclick="nViewShift(-1)" aria-label="Previous day">&#8249;</button><span id="today-title">Today</span><button class="n-dnav" id="today-next" onclick="nViewShift(1)" aria-label="Next day" style="visibility:hidden">&#8250;</button></div>
-      <div class="header-sub" id="today-sub"></div>
-    </div>
-    <button class="n-hbtn" onclick="nOpenFreezerSheet()">🧊 Freezer</button>
-    <button class="n-hbtn" onclick="nOpenSplit()">⚖ Split</button>
-    <a href="index.html?side=training" id="training-link" class="n-switch" style="display:none">🏋 Training</a>
-    <button class="n-signout" onclick="nDoLogout()">Sign out</button>
-  </div>
-  <div class="body n-body" id="today-body">
-    <div class="spinner">Loading…</div>
-  </div>
-</div>
-
-<!-- ══════════════════ WEEK ══════════════════ -->
-<div class="screen" id="screen-nweek">
-  <div class="header">
-    <div>
-      <div class="header-title">This Week</div>
-      <div class="header-sub" id="nweek-sub"></div>
-    </div>
-    <button class="n-hbtn" id="nweek-notes-btn" style="display:none" onclick="nOpenNotesSheet()">📌 Notes<span class="n-dot" id="nweek-notes-dot" style="display:none"></span></button>
-  </div>
-  <div class="body n-body" id="nweek-body"></div>
-</div>
-
-<!-- ══════════════════ GROCERY ══════════════════ -->
-<div class="screen" id="screen-grocery">
-  <div class="header">
-    <div>
-      <div class="header-title">Grocery</div>
-      <div class="header-sub" id="grocery-sub"></div>
-    </div>
-    <button style="background:none;border:none;color:var(--muted);font-size:13px;cursor:pointer"
-      onclick="groceryResetChecks()">Reset ✓</button>
-  </div>
-  <div class="body n-body" id="grocery-body"></div>
-</div>
-
-<!-- ══════════════════ TRENDS ══════════════════ -->
-<div class="screen" id="screen-ntrends">
-  <div class="header">
-    <div>
-      <div class="header-title">Trends</div>
-      <div class="header-sub" id="ntrends-sub"></div>
-    </div>
-    <button style="background:none;border:none;color:var(--muted);font-size:13px;cursor:pointer"
-      onclick="openCheckin()">Check-in</button>
-  </div>
-  <div class="body n-body" id="ntrends-body"><div class="spinner">Loading…</div></div>
-</div>
-
-<!-- ══════════════════ RECIPES ══════════════════ -->
-<div class="screen" id="screen-recipes">
-  <div class="header">
-    <div>
-      <div class="header-title">Recipes</div>
-      <div class="header-sub" id="recipes-sub"></div>
-    </div>
-  </div>
-  <div class="body n-body" id="recipes-body"><div class="spinner">Loading…</div></div>
-</div>
-
-<!-- ══════════════════ TAB BAR ══════════════════ -->
-<div class="n-tabbar" id="n-tabbar" style="display:none">
-  <button class="n-tab active" id="tab-today" onclick="nShowTab('today')">
-    <span class="n-tab-icon">🍽</span>Today</button>
-  <button class="n-tab" id="tab-nweek" onclick="nShowTab('nweek')">
-    <span class="n-tab-icon">📅</span>Week</button>
-  <button class="n-tab" id="tab-recipes" onclick="nShowTab('recipes')">
-    <span class="n-tab-icon">📖</span>Recipes</button>
-  <button class="n-tab" id="tab-grocery" onclick="nShowTab('grocery')">
-    <span class="n-tab-icon">🛒</span>Grocery</button>
-  <button class="n-tab" id="tab-ntrends" onclick="nShowTab('ntrends')">
-    <span class="n-tab-icon">📈</span>Trends</button>
-</div>
-
-<!-- ══════════════════ FOOD PICKER SHEET (swap / ate-out / add) ══════════════════ -->
-<!-- Entry-time confirm sheet (N09 §4 rules 1-5, 14). Never deletes data:
-     every path either saves a corrected value or saves the original with a flag. -->
-<div class="n-sheet-overlay" id="n-confirm" style="display:none">
-  <div class="n-sheet" style="max-height:60vh">
-    <div class="n-sheet-head">
-      <div class="n-sheet-title" id="n-confirm-title">Check that entry</div>
-    </div>
-    <div id="n-confirm-body" style="font-size:14px;color:var(--n-text);line-height:1.45"></div>
-    <div id="n-confirm-actions" style="display:flex;flex-direction:column;gap:8px;margin-top:14px"></div>
-  </div>
-</div>
-
-<div class="n-sheet-overlay" id="n-sheet" style="display:none" onclick="if(event.target===this)closeNSheet()">
-  <div class="n-sheet">
-    <div class="n-sheet-head">
-      <div class="n-sheet-title" id="n-sheet-title">Swap meal</div>
-      <button class="n-sheet-close" onclick="closeNSheet()">✕</button>
-    </div>
-    <input type="text" class="n-search" id="n-sheet-search" placeholder="Search…" oninput="renderNSheetList()">
-    <div class="n-sheet-list" id="n-sheet-list"></div>
-    <div class="n-sheet-custom" id="n-custom-panel" style="display:none">
-      <div class="n-sheet-section">Something else… (not in the database)</div>
-      <input type="text" id="n-custom-desc" placeholder="Name it — e.g. Kirkland protein bar">
-      <div class="n-custom-row">
-        <input type="number" inputmode="numeric" id="n-custom-kcal" placeholder="kcal">
-        <input type="number" inputmode="numeric" id="n-custom-protein" placeholder="P g">
-        <input type="number" inputmode="numeric" id="n-custom-carbs" placeholder="C g">
-        <input type="number" inputmode="numeric" id="n-custom-fat" placeholder="F g">
-      </div>
-      <div class="n-custom-row" style="margin-top:6px">
-        <button class="n-chip" id="n-custom-save" onclick="toggleCustomSave()">💾 Save to my foods</button>
-        <button class="btn n-btn-sm" style="margin-left:auto" onclick="submitCustomFood()">Log it</button>
-      </div>
-      <div id="n-custom-serving-row" style="display:none;margin-top:8px">
-        <div class="n-opt-sub" style="margin-bottom:4px"><b>Serving size</b> the numbers above describe — e.g. "1 bar", "1 scoop", "6 oz"</div>
-        <input type="text" id="n-custom-serving" placeholder="1 bar">
-      </div>
-      <div class="n-opt-sub" style="margin:4px 0 8px">One-off: name is enough, kcal + protein make it count. Saving for reuse needs name, serving, kcal, protein.</div>
-    </div>
-  </div>
-</div>
-
-<!-- ══════════════════ INFO SHEET (week notes / freezer inventory) ══════════════════ -->
-<div class="n-sheet-overlay" id="n-info" style="display:none" onclick="if(event.target===this)nInfoClose()">
-  <div class="n-sheet" style="max-height:75vh">
-    <div class="n-sheet-head">
-      <div class="n-sheet-title" id="n-info-title"></div>
-      <button class="n-sheet-close" onclick="nInfoClose()">✕</button>
-    </div>
-    <div class="n-sheet-list" id="n-info-body"></div>
-  </div>
-</div>
-
-<script src="n-core.js"></script>
-<script src="n-metrics.js"></script>
-<script src="n-today.js"></script>
-<script src="n-grocery.js"></script>
-<script src="n-checkin.js"></script>
-<script src="n-trends.js"></script>
-<script src="n-maint.js"></script>
-<script src="n-freezer.js"></script>
-<script src="n-recipes.js"></script>
-<script src="n-inventory.js"></script>
-<script src="n-split.js"></script>
-<script src="n-week.js"></script>
+<script>
+  // Keep ?query and #hash when moving to the same page on the new address.
+  var target = "https://kardiastrength.pages.dev/nutrition.html" + (location.search || "") + (location.hash || "");
+  document.getElementById("go").href = target;
+  location.replace(target);
+</script>
 </body>
 </html>

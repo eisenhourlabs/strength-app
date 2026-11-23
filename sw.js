@@ -1,49 +1,17 @@
-const CACHE = 'strength-v68';
-const ASSETS = [
-  './index.html', './manifest.json',
-  './styles.css',
-  './core.js', './week.js', './session.js', './exercises.js',
-  './conditioning.js', './wellness.js', './benchmarks.js',
-  './history.js', './trends.js', './checkin.js', './movement.js', './selftests.js', './selftest_figs.js',
-  './review.html', './review_render.js',
-  './nutrition.html', './n-styles.css',
-  './n-core.js', './n-metrics.js', './n-today.js', './n-grocery.js', './n-week.js',
-  './n-checkin.js', './n-trends.js', './n-maint.js', './n-freezer.js', './n-split.js', './n-recipes.js', './n-inventory.js',
-  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js'
-];
+// Retired site: this service worker removes itself and the old cached app,
+// then sends open pages to the new address.
+const NEW_ADDRESS = 'https://kardiastrength.pages.dev/';
 
-self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
-  self.skipWaiting();
+self.addEventListener('install', () => self.skipWaiting());
+
+self.addEventListener('activate', event => {
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.map(k => caches.delete(k)));
+    await self.registration.unregister();
+    const clients = await self.clients.matchAll({ type: 'window' });
+    clients.forEach(c => { try { c.navigate(NEW_ADDRESS); } catch (e) {} });
+  })());
 });
 
-self.addEventListener('activate', e => {
-  e.waitUntil(
-    caches.keys().then(ks =>
-      Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))
-  );
-  self.clients.claim();
-});
-
-self.addEventListener('fetch', e => {
-  // Always pass Supabase API calls straight through — never cache these
-  if (e.request.url.includes('supabase.co')) return;
-
-  // Network-first for all app files (HTML, JS, CSS, manifest)
-  // Falls back to cache when offline — app still works without connectivity
-  e.respondWith(
-    fetch(e.request)
-      .then(res => {
-        if (res && res.ok) {
-          const clone = res.clone();
-          caches.open(CACHE).then(c => c.put(e.request, clone));
-        }
-        return res;
-      })
-      .catch(() =>
-        caches.match(e.request)
-          .then(hit => hit || caches.match('./index.html'))
-      )
-  );
-});
+// No fetch handler: every request goes straight to the network.
